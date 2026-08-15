@@ -1,0 +1,107 @@
+openapi: "3.0.0"
+info:
+  title: References
+  version: "1.0.0"
+paths:
+  /nested:
+    get:
+      summary: Nested object and array schemas
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wrapper:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            label:
+                              type: string
+  /referenced:
+    get:
+      summary: Response schema behind a reference
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /recursive:
+    get:
+      summary: Self-referencing schema
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+  /shared-body:
+    post:
+      summary: Request body behind a reference
+      requestBody:
+        $ref: "#/components/requestBodies/Payload"
+      responses:
+        "200":
+          description: OK
+  /shared-response:
+    get:
+      summary: Response behind a reference
+      responses:
+        "200":
+          $ref: "#/components/responses/Standard"
+  /nullable:
+    get:
+      summary: Nullable schema
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maybe:
+                    type: string
+                    nullable: true
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        payload:
+          type: string
+    Node:
+      type: object
+      properties:
+        name:
+          type: string
+        child:
+          $ref: "#/components/schemas/Node"
+  requestBodies:
+    Payload:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              value:
+                type: string
+  responses:
+    Standard:
+      description: A shared response
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status:
+                type: string

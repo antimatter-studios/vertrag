@@ -1,0 +1,114 @@
+openapi: "3.0.0"
+info:
+  title: Parameters
+  version: "1.0.0"
+paths:
+  /items/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          example: abc123
+    get:
+      summary: Path parameter with an example
+      responses:
+        "200":
+          description: OK
+  /items/{missing}:
+    parameters:
+      - name: missing
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Required path parameter without an example
+      responses:
+        "200":
+          description: OK
+  /search:
+    get:
+      summary: Query parameters
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            example: term
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: absent
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /enums/{kind}:
+    get:
+      summary: Enum parameters
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - alpha
+              - beta
+        - name: mode
+          in: query
+          schema:
+            type: string
+            enum:
+              - fast
+              - slow
+            example: slow
+      responses:
+        "200":
+          description: OK
+  /headers:
+    get:
+      summary: Header parameters
+      parameters:
+        - name: X-Request-Id
+          in: header
+          schema:
+            type: string
+            example: req-1
+        - name: X-Empty
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Rate-Limit:
+              schema:
+                type: integer
+  /override/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          example: from-path-item
+    get:
+      summary: Operation overrides the path item parameter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: from-operation
+      responses:
+        "200":
+          description: OK

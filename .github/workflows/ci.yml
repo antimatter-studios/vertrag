@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.24", "1.25", "1.26"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - run: go build ./...
+      - run: go vet ./...
+
+      # The unit tests run without Node. The oracle suite skips itself when the
+      # reference is absent, so this job stays honest about what it covered:
+      # it is the `oracle` job below that proves agreement with Dredd.
+      - run: go test ./...
+
+  oracle:
+    name: Differential test against Dredd
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Dredd is the oracle: the reference implementation is installed and run
+      # for real, rather than its output being checked in. A behaviour change in
+      # a new Dredd release therefore surfaces here as a failing diff instead of
+      # silently becoming the expected answer.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: oracle/reference/package.json
+
+      - name: Install the reference implementation
+        working-directory: oracle/reference
+        run: npm install --no-audit --no-fund
+
+      # -count=1 defeats the test cache: this suite's result depends on the
+      # installed reference, which Go's cache does not know about.
+      - name: Compare against the reference
+        run: go test ./internal/oracle/... -count=1 -v
+
+  formatting:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check gofmt
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "${unformatted}" ]; then
+            echo "These files are not gofmt-clean:" >&2
+            echo "${unformatted}" >&2
+            exit 1
+          fi

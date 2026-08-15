@@ -1,0 +1,118 @@
+name: Release
+
+# Tag-driven: pushing v1.2.3 cross-builds every platform, publishes a release with
+# checksums, and then proves the build was reproducible.
+#
+# The build itself lives in .goreleaser.yml — targets, flags, ldflags and artifact
+# names are all there, including WHY each flag exists. This file only drives it and
+# adds the things goreleaser does not do.
+#
+# workflow_dispatch has no version input: the version comes from the tag goreleaser
+# sees, so a hand-typed one could not be honoured. To re-run a release, dispatch this
+# workflow with the TAG selected as the ref.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    env:
+      # One source of truth for the goreleaser version: the publish step and the
+      # reproduce step MUST use the same one, or the reproduction compares the
+      # release against a build made by a different goreleaser and proves nothing.
+      GORELEASER_VERSION: v2.17.0
+      # Pin the exact toolchain patch, not just the minor: go1.26.0 and go1.26.5
+      # emit different binaries, so without this nobody can reproduce the artifact
+      # even with the right source and flags.
+      GOTOOLCHAIN: go1.26.5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # goreleaser derives the version and the changelog range from tags, and
+          # stamps the commit date into the binary — none of which a shallow clone has.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A release must not ship a binary that disagrees with Dredd. The oracle is
+      # the only thing that can tell, so it runs here as well as in CI — a tag can
+      # be pushed at a commit CI never saw.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the reference implementation
+        working-directory: oracle/reference
+        run: npm install --no-audit --no-fund
+
+      - name: Verify agreement with the reference
+        run: go test ./... -count=1
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          # Pinned exactly, not `latest`: goreleaser builds the artifact users
+          # install, so it is part of the supply chain. It also writes the tar
+          # archives, whose bytes the reproduction step below compares — a silent
+          # upgrade could change them.
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check the version stamp
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          # Verify the stamp on the ONE target this runner can execute. The others
+          # are cross-builds — a linux host cannot run a darwin binary — and all
+          # four come from the same config, so proving it once proves the recipe.
+          ./dist/vertrag_linux_amd64_v1/vertrag --version | grep -qx "${VER}" || {
+            echo "the built binary does not report ${VER}" >&2
+            exit 1
+          }
+
+      - name: Publish binary checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # checksums.txt hashes the ARCHIVES. Tar records mtimes and ownership, so
+          # verifying an archive hash is not the same as verifying the program.
+          # binaries.txt hashes the binaries INSIDE them, which is what actually runs.
+          : > binaries.txt
+          for dir in dist/vertrag_*/; do
+            sha256sum "${dir}vertrag" | sed "s#${dir}#$(basename "${dir}")/#" >> binaries.txt
+          done
+          gh release upload "${GITHUB_REF_NAME}" binaries.txt --clobber
+
+      - name: Prove the build reproduces
+        run: |
+          set -euo pipefail
+          # Rebuild from the same source with the same pinned tools and confirm the
+          # archives are byte-identical. This is the claim .goreleaser.yml's flags
+          # exist to support; asserting it in the README instead would be cheaper
+          # and worth nothing.
+          mkdir -p /tmp/first && cp dist/*.tar.gz /tmp/first/
+          rm -rf dist
+          curl -sSfL "https://github.com/goreleaser/goreleaser/releases/download/${GORELEASER_VERSION}/goreleaser_Linux_x86_64.tar.gz" \
+            | tar -xz -C /tmp goreleaser
+          /tmp/goreleaser build --clean --snapshot --skip=validate >/dev/null 2>&1 || true
+          /tmp/goreleaser release --clean --skip=publish --skip=validate --skip=announce
+          for archive in /tmp/first/*.tar.gz; do
+            name="$(basename "${archive}")"
+            if ! cmp -s "${archive}" "dist/${name}"; then
+              echo "NOT REPRODUCIBLE: ${name} differs between builds" >&2
+              exit 1
+            fi
+          done
+          echo "All archives reproduced byte-for-byte."

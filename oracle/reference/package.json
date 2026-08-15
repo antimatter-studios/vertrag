@@ -1,0 +1,19 @@
+{
+  "name": "vertrag-oracle-reference",
+  "private": true,
+  "description": "Drives the reference Dredd implementation so its output can be compared against vertrag's",
+  "type": "commonjs",
+  "scripts": {
+    "compile": "node compile.js"
+  },
+  "_comment": [
+    "Pinned exactly, never with a range. This package IS the expectation the Go",
+    "implementation is checked against, so a floating version would silently",
+    "redefine 'correct' on some future install. Bumping it is a deliberate act:",
+    "raise the version here, run the oracle, and deal with whatever diff appears."
+  ],
+  "dependencies": {
+    "@antimatter-studios/dredd-transactions": "12.0.0",
+    "@apielements/core": "0.2.1"
+  }
+}

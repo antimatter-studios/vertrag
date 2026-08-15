@@ -1,0 +1,67 @@
+{
+  "element": "parseResult",
+  "content": [
+    {
+      "element": "annotation",
+      "meta": {
+        "classes": {
+          "element": "array",
+          "content": [
+            {
+              "element": "string",
+              "content": "error"
+            }
+          ]
+        },
+        "links": {
+          "element": "array",
+          "content": [
+            {
+              "element": "link",
+              "attributes": {
+                "relation": {
+                  "element": "string",
+                  "content": "origin"
+                },
+                "href": {
+                  "element": "string",
+                  "content": "http://docs.apiary.io/validations/swagger#yaml-parser"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "attributes": {
+        "code": {
+          "element": "number",
+          "content": 1
+        },
+        "sourceMap": {
+          "element": "array",
+          "content": [
+            {
+              "element": "sourceMap",
+              "content": [
+                {
+                  "element": "array",
+                  "content": [
+                    {
+                      "element": "number",
+                      "content": 73
+                    },
+                    {
+                      "element": "number",
+                      "content": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "content": "unexpected end of the stream within a flow collection"
+    }
+  ]
+}
