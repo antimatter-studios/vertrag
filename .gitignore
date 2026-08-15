@@ -1,3 +1,7 @@
 /dist/
 node_modules/
-package-lock.json
+
+# The oracle's lockfile IS tracked (see oracle/reference/). It is the pinned
+# reference vertrag is checked against, so a floating transitive dependency
+# would silently move the expectation. Any other lockfile is build output.
+/package-lock.json

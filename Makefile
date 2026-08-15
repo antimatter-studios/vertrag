@@ -21,8 +21,8 @@ oracle: oracle-deps
 
 oracle-deps: oracle/reference/node_modules
 
-oracle/reference/node_modules: oracle/reference/package.json
-	cd oracle/reference && npm install --no-audit --no-fund
+oracle/reference/node_modules: oracle/reference/package-lock.json
+	cd oracle/reference && npm ci --no-audit --no-fund
 	@touch $@
 
 fmt:

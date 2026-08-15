@@ -49,11 +49,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: oracle/reference/package.json
+          cache-dependency-path: oracle/reference/package-lock.json
 
       - name: Install the reference implementation
         working-directory: oracle/reference
-        run: npm install --no-audit --no-fund
+        # `npm ci`, not `npm install`: it installs exactly the tree the lockfile
+        # records and fails if the lockfile and manifest disagree. Re-resolving
+        # here would let a transitive dependency move the expectation vertrag is
+        # being measured against.
+        run: npm ci --no-audit --no-fund
 
       # -count=1 defeats the test cache: this suite's result depends on the
       # installed reference, which Go's cache does not know about.

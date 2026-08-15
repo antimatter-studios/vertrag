@@ -53,7 +53,7 @@ jobs:
 
       - name: Install the reference implementation
         working-directory: oracle/reference
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Verify agreement with the reference
         run: go test ./... -count=1
@@ -106,7 +106,6 @@ jobs:
           rm -rf dist
           curl -sSfL "https://github.com/goreleaser/goreleaser/releases/download/${GORELEASER_VERSION}/goreleaser_Linux_x86_64.tar.gz" \
             | tar -xz -C /tmp goreleaser
-          /tmp/goreleaser build --clean --snapshot --skip=validate >/dev/null 2>&1 || true
           /tmp/goreleaser release --clean --skip=publish --skip=validate --skip=announce
           for archive in /tmp/first/*.tar.gz; do
             name="$(basename "${archive}")"
