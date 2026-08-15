@@ -8,11 +8,44 @@ It reads an API description (OpenAPI 3, OpenAPI 2, API Blueprint), derives the
 HTTP requests that description promises, sends them to a running server, and
 checks the responses against what was promised.
 
-> **Status: early.** Reading an OpenAPI 3 document and deriving the transactions
-> to test is complete and verified against Dredd, byte for byte. Executing those
-> transactions against a live server — the runner, hooks and reporters — is not
-> written yet, so vertrag cannot test a running API today. Response validation
-> is done and verified. See [Roadmap](#roadmap).
+> **Status: usable for OpenAPI 3.** vertrag reads a description, sends the
+> requests it promises, validates the responses and exits non-zero on failure —
+> with an existing `dredd.yml` and Node.js hook files working unchanged.
+> OpenAPI 2 and API Blueprint have no parser yet. See [Roadmap](#roadmap).
+
+## Install
+
+```console
+brew install antimatter-studios/tap/vertrag
+```
+
+Or download a binary from [releases](https://github.com/antimatter-studios/vertrag/releases).
+Node.js is needed only if you use hook files.
+
+## Use
+
+A project already configured for Dredd needs no arguments — vertrag reads the
+same `dredd.yml`:
+
+```console
+$ vertrag run
+pass: GET Machines > /machines > List machines > 200 > application/json (3ms)
+fail: GET Machines > /machines/{id} > Read a machine > 200 > application/json (2ms)
+
+FAIL: Machines > /machines/{id} > Read a machine > 200 > application/json
+  body: At '/name' Missing required property: name
+  ...
+
+2 total, 1 passing, 1 failing, 0 errors, 0 skipped
+```
+
+Or point it at a description and an endpoint:
+
+```console
+vertrag run openapi.yml http://localhost:4000
+vertrag run --dry-run openapi.yml   # what would be sent, without sending it
+vertrag compile openapi.yml         # the transactions, as JSON
+```
 
 ## Why
 
@@ -111,7 +144,10 @@ vertrag keeps that shape:
 | `internal/apidesc` (OpenAPI 2) | Swagger → API Elements | Not started |
 | `internal/apidesc` (API Blueprint) | Blueprint → API Elements | Not started |
 | `internal/validate` | Response validation (Gavel) | Done, oracle-verified |
-| Runner, hooks, reporters | Executing transactions and reporting | Not started |
+| `internal/runner` | Sending requests, judging responses | Done |
+| `internal/hooks` | Running Node.js hook files | Done |
+| `internal/config` | Reading `dredd.yml` | Done |
+| `internal/reporter` | CLI output | Done |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
 API Blueprint, OpenAPI 2 and OpenAPI 3 at once, and Dredd ships pre-parsed API
@@ -128,16 +164,38 @@ when it reproduces its pair.
 2. ~~OpenAPI 3 parser~~ — done, oracle-verified; the format
    [inpace](https://github.com/semdatex/inpace) uses
 3. ~~Response validation~~ — done, oracle-verified against Gavel
-4. Transaction runner: send the requests, record the responses
-5. Hooks, over Dredd's existing worker protocol, so current hook files and
-   `dredd.yml` keep working unchanged
-6. Reporters (CLI, dot, markdown, xunit, HTML) and `dredd.yml` configuration
+4. ~~Transaction runner~~ — done
+5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
+6. Reporters other than the CLI one (dot, markdown, xunit, HTML)
 7. OpenAPI 2 parser
 8. API Blueprint parser — pure Go, so the binary stays static
 
-The end-to-end acceptance test is inpace: vertrag must run its existing
-`dredd.yml` and its 431-line Node hook file, and reach the same verdict as
-Dredd.
+## Hooks
+
+Dredd loads Node.js hook files into its own process. vertrag is a Go program and
+cannot, so it ships a small Node worker — embedded in the binary — which runs
+the hook files for real and exchanges transactions over a socket using Dredd's
+own worker protocol. Hook files are unchanged.
+
+`beforeAll`, `beforeEach`, `before(name)`, `beforeEachValidation`,
+`after(name)`, `afterEach` and `afterAll` all work, as do `transaction.skip`,
+`transaction.fail`, and rewriting the request or the expectation.
+
+One inherited behaviour is worth knowing, because it surprises people: Dredd
+builds the request URL from `transaction.fullPath`, which is computed *before*
+hooks run. A hook that rewrites `transaction.request.uri` — or assigns
+`transaction.fullUrl` — changes nothing. vertrag does the same. Being quietly
+more helpful would make the same hook file behave differently under each tool.
+
+Hooks address transactions by name, and that name includes the API title:
+
+```
+inPACE > /api/v1/auth/login > Login > 200 > application/json
+^^^^^^ info.title
+```
+
+`info.title` is required by the specification, so the prefix is always there. A
+hook registered against the name without it silently never runs.
 
 ## Development
 
