@@ -14,6 +14,7 @@
   ],
   "dependencies": {
     "@antimatter-studios/dredd-transactions": "12.0.0",
-    "@apielements/core": "0.2.1"
+    "@apielements/core": "0.2.1",
+    "gavel": "9.1.1"
   }
 }

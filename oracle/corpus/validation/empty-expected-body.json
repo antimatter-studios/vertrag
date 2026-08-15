@@ -1,0 +1,9 @@
+{
+  "expected": {
+    "statusCode": "200"
+  },
+  "real": {
+    "statusCode": "200",
+    "body": "{\"a\":1}"
+  }
+}

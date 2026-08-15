@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "type": "object",
+      "properties": {
+        "k": {
+          "enum": [
+            "a",
+            "b"
+          ]
+        }
+      }
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"k\":\"z\"}"
+  }
+}

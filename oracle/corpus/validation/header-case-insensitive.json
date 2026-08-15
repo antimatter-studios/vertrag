@@ -1,0 +1,14 @@
+{
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

@@ -95,12 +95,20 @@ func runReference(t *testing.T, root, mediaType, fixture string) any {
 	return runReferenceWith(t, root, "--media-type", mediaType, fixture)
 }
 
-// runReferenceWith invokes the reference driver and decodes what it prints.
+// runReferenceWith invokes the compile driver and decodes what it prints.
 func runReferenceWith(t *testing.T, root string, args ...string) any {
+	t.Helper()
+	return runReferenceScript(t, root, "compile.js", args...)
+}
+
+// runReferenceScript invokes one of the reference drivers and decodes its
+// output. Each stage vertrag ports has its own driver, so a failure names the
+// stage rather than pointing at a single end-to-end script.
+func runReferenceScript(t *testing.T, root, script string, args ...string) any {
 	t.Helper()
 
 	cmd := exec.Command("node",
-		append([]string{filepath.Join(root, "oracle", "reference", "compile.js")}, args...)...,
+		append([]string{filepath.Join(root, "oracle", "reference", script)}, args...)...,
 	)
 	cmd.Dir = filepath.Join(root, "oracle", "reference")
 

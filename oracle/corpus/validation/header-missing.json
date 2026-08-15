@@ -1,0 +1,12 @@
+{
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "x-a": "1"
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {}
+  }
+}

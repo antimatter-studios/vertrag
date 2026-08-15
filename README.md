@@ -10,9 +10,9 @@ checks the responses against what was promised.
 
 > **Status: early.** Reading an OpenAPI 3 document and deriving the transactions
 > to test is complete and verified against Dredd, byte for byte. Executing those
-> transactions — the runner, response validation, hooks and reporters — is not
-> written yet, so vertrag cannot test a live API today. See
-> [Roadmap](#roadmap).
+> transactions against a live server — the runner, hooks and reporters — is not
+> written yet, so vertrag cannot test a running API today. Response validation
+> is done and verified. See [Roadmap](#roadmap).
 
 ## Why
 
@@ -61,6 +61,7 @@ Currently agreeing, field for field:
 | --- | --- | --- |
 | Compile | 59 fixtures | API Blueprint, OpenAPI 2 and OpenAPI 3 — transaction naming, URI expansion, bodies, diagnostics |
 | Parse | 5 documents | OpenAPI 3 end to end: source document to transactions |
+| Validate | 20 cases | Pass/fail verdicts and their error text, against Gavel |
 
 Agreement includes the generated request and response bodies, the JSON Schemas
 attached to responses, and the parser diagnostics down to their exact wording,
@@ -81,8 +82,11 @@ is uncovered:
 
 ### What faithfulness costs
 
-Faithfulness costs something, and the port pays it deliberately. The reference's
-URI template library is not RFC 6570 — it percent-encodes without zero-padding
+Faithfulness costs something, and the port pays it deliberately.
+
+Validation error text is reproduced down to the JavaScript engine's own JSON
+parse messages, because a body that fails to parse is reported to the user with
+that wording. Dredd's URI template library is not RFC 6570 — it percent-encodes without zero-padding
 (`%A`, not `%0A`), and double-escapes an already-escaped sequence. Those are
 defects, and they are reproduced here on purpose, because they are visible in
 the URIs Dredd requests. A "corrected" port would disagree with the tool people
@@ -106,6 +110,7 @@ vertrag keeps that shape:
 | `internal/apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
 | `internal/apidesc` (OpenAPI 2) | Swagger → API Elements | Not started |
 | `internal/apidesc` (API Blueprint) | Blueprint → API Elements | Not started |
+| `internal/validate` | Response validation (Gavel) | Done, oracle-verified |
 | Runner, hooks, reporters | Executing transactions and reporting | Not started |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
@@ -122,12 +127,13 @@ when it reproduces its pair.
 1. ~~API Elements model and the transaction compiler~~ — done, oracle-verified
 2. ~~OpenAPI 3 parser~~ — done, oracle-verified; the format
    [inpace](https://github.com/semdatex/inpace) uses
-3. Transaction runner and response validation
-4. Hooks, over Dredd's existing worker protocol, so current hook files and
+3. ~~Response validation~~ — done, oracle-verified against Gavel
+4. Transaction runner: send the requests, record the responses
+5. Hooks, over Dredd's existing worker protocol, so current hook files and
    `dredd.yml` keep working unchanged
-5. Reporters (CLI, dot, markdown, xunit, HTML)
-6. OpenAPI 2 parser
-7. API Blueprint parser — pure Go, so the binary stays static
+6. Reporters (CLI, dot, markdown, xunit, HTML) and `dredd.yml` configuration
+7. OpenAPI 2 parser
+8. API Blueprint parser — pure Go, so the binary stays static
 
 The end-to-end acceptance test is inpace: vertrag must run its existing
 `dredd.yml` and its 431-line Node hook file, and reach the same verdict as
