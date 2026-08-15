@@ -21,7 +21,12 @@ var (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "vertrag:", err)
+		// A run whose tests failed has already reported them in full; printing
+		// "vertrag: some transactions failed" underneath would add nothing.
+		// The exit status is what a CI pipeline reads.
+		if err != errFailed {
+			fmt.Fprintln(os.Stderr, "vertrag:", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -41,6 +46,8 @@ func run(args []string) error {
 		return nil
 	case "compile":
 		return runCompile(args[1:])
+	case "run":
+		return runRun(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q; run `vertrag help`", args[0])
 	}
@@ -52,8 +59,13 @@ func usage() {
 Contract-test an HTTP API against its description document.
 
 Usage:
-  vertrag compile [flags] <file>   Compile a description into HTTP transactions
+  vertrag run [flags] [description] [endpoint]
+                                   Test a running API against its description
+  vertrag compile [flags] <file>   Show the transactions a description yields
   vertrag version                  Print the version
+
+Run reads ./dredd.yml when it is present, so a project already configured for
+Dredd needs no arguments.
 
 `, version, buildDate)
 }

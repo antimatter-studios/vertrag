@@ -1,0 +1,335 @@
+// Package runner executes compiled transactions against a live server.
+package runner
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/internal/validate"
+)
+
+// Status is the outcome of one transaction.
+type Status string
+
+const (
+	// StatusPass means the response matched what the description promised.
+	StatusPass Status = "pass"
+	// StatusFail means it did not.
+	StatusFail Status = "fail"
+	// StatusSkip means a hook took the transaction out of the run.
+	StatusSkip Status = "skip"
+	// StatusError means the request could not be made at all — the server was
+	// unreachable, the URL was unusable. This is distinct from a failure: the
+	// API was never asked, so nothing was learned about it.
+	StatusError Status = "error"
+)
+
+// Result is one executed transaction.
+type Result struct {
+	Name     string
+	Status   Status
+	Request  Request
+	Expected validate.Message
+	Actual   validate.Message
+	// Errors explains a failure or an error, whichever occurred.
+	Errors     []string
+	Validation validate.Result
+	Duration   time.Duration
+}
+
+// Request is what was sent, after hooks had their say.
+type Request struct {
+	Method  string
+	URI     string
+	Headers map[string]string
+	Body    string
+}
+
+// Runner sends transactions to a server and judges the responses.
+type Runner struct {
+	Endpoint string
+	Client   *http.Client
+
+	// Header lines, as `Name: value`, added to every request. They come from
+	// the command line and are how a run supplies credentials the description
+	// does not mention.
+	ExtraHeaders []string
+
+	// Hooks, when set, is given each transaction before and after it runs.
+	Hooks Hooks
+}
+
+// Hooks is the part of the hook system the runner needs.
+//
+// It is an interface so a run without hooks needs no worker process, and so the
+// runner can be tested without one.
+type Hooks interface {
+	BeforeAll(transactions []*Transaction) error
+	BeforeEach(transaction *Transaction) error
+	BeforeEachValidation(transaction *Transaction) error
+	AfterEach(transaction *Transaction) error
+	AfterAll(transactions []*Transaction) error
+}
+
+// New returns a runner with a client suited to testing.
+func New(endpoint string) *Runner {
+	return &Runner{
+		Endpoint: strings.TrimRight(endpoint, "/"),
+		Client: &http.Client{
+			Timeout: 30 * time.Second,
+			// Redirects are not followed. A description promising a 301 is
+			// describing the redirect itself; following it would test the
+			// destination instead and report the wrong status.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
+}
+
+// Run executes every transaction in order and returns the results.
+//
+// Order is the document's order, which is what makes a description that creates
+// a resource before reading it work.
+func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([]Result, error) {
+	prepared := make([]*Transaction, 0, len(transactions))
+	for i := range transactions {
+		prepared = append(prepared, newTransaction(transactions[i], r.Endpoint, r.ExtraHeaders))
+	}
+
+	if r.Hooks != nil {
+		if err := r.Hooks.BeforeAll(prepared); err != nil {
+			return nil, fmt.Errorf("beforeAll hook: %w", err)
+		}
+	}
+
+	results := make([]Result, 0, len(prepared))
+	for _, transaction := range prepared {
+		results = append(results, r.runOne(ctx, transaction))
+	}
+
+	if r.Hooks != nil {
+		if err := r.Hooks.AfterAll(prepared); err != nil {
+			return results, fmt.Errorf("afterAll hook: %w", err)
+		}
+	}
+
+	return results, nil
+}
+
+func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
+	started := time.Now()
+
+	if r.Hooks != nil {
+		if err := r.Hooks.BeforeEach(transaction); err != nil {
+			return transaction.errorResult(fmt.Sprintf("before hook: %v", err), time.Since(started))
+		}
+	}
+
+	// A hook may take the transaction out of the run, or fail it outright,
+	// without the server ever being asked.
+	if transaction.Skip {
+		return Result{Name: transaction.Name, Status: StatusSkip, Duration: time.Since(started)}
+	}
+	if transaction.Fail != "" {
+		return transaction.failResult([]string{transaction.Fail}, time.Since(started))
+	}
+
+	response, err := r.send(ctx, transaction)
+	if err != nil {
+		return transaction.errorResult(err.Error(), time.Since(started))
+	}
+	transaction.Real = response
+
+	if r.Hooks != nil {
+		if err := r.Hooks.BeforeEachValidation(transaction); err != nil {
+			return transaction.errorResult(fmt.Sprintf("beforeValidation hook: %v", err), time.Since(started))
+		}
+	}
+	if transaction.Skip {
+		return Result{Name: transaction.Name, Status: StatusSkip, Duration: time.Since(started)}
+	}
+
+	result := transaction.validated(time.Since(started))
+
+	if r.Hooks != nil {
+		if err := r.Hooks.AfterEach(transaction); err != nil {
+			return transaction.errorResult(fmt.Sprintf("after hook: %v", err), time.Since(started))
+		}
+		// A hook may fail a transaction the server answered correctly — that is
+		// the point of an after hook that checks something the description
+		// cannot express.
+		if transaction.Fail != "" {
+			return transaction.failResult([]string{transaction.Fail}, time.Since(started))
+		}
+	}
+
+	return result
+}
+
+// send performs the request and records the response.
+func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.Message, error) {
+	var body io.Reader
+	if transaction.Request.Body != "" {
+		body = strings.NewReader(transaction.Request.Body)
+	}
+
+	request, err := http.NewRequestWithContext(ctx,
+		transaction.Request.Method, transaction.FullURL(), body)
+	if err != nil {
+		return validate.Message{}, fmt.Errorf("building the request: %w", err)
+	}
+	for name, value := range transaction.Request.Headers {
+		// Host is not a normal header: net/http ignores it in the header map
+		// and takes it from the request instead.
+		if strings.EqualFold(name, "host") {
+			request.Host = value
+			continue
+		}
+		request.Header.Set(name, value)
+	}
+
+	response, err := r.Client.Do(request)
+	if err != nil {
+		return validate.Message{}, fmt.Errorf("%s %s: %w",
+			transaction.Request.Method, transaction.FullURL(), err)
+	}
+	defer response.Body.Close()
+
+	payload, err := io.ReadAll(response.Body)
+	if err != nil {
+		return validate.Message{}, fmt.Errorf("reading the response body: %w", err)
+	}
+
+	headers := make(map[string]string, len(response.Header))
+	for name, values := range response.Header {
+		// Repeated headers are joined the way HTTP allows them to be sent,
+		// so a set-cookie pair is not silently reduced to one.
+		headers[strings.ToLower(name)] = strings.Join(values, ", ")
+	}
+
+	return validate.Message{
+		StatusCode: strconv.Itoa(response.StatusCode),
+		Headers:    headers,
+		Body:       string(payload),
+	}, nil
+}
+
+// Transaction is a compiled transaction as it moves through a run: hooks may
+// rewrite the request, the expectation, or remove it altogether.
+type Transaction struct {
+	Name     string
+	Request  Request
+	Expected validate.Message
+	Real     validate.Message
+
+	// Skip removes the transaction from the run; Fail marks it failed without
+	// consulting the response. Both are set by hooks.
+	Skip bool
+	Fail string
+
+	endpoint string
+	fullURL  string
+}
+
+func newTransaction(source compile.Transaction, endpoint string, extraHeaders []string) *Transaction {
+	headers := make(map[string]string, len(source.Request.Headers))
+	for _, header := range source.Request.Headers {
+		headers[header.Name] = header.Value
+	}
+	for _, line := range extraHeaders {
+		if name, value, ok := strings.Cut(line, ":"); ok {
+			headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
+		}
+	}
+
+	expectedHeaders := make(map[string]string, len(source.Response.Headers))
+	for _, header := range source.Response.Headers {
+		expectedHeaders[header.Name] = header.Value
+	}
+
+	var schema json.RawMessage
+	if source.Response.Schema != "" {
+		schema = json.RawMessage(source.Response.Schema)
+	}
+
+	return &Transaction{
+		Name: source.Name,
+		Request: Request{
+			Method:  source.Request.Method,
+			URI:     source.Request.URI,
+			Headers: headers,
+			Body:    source.Request.Body,
+		},
+		Expected: validate.Message{
+			StatusCode: source.Response.Status,
+			Headers:    expectedHeaders,
+			Body:       source.Response.Body,
+			BodySchema: schema,
+		},
+		endpoint: endpoint,
+	}
+}
+
+// FullURL is the address the request is sent to.
+//
+// A hook may set it directly, which is how a hook rewrites a URI the description
+// could not make concrete.
+func (t *Transaction) FullURL() string {
+	if t.fullURL != "" {
+		return t.fullURL
+	}
+	return t.endpoint + t.Request.URI
+}
+
+// SetFullURL overrides the address, as a hook does.
+func (t *Transaction) SetFullURL(url string) { t.fullURL = url }
+
+// Endpoint is the server the transaction is aimed at.
+func (t *Transaction) Endpoint() string { return t.endpoint }
+
+func (t *Transaction) validated(elapsed time.Duration) Result {
+	validation := validate.Validate(t.Expected, t.Real)
+
+	result := Result{
+		Name:       t.Name,
+		Status:     StatusPass,
+		Request:    t.Request,
+		Expected:   t.Expected,
+		Actual:     t.Real,
+		Validation: validation,
+		Duration:   elapsed,
+	}
+	if !validation.Valid {
+		result.Status = StatusFail
+		// Fields are reported in a fixed order so two runs of the same failure
+		// read the same way.
+		for _, field := range []string{"statusCode", "headers", "body"} {
+			for _, message := range validation.Fields[field].Errors {
+				result.Errors = append(result.Errors, field+": "+message)
+			}
+		}
+	}
+	return result
+}
+
+func (t *Transaction) failResult(errors []string, elapsed time.Duration) Result {
+	return Result{
+		Name: t.Name, Status: StatusFail, Request: t.Request,
+		Expected: t.Expected, Actual: t.Real, Errors: errors, Duration: elapsed,
+	}
+}
+
+func (t *Transaction) errorResult(message string, elapsed time.Duration) Result {
+	return Result{
+		Name: t.Name, Status: StatusError, Request: t.Request,
+		Expected: t.Expected, Errors: []string{message}, Duration: elapsed,
+	}
+}
