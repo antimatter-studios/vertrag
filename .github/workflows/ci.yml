@@ -28,7 +28,15 @@ jobs:
       # The unit tests run without Node. The oracle suite skips itself when the
       # reference is absent, so this job stays honest about what it covered:
       # it is the `oracle` job below that proves agreement with Dredd.
+      # The unit tests run without Node. The oracle suite skips itself when the
+      # reference is absent, so this job stays honest about what it covered:
+      # it is the `oracle` job below that proves agreement with Dredd.
       - run: go test ./...
+
+      # A floor, not a target. It exists so the safety net that works without
+      # Node cannot quietly rot while the oracle carries all the weight.
+      - name: Enforce the coverage floor
+        run: make cover
 
   oracle:
     name: Differential test against Dredd

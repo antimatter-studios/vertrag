@@ -1,0 +1,120 @@
+openapi: "3.0.0"
+info:
+  title: Media Types
+  version: "1.0.0"
+paths:
+  /form:
+    post:
+      summary: URL-encoded form body
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                field:
+                  type: string
+      responses:
+        "204":
+          description: No content
+  /multipart:
+    post:
+      summary: Multipart form body
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: OK
+  /binary:
+    get:
+      summary: Binary response
+      responses:
+        "200":
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /text:
+    get:
+      summary: Plain text response
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: a line of text
+  /xml:
+    get:
+      summary: XML response
+      responses:
+        "200":
+          description: OK
+          content:
+            application/xml:
+              schema:
+                type: object
+                properties:
+                  node:
+                    type: string
+  /suffixed-json:
+    get:
+      summary: A +json suffixed media type
+      responses:
+        "200":
+          description: OK
+          content:
+            application/vnd.example+json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+  /charset:
+    get:
+      summary: Media type carrying a charset parameter
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json; charset=utf-8:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+  /no-content:
+    delete:
+      summary: Response with no content at all
+      responses:
+        "204":
+          description: Deleted
+  /status-range:
+    get:
+      summary: Status code range
+      responses:
+        "2XX":
+          description: Any success
+  /default-only:
+    get:
+      summary: Only a default response
+      responses:
+        default:
+          description: Whatever happens
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string

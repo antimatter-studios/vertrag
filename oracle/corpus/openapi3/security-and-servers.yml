@@ -1,0 +1,97 @@
+openapi: "3.0.0"
+info:
+  title: Security and Servers
+  version: "1.0.0"
+  description: Exercises document-level furniture the transactions do not depend on.
+  contact:
+    name: Someone
+    email: someone@example.com
+  license:
+    name: MIT
+    url: https://example.com/licence
+servers:
+  - url: https://api.example.com/{version}
+    description: Production
+    variables:
+      version:
+        default: v1
+        enum:
+          - v1
+          - v2
+  - url: http://localhost:4000
+security:
+  - apiKey: []
+paths:
+  /secured:
+    get:
+      summary: Operation with its own security
+      security:
+        - bearer: []
+      responses:
+        "200":
+          description: OK
+  /unsecured:
+    get:
+      summary: Operation opting out of security
+      security: []
+      responses:
+        "200":
+          description: OK
+  /with-servers:
+    servers:
+      - url: https://other.example.com
+    get:
+      summary: Operation overriding the server
+      servers:
+        - url: https://operation.example.com
+      responses:
+        "200":
+          description: OK
+  /cookie-param:
+    get:
+      summary: Cookie parameter
+      parameters:
+        - name: session
+          in: cookie
+          schema:
+            type: string
+          example: abc
+      responses:
+        "200":
+          description: OK
+  /deprecated:
+    get:
+      summary: Deprecated operation with an external doc
+      deprecated: true
+      externalDocs:
+        url: https://example.com/docs
+      operationId: deprecatedOne
+      responses:
+        "200":
+          description: OK
+  /extensions:
+    x-custom-path-key: ignored
+    get:
+      summary: Specification extensions are allowed anywhere
+      x-custom-operation-key: ignored
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                x-custom-schema-key: ignored
+                properties:
+                  ok:
+                    type: boolean
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: X-Api-Key
+      in: header
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

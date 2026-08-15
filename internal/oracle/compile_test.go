@@ -246,6 +246,13 @@ func fixturesIn(t *testing.T, dir string) []string {
 // really just a missing install step.
 func requireReference(t *testing.T, root string) {
 	t.Helper()
+	// An explicit opt-out, used when measuring how much of the code the
+	// Node-free tests reach. Without it the oracle would cover almost
+	// everything and report a healthy number for a checkout where a plain
+	// `go test` proves very little.
+	if os.Getenv("VERTRAG_SKIP_ORACLE") != "" {
+		t.Skip("VERTRAG_SKIP_ORACLE is set")
+	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not installed; the oracle needs it to run the reference implementation")
 	}

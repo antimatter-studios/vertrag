@@ -1,0 +1,68 @@
+openapi: "3.0.0"
+info:
+  title: Malformed
+paths:
+  no-leading-slash:
+    get:
+      summary: Path key that is not a path
+      responses:
+        "200":
+          description: OK
+  /missing-description:
+    get:
+      summary: Response without the required description
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+  /bad-parameter:
+    get:
+      summary: Parameter missing its required keys
+      parameters:
+        - description: no name and no location
+      responses:
+        "200":
+          description: OK
+  /unknown-keys:
+    get:
+      summary: Keys that are not in the specification
+      notAKey: true
+      responses:
+        "200":
+          description: OK
+          nonsense: true
+  /bad-status:
+    get:
+      summary: Response keys that are not status codes
+      responses:
+        "200":
+          description: OK
+        notAStatus:
+          description: Also not a status
+  /duplicate-operation-id:
+    get:
+      summary: First use of the identifier
+      operationId: shared
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Second use of the same identifier
+      operationId: shared
+      responses:
+        "200":
+          description: OK
+  /empty-responses:
+    get:
+      summary: An operation with no responses at all
+      responses: {}
+components:
+  schemas:
+    Unused:
+      type: object
+      properties:
+        neverReferenced:
+          type: string
+          format: uuid

@@ -1,0 +1,102 @@
+openapi: "3.0.0"
+info:
+  title: Composition
+  version: "1.0.0"
+paths:
+  /all-of:
+    get:
+      summary: allOf composition
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Base"
+                  - type: object
+                    properties:
+                      extra:
+                        type: string
+  /one-of:
+    get:
+      summary: oneOf composition
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      kind:
+                        type: string
+                  - type: object
+                    properties:
+                      other:
+                        type: integer
+  /any-of:
+    get:
+      summary: anyOf composition
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: string
+                  - type: integer
+  /constrained:
+    get:
+      summary: Schema with validation keywords
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                    maxLength: 10
+                    pattern: "^[a-z]+$"
+                  count:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  items:
+                    type: array
+                    minItems: 1
+                    uniqueItems: true
+                    items:
+                      type: string
+                  extra:
+                    type: object
+                    additionalProperties:
+                      type: string
+  /not:
+    get:
+      summary: not composition
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                not:
+                  type: string
+components:
+  schemas:
+    Base:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string

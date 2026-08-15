@@ -124,9 +124,16 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return out, true
 
 	default:
-		// No declared type. The reference does not infer one from the presence
-		// of `properties`, and inferring it here would produce bodies Dredd
-		// never sends.
+		// An untyped schema may still offer alternatives. Only the first is
+		// used, because a message carries one body — and only oneOf, since
+		// allOf and anyOf are not acted on at all.
+		if branches := schema.get("oneOf").items(); len(branches) > 0 {
+			return d.generateValue(branches[0], seen)
+		}
+
+		// Otherwise there is nothing to go on. The reference does not infer a
+		// type from the presence of `properties`, and inferring it here would
+		// produce bodies Dredd never sends.
 		return "", true
 	}
 }

@@ -1,0 +1,123 @@
+openapi: "3.0.0"
+info:
+  title: Methods and References
+  version: "1.0.0"
+paths:
+  /resource:
+    summary: A path item with a summary
+    description: And a description
+    get:
+      summary: Read
+      responses:
+        "200":
+          description: OK
+    put:
+      summary: Replace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  type: string
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create
+      responses:
+        "201":
+          description: Created
+    delete:
+      summary: Remove
+      responses:
+        "204":
+          description: Gone
+    patch:
+      summary: Amend
+      responses:
+        "200":
+          description: OK
+    head:
+      summary: Headers only
+      responses:
+        "200":
+          description: OK
+    options:
+      summary: Capabilities
+      responses:
+        "200":
+          description: OK
+  /shared-parameter/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      summary: Parameter behind a reference
+      responses:
+        "200":
+          description: OK
+  /shared-header:
+    get:
+      summary: Response header behind a reference
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Shared:
+              $ref: "#/components/headers/Shared"
+  /shared-example:
+    post:
+      summary: Example behind a reference
+      requestBody:
+        content:
+          application/json:
+            examples:
+              only:
+                $ref: "#/components/examples/Sample"
+      responses:
+        "200":
+          description: OK
+  /multi-status:
+    get:
+      summary: Several status codes
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Not found
+        "500":
+          description: Server error
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      example: shared-id
+      schema:
+        type: string
+  headers:
+    Shared:
+      schema:
+        type: string
+  examples:
+    Sample:
+      value:
+        shared: true

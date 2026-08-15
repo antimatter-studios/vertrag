@@ -35,6 +35,9 @@ type objectSpec struct {
 	// a parameter. It cannot be told from name, because both variants are
 	// called "Schema Object" in the messages users see.
 	parameterVariant bool
+
+	// noExtensions marks an object where `x-` keys are not allowed through.
+	noExtensions bool
 }
 
 // The key tables, transcribed from the reference parser. They are data rather
@@ -122,11 +125,23 @@ var (
 		unsupported: []string{"links", "callbacks"},
 	}
 
+	specSecurityScheme = objectSpec{
+		name:        "Security Scheme Object",
+		supported:   []string{"type", "description", "name", "in", "scheme", "flows"},
+		unsupported: []string{"bearerFormat", "openIdConnectUrl"},
+		required:    []string{"type"},
+	}
+
 	// A Schema Object is validated differently depending on where it appears.
 	// Inside a parameter only a handful of keywords are acted on, so the rest —
 	// including everyday ones like `format` — are reported as unsupported.
 	specSchema = objectSpec{
 		name: "Schema Object",
+		// Unlike every other object here, a Schema Object does not permit
+		// specification extensions: an `x-` key in one is reported as invalid.
+		// JSON Schema has its own extension rules and does not defer to
+		// OpenAPI's.
+		noExtensions: true,
 		supported: []string{"type", "enum", "const", "properties", "items", "required",
 			"nullable", "oneOf", "additionalProperties", "default", "title",
 			"description", "example"},
@@ -164,7 +179,7 @@ func (d *document) validate() []annotation {
 		return out
 	}
 
-	out = append(out, validateKeys(root, specOpenAPI)...)
+	out = append(out, d.validateKeys(root, specOpenAPI)...)
 
 	out = append(out, d.validateObject(root.get("info"), specInfo,
 		func(info node) []annotation {
@@ -210,7 +225,7 @@ func (d *document) validatePaths(paths node) []annotation {
 			if strings.HasPrefix(key, "x-") {
 				continue
 			}
-			out = append(out, invalidKey("Paths Object", member.key))
+			out = append(out, d.invalidKey("Paths Object", member.key))
 			continue
 		}
 		out = append(out, d.validatePathItem(member.value)...)
@@ -250,7 +265,19 @@ func (d *document) validateOperation(operation node) []annotation {
 
 func (d *document) validateParameter(parameter node) []annotation {
 	return d.validateObject(parameter, specParameter, func(p node) []annotation {
-		return d.validateSchema(p.get("schema"), specParameterSchema)
+		var out []annotation
+
+		// A parameter travels in the path, the query string or a header.
+		// Anything else — a cookie — is a place this implementation does not
+		// put values, so the parameter would silently not be sent.
+		if in := p.get("in"); in.isScalar() && in.Value != "path" && in.Value != "query" && in.Value != "header" {
+			out = append(out, d.at(annotation{
+				class:   "warning",
+				message: fmt.Sprintf("'Parameter Object' 'in' '%s' is unsupported", in.Value),
+			}, in))
+		}
+
+		return append(out, d.validateSchema(p.get("schema"), specParameterSchema)...)
 	})
 }
 
@@ -276,12 +303,12 @@ func (d *document) validateResponses(responses node) []annotation {
 		case statusCodePattern.MatchString(key) || key == "default":
 			// A response proper.
 		case isStatusCodeRange(key):
-			out = append(out, annotation{
+			out = append(out, d.at(annotation{
 				class:   "warning",
 				message: "'Responses Object' response status code ranges are unsupported",
-			}.at(member.key))
+			}, member.key))
 		default:
-			out = append(out, invalidKey("Responses Object", member.key))
+			out = append(out, d.invalidKey("Responses Object", member.key))
 			continue
 		}
 
@@ -316,10 +343,10 @@ func (d *document) validateContent(content node) []annotation {
 			// sent. The rest are dropped, and saying so is the difference
 			// between a deliberate choice and silently ignoring the document.
 			if len(examples) > 1 {
-				nested = append(nested, annotation{
+				nested = append(nested, d.at(annotation{
 					class:   "warning",
 					message: "'Media Type Object' 'examples' only one example is supported, other examples have been ignored",
-				}.at(examples[1].key))
+				}, examples[1].key))
 			}
 			return nested
 		})...)
@@ -345,6 +372,9 @@ func (d *document) validateComponents(components node) []annotation {
 		for _, example := range c.get("examples").entries() {
 			out = append(out, d.validateObject(example.value, specExample, nil)...)
 		}
+		for _, scheme := range c.get("securitySchemes").entries() {
+			out = append(out, d.validateObject(scheme.value, specSecurityScheme, nil)...)
+		}
 		return out
 	})
 }
@@ -362,7 +392,17 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 		return nil
 	}
 
-	out := validateKeys(schema, spec)
+	out := d.validateKeys(schema, spec)
+
+	// A schema under additionalProperties describes what unlisted properties
+	// must look like. That is not acted on, and saying so is the difference
+	// between "checked and passed" and "never looked at".
+	if additional := schema.get("additionalProperties"); additional.isMapping() {
+		out = append(out, d.at(annotation{
+			class:   "warning",
+			message: "'Schema Object' 'additionalProperties' containing a Schema Object is currently unsupported",
+		}, additional))
+	}
 
 	// Subschemas are always full Schema Objects, even when reached from a
 	// parameter, so the stricter parameter rules do not propagate downwards.
@@ -394,7 +434,7 @@ func (d *document) validateObject(n node, spec objectSpec, children func(node) [
 	if n.get("$ref").isScalar() && !contains(spec.unsupported, "$ref") {
 		return nil
 	}
-	out := validateKeys(n, spec)
+	out := d.validateKeys(n, spec)
 	if children != nil {
 		out = append(out, children(n)...)
 	}
@@ -403,7 +443,7 @@ func (d *document) validateObject(n node, spec objectSpec, children func(node) [
 
 // validateKeys reports the keys an object should not have, and the required
 // ones it lacks.
-func validateKeys(n node, spec objectSpec) []annotation {
+func (d *document) validateKeys(n node, spec objectSpec) []annotation {
 	var out []annotation
 
 	supported := toSet(spec.supported)
@@ -414,46 +454,42 @@ func validateKeys(n node, spec objectSpec) []annotation {
 		switch {
 		case supported[key]:
 		case unsupported[key]:
-			out = append(out, annotation{
+			out = append(out, d.at(annotation{
 				class:   "warning",
 				message: fmt.Sprintf("'%s' contains unsupported key '%s'", spec.name, key),
-			}.at(member.key))
-		case strings.HasPrefix(key, "x-"):
+			}, member.key))
+		case strings.HasPrefix(key, "x-") && !spec.noExtensions:
 			// Specification extensions are explicitly allowed to be anything.
 		default:
-			out = append(out, invalidKey(spec.name, member.key))
+			out = append(out, d.invalidKey(spec.name, member.key))
 		}
 	}
 
 	for _, required := range spec.required {
 		if !n.get(required).valid() {
-			out = append(out, annotation{
+			out = append(out, d.at(annotation{
 				class:   "error",
 				message: fmt.Sprintf("'%s' is missing required property '%s'", spec.name, required),
-			}.at(n))
+			}, n))
 		}
 	}
 
 	return out
 }
 
-func invalidKey(objectName string, key node) annotation {
-	return annotation{
+func (d *document) invalidKey(objectName string, key node) annotation {
+	return d.at(annotation{
 		class:   "warning",
 		message: fmt.Sprintf("'%s' contains invalid key '%s'", objectName, key.str()),
-	}.at(key)
+	}, key)
 }
 
-// at attaches the source position of the node a diagnostic is about.
-//
-// The span runs from the start of the token to its end on the same line, which
-// is what the reference reports for the keys these diagnostics point at.
-func (a annotation) at(n node) annotation {
+// at attaches the source range of the node a diagnostic is about.
+func (d *document) at(a annotation, n node) annotation {
 	if !n.valid() {
 		return a
 	}
-	a.line, a.column = n.Line, n.Column
-	a.endLine, a.endCol = n.Line, n.Column+len(n.Value)
+	a.line, a.column, a.endLine, a.endCol = d.span(n)
 	return a
 }
 
@@ -534,6 +570,17 @@ func annotationElements(annotations []annotation) []*refract.Element {
 			element.SetSourceMap(a.line, a.column, a.endLine, a.endCol)
 		}
 		out = append(out, element)
+	}
+	return out
+}
+
+// errorsOnly selects the error-class diagnostics.
+func errorsOnly(annotations []annotation) []annotation {
+	var out []annotation
+	for _, a := range annotations {
+		if a.class == "error" {
+			out = append(out, a)
+		}
 	}
 	return out
 }

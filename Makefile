@@ -1,8 +1,13 @@
-.PHONY: help build test oracle oracle-deps fmt clean
+.PHONY: help build test cover oracle oracle-deps fmt clean
+
+# The coverage floor. It is checked in CI, so lowering it is a visible decision
+# rather than something that happens by attrition.
+COVERAGE_MINIMUM ?= 70
 
 help:
 	@echo "build        Build the vertrag binary"
 	@echo "test         Run the unit tests (no Node required)"
+	@echo "cover        Run the unit tests and enforce the coverage floor"
 	@echo "oracle       Differential-test against the reference Dredd implementation"
 	@echo "oracle-deps  Install the reference implementation the oracle compares against"
 	@echo "fmt          Format the source"
@@ -13,6 +18,20 @@ build:
 
 test:
 	go test ./...
+
+# Coverage is measured with Node absent, deliberately. The oracle suite covers
+# almost everything, but it needs the reference installed — so measuring with it
+# would report a healthy number for a checkout where `go test` proves nothing.
+# What this measures is the safety net that works anywhere.
+cover:
+	@mkdir -p dist
+	@VERTRAG_SKIP_ORACLE=1 go test ./... -coverpkg=./... -coverprofile=dist/coverage.out -count=1 >/dev/null
+	@go tool cover -func=dist/coverage.out | tail -1
+	@total=$$(go tool cover -func=dist/coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+'); \
+	 if [ "$$(printf '%s\n' "$$total" "$(COVERAGE_MINIMUM)" | sort -g | head -1)" != "$(COVERAGE_MINIMUM)" ]; then \
+	   echo "coverage $$total% is below the $(COVERAGE_MINIMUM)% floor" >&2; exit 1; \
+	 fi
+	@echo "coverage is at or above the $(COVERAGE_MINIMUM)% floor"
 
 # -count=1 defeats the test cache: this suite's result depends on the installed
 # reference implementation, which Go's cache does not track.

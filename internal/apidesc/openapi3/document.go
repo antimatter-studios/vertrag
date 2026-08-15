@@ -16,10 +16,18 @@ type node struct {
 	*yaml.Node
 }
 
-// document is a parsed OpenAPI 3 document plus the lookup it needs to resolve
-// internal references.
+// document is a parsed OpenAPI 3 document plus the lookups it needs to resolve
+// internal references and report source positions.
 type document struct {
 	root node
+
+	// order is every node in document order, with subtreeSize recording how
+	// many nodes each one spans. Together they answer "what comes after this
+	// subtree", which is how a diagnostic about a block value gets an end
+	// position — YAML records where a node starts but not where it ends.
+	order       []*yaml.Node
+	index       map[*yaml.Node]int
+	subtreeSize map[*yaml.Node]int
 }
 
 // parseDocument reads YAML (or JSON, which YAML is a superset of).
@@ -34,7 +42,67 @@ func parseDocument(source []byte) (*document, error) {
 	if content.Kind == yaml.DocumentNode && len(content.Content) > 0 {
 		content = content.Content[0]
 	}
-	return &document{root: node{content}}, nil
+	doc := &document{
+		root:        node{content},
+		index:       map[*yaml.Node]int{},
+		subtreeSize: map[*yaml.Node]int{},
+	}
+	doc.indexNodes(content)
+	return doc, nil
+}
+
+// indexNodes records every node in pre-order, so a subtree occupies a
+// contiguous run and its extent is a simple count.
+func (d *document) indexNodes(n *yaml.Node) int {
+	if n == nil {
+		return 0
+	}
+	position := len(d.order)
+	d.index[n] = position
+	d.order = append(d.order, n)
+
+	size := 1
+	for _, child := range n.Content {
+		size += d.indexNodes(child)
+	}
+	d.subtreeSize[n] = size
+	return size
+}
+
+// span returns the source range a diagnostic about this node covers.
+//
+// A scalar spans its own token, quotes included. A block node has no recorded
+// end, so it runs to wherever the next token begins — which is what the
+// reference reports, and is why a warning about a nested mapping can end on a
+// later line at the indentation of whatever follows it.
+func (d *document) span(n node) (startLine, startCol, endLine, endCol int) {
+	if !n.valid() {
+		return 0, 0, 0, 0
+	}
+	startLine, startCol = n.Line, n.Column
+
+	if n.Kind == yaml.ScalarNode {
+		return startLine, startCol, startLine, startCol + rawScalarWidth(n)
+	}
+
+	position, known := d.index[n.Node]
+	if known {
+		if next := position + d.subtreeSize[n.Node]; next < len(d.order) {
+			return startLine, startCol, d.order[next].Line, d.order[next].Column
+		}
+	}
+	return startLine, startCol, startLine, startCol
+}
+
+// rawScalarWidth is the width of a scalar as written, counting the quotes a
+// quoted style adds around it.
+func rawScalarWidth(n node) int {
+	width := len(n.Value)
+	switch n.Style {
+	case yaml.DoubleQuotedStyle, yaml.SingleQuotedStyle:
+		width += 2
+	}
+	return width
 }
 
 func (n node) valid() bool { return n.Node != nil }

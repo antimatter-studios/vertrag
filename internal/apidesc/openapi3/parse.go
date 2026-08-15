@@ -19,6 +19,24 @@ func Parse(source []byte) (*refract.Element, error) {
 	// annotations before it walks anything else, and appends its own after.
 	diagnostics := doc.validate()
 	sortByPosition(diagnostics)
+
+	// An error anywhere in the document stops everything. The result is the
+	// errors alone — no warnings, and no transactions, not even from the parts
+	// that were fine.
+	//
+	// That looks harsh, and it is the reference's behaviour. The reasoning
+	// holds up: a document the parser could not fully understand cannot be
+	// trusted to describe what a server should do, and testing an API against a
+	// half-read description would report failures that say nothing about the
+	// server. Warnings go too, because they describe a document that is no
+	// longer being acted on.
+	if errors := errorsOnly(diagnostics); len(errors) > 0 {
+		for _, element := range annotationElements(errors) {
+			parseResult.Append(element)
+		}
+		return parseResult, nil
+	}
+
 	for _, element := range annotationElements(deduplicateUnsupported(diagnostics)) {
 		parseResult.Append(element)
 	}
@@ -52,6 +70,14 @@ func (d *document) parsePathItem(path entry) *refract.Element {
 
 	resource := refract.Named("resource")
 	resource.SetAttr("href", refract.String(path.key.str()))
+
+	// A path item's summary titles the resource, and the compiler prefers a
+	// title over an href when naming transactions. So adding a summary to a
+	// path renames every transaction under it — and therefore every hook that
+	// addresses one by name.
+	if summary := pathItem.get("summary").str(); summary != "" {
+		resource.SetTitle(summary)
+	}
 
 	pathParameters := d.parseParameters(pathItem.get("parameters"))
 
