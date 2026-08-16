@@ -167,13 +167,24 @@ func drawInteger(t *rapid.T, schema Schema, mode Mode) any {
 	max, hasMax := numberAt(schema, "maximum")
 
 	if mode == Invalid {
+		// Something that is not a number at all violates the schema whether or
+		// not it states a bound, and it is the violation that finds the handler
+		// which never parsed the value — the one that answers `abc` with a 500
+		// rather than a 400. Which violation to draw is therefore a choice
+		// rather than a fallback: breaking only the bound would leave the type
+		// question unasked of every bounded field, and most fields are bounded.
+		wrongType := !hasMin && !hasMax
+		if !wrongType {
+			wrongType = rapid.Bool().Draw(t, "wrong-type")
+		}
+
 		switch {
+		case wrongType:
+			return rapid.SampledFrom([]any{"vertrag-not-a-number", true}).Draw(t, "not-a-number")
 		case hasMin:
 			return rapid.Int64Range(int64(min)-100, int64(min)-1).Draw(t, "too-small")
-		case hasMax:
-			return rapid.Int64Range(int64(max)+1, int64(max)+100).Draw(t, "too-large")
 		default:
-			return rapid.SampledFrom([]any{"vertrag-not-a-number", true}).Draw(t, "wrong-type")
+			return rapid.Int64Range(int64(max)+1, int64(max)+100).Draw(t, "too-large")
 		}
 	}
 

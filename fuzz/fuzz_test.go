@@ -55,7 +55,7 @@ func TestASoundServerProducesNoFindings(t *testing.T) {
 			server(correct).sender(), Options{Cases: 200})
 		if found {
 			t.Errorf("mode %v: unexpected finding %q for body %s",
-				mode, finding.Message, finding.Body)
+				mode, finding.Message, finding.Value)
 		}
 	}
 }
@@ -144,7 +144,7 @@ func TestFindingIsShrunk(t *testing.T) {
 	}
 
 	var body map[string]any
-	if err := json.Unmarshal([]byte(finding.Body), &body); err != nil {
+	if err := json.Unmarshal([]byte(finding.Value), &body); err != nil {
 		t.Fatalf("finding body does not parse: %v", err)
 	}
 

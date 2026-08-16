@@ -12,6 +12,12 @@ type parameter struct {
 	example  node
 	hasValue bool
 	value    any
+
+	// converted is the parameter's schema as JSON Schema, which is what a
+	// consumer can act on. The node it came from is kept too, because value
+	// generation reads the enum from it and does not want to parse the JSON
+	// back to do so.
+	converted string
 }
 
 // parameters holds an operation's parameters in declaration order, grouped by
@@ -51,6 +57,13 @@ func (d *document) parseParameters(n node) *parameters {
 		if p.example.Valid() {
 			p.value = scalarValue(p.example)
 			p.hasValue = true
+		}
+
+		// The schema is converted here rather than where it is used, because
+		// conversion needs the document to resolve references against and
+		// nothing downstream of the parse stage has one.
+		if converted, ok := d.convertSchema(p.schema); ok {
+			p.converted = converted
 		}
 
 		params.ordered = append(params.ordered, p)
@@ -122,7 +135,7 @@ func (p *parameters) headers() []header {
 		if param.hasValue {
 			value = stringifyScalar(param.value)
 		}
-		out = append(out, header{name: param.name, value: value})
+		out = append(out, header{name: param.name, value: value, schema: param.converted})
 	}
 	return out
 }
@@ -165,6 +178,14 @@ func (p parameter) member() *refract.Element {
 			}
 			value.SetAttr("enumerations", enumerations)
 		}
+	}
+
+	// The whole schema travels alongside the enumerations, because they are not
+	// the same statement: enumerations list the values the compiler may fall
+	// back to for an example, while the schema also carries the bounds and the
+	// pattern a generated value has to respect and a server has to enforce.
+	if p.converted != "" {
+		value.SetAttr(refract.SchemaAttribute, refract.String(p.converted))
 	}
 
 	member := refract.Member(p.name, value)

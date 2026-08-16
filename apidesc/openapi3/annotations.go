@@ -169,12 +169,21 @@ var (
 	specParameterSchema = objectSpec{
 		name:             "Schema Object",
 		parameterVariant: true,
-		supported:        []string{"type", "enum", "description", "title", "example"},
-		unsupported: []string{"$ref", "multipleOf", "maximum", "exclusiveMaximum", "minimum",
-			"exclusiveMinimum", "maxLength", "minLength", "pattern", "maxItems", "minItems",
-			"uniqueItems", "maxProperties", "minProperties", "properties", "items",
-			"required", "nullable", "default", "oneOf", "allOf", "anyOf", "not",
-			"additionalProperties", "format", "discriminator", "readOnly", "writeOnly",
+		// A parameter's constraints are acted on, though in `vertrag fuzz`
+		// rather than in `run`: generation draws values from the bounds, and
+		// the guard that decides whether a drawn value is really valid runs the
+		// whole schema through the validator, so every keyword it enforces
+		// decides what gets sent. `run` still sends the single example, which
+		// is where these keywords remain inert — but a key that is honoured by
+		// one command is not an unsupported key, and saying it is invites
+		// deleting the constraint that fuzzing depends on.
+		supported: []string{"type", "enum", "const", "description", "title", "example",
+			"multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum",
+			"maxLength", "minLength", "pattern", "format",
+			"maxItems", "minItems", "uniqueItems", "maxProperties", "minProperties",
+			"properties", "items", "required", "nullable", "default",
+			"oneOf", "allOf", "anyOf", "not", "additionalProperties"},
+		unsupported: []string{"$ref", "discriminator", "readOnly", "writeOnly",
 			"xml", "externalDocs", "deprecated"},
 	}
 )

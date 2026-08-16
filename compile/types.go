@@ -39,6 +39,55 @@ type Request struct {
 	// the reference for no benefit to the comparison. It exists for generation,
 	// which needs the shape of a valid body rather than one instance of it.
 	Schema string `json:"-"`
+
+	// Template is the URI template URI was expanded from, and Parameters are
+	// the values it was expanded with, plus the parameters that travel as
+	// headers.
+	//
+	// They are kept for the same reason Schema is, and are equally absent from
+	// the JSON. Together they are what lets a request be rebuilt with one
+	// parameter's value replaced: a URI cannot be edited as text, because the
+	// substitute has to be encoded for the position it sits in and a query
+	// parameter the description gave no example for is not in the URI at all.
+	Template   string      `json:"-"`
+	Parameters []Parameter `json:"-"`
+}
+
+// Where a parameter travels. They are the OpenAPI names, because that is what
+// every description this compiles from calls them and what a report naming one
+// should say.
+const (
+	InPath   = "path"
+	InQuery  = "query"
+	InHeader = "header"
+)
+
+// Parameter is one path, query or header parameter of a request, with the
+// schema the description said its value must satisfy.
+//
+// A body carries its constraints in one schema; a parameter carries its own,
+// and they are the ones most often left unchecked — a path parameter typed as
+// an integer, handed a word, is the classic way to get a 500 out of an
+// otherwise careful handler.
+type Parameter struct {
+	// In is where the value travels: "path", "query" or "header". It is read
+	// from the URI template rather than from the description, so a query
+	// parameter a format parser folded into the href is still recognised as one.
+	In string
+
+	// Name is the parameter's name as the URI template or the header list
+	// spells it.
+	Name string
+
+	// Schema is the JSON Schema its value must satisfy, empty when the
+	// description gave none.
+	Schema string
+
+	// Value is what the compiled request carries for it. HasValue separates a
+	// parameter with no value from one whose value is empty — the first is
+	// missing from the URI entirely, the second is present and blank.
+	Value    any
+	HasValue bool
 }
 
 // Response is the response the API description promises.

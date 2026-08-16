@@ -1,6 +1,9 @@
 package openapi2
 
-import "github.com/antimatter-studios/vertrag/refract"
+import (
+	"github.com/antimatter-studios/vertrag/refract"
+	"gopkg.in/yaml.v3"
+)
 
 // parameter is one Swagger Parameter Object.
 //
@@ -14,6 +17,11 @@ type parameter struct {
 	schema   node
 	hasValue bool
 	value    any
+
+	// converted is the parameter's constraints as a JSON Schema of their own,
+	// for the parameters that are not `in: body`. Swagger writes those inline on
+	// the Parameter Object, so there is no schema to hand on until one is made.
+	converted string
 }
 
 // parameters holds an operation's parameters in declaration order.
@@ -49,9 +57,49 @@ func (d *document) parseParameters(n node) *parameters {
 		} else if example := resolved.Get("example"); example.Valid() {
 			p.value, p.hasValue = scalarValue(example), true
 		}
+
+		if constraints := parameterConstraints(resolved); constraints.Valid() {
+			if converted, ok := d.convertSchema(constraints); ok {
+				p.converted = converted
+			}
+		}
+
 		params.ordered = append(params.ordered, p)
 	}
 	return params
+}
+
+// parameterConstraints lifts the JSON Schema keywords out of a Parameter Object.
+//
+// Swagger puts them directly on the parameter for everything but `in: body`, so
+// a parameter reads as a schema with a few extra keys — and one of those keys is
+// actively harmful. Swagger's `required` is a boolean saying the parameter must
+// be given, while JSON Schema's is a list of property names; left in place it
+// makes a schema no validator will compile, and a schema that will not compile
+// silently constrains nothing.
+//
+// The result shares the document's own nodes rather than copying them, so a
+// source position still points where a reader would look.
+func parameterConstraints(n node) node {
+	if !n.IsMapping() {
+		return node{}
+	}
+
+	constraints := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, member := range n.Entries() {
+		switch member.Key.Str() {
+		// Where the parameter goes and how it is spelled on the wire says
+		// nothing about which values are allowed.
+		case "name", "in", "description", "required", "allowEmptyValue", "collectionFormat":
+			continue
+		}
+		constraints.Content = append(constraints.Content, member.Key.Node, member.Value.Node)
+	}
+
+	if len(constraints.Content) == 0 {
+		return node{}
+	}
+	return node{Node: constraints}
 }
 
 // merge layers operation parameters over path-level ones, matching on name and
@@ -109,7 +157,7 @@ func (p *parameters) headers() []header {
 		if param.hasValue {
 			value = stringifyScalar(param.value)
 		}
-		out = append(out, header{name: param.name, value: value})
+		out = append(out, header{name: param.name, value: value, schema: param.converted})
 	}
 	return out
 }
@@ -143,6 +191,14 @@ func (p parameter) member() *refract.Element {
 			enumerations.Append(primitiveElement(scalarValue(item)))
 		}
 		value.SetAttr("enumerations", enumerations)
+	}
+
+	// The constraints travel whole as well as in pieces: the element name and
+	// the enumerations are what the compiler needs to pick an example, and the
+	// bounds and pattern beside them are what generation needs to produce
+	// anything else.
+	if p.converted != "" {
+		value.SetAttr(refract.SchemaAttribute, refract.String(p.converted))
 	}
 
 	member := refract.Member(p.name, value)

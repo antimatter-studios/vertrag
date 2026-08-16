@@ -152,21 +152,52 @@ func compileRequest(element *refract.Element) (*Request, []Annotation) {
 		annotations[i].Location = nil
 	}
 
-	if uri == "" {
+	if uri.uri == "" {
 		return nil, annotations
 	}
 
 	headers := compileHeaders(element.Attr("headers"))
 	request := &Request{
-		Method:  element.Attr("method").String(),
-		URI:     uri,
-		Headers: headers,
-		Body:    compileBody(element.ChildWithClass("asset", "messageBody"), hasMultipartBody(headers)),
+		Method:     element.Attr("method").String(),
+		URI:        uri.uri,
+		Headers:    headers,
+		Body:       compileBody(element.ChildWithClass("asset", "messageBody"), hasMultipartBody(headers)),
+		Template:   uri.template,
+		Parameters: append(uri.parameters, headerParameters(element.Attr("headers"))...),
 	}
 	if schema := element.ChildWithClass("asset", "messageBodySchema"); schema != nil {
 		request.Schema = schema.String()
 	}
 	return request, annotations
+}
+
+// headerParameters picks out the headers that are parameters in their own right.
+//
+// A header carrying a schema was declared as a parameter by the description; one
+// without is either a header the message itself states, such as Content-Type, or
+// came from a parser that does not record parameter schemas. Only the first has
+// constraints to generate against, so only the first is reported.
+func headerParameters(element *refract.Element) []Parameter {
+	var out []Parameter
+	for _, member := range element.ContentChildren() {
+		if member.Kind != refract.ContentMember {
+			continue
+		}
+		schema := member.Value.Attr(refract.SchemaAttribute).String()
+		if schema == "" {
+			continue
+		}
+		name, _ := member.Key.StringValue()
+		value := member.Value.String()
+		out = append(out, Parameter{
+			In:       InHeader,
+			Name:     name,
+			Schema:   schema,
+			Value:    value,
+			HasValue: value != "",
+		})
+	}
+	return out
 }
 
 func compileResponse(element *refract.Element) Response {

@@ -19,8 +19,9 @@ import (
 	"github.com/antimatter-studios/vertrag/validate"
 )
 
-// runFuzz is `vertrag fuzz`: test each operation with bodies drawn from its
-// schema instead of the single example the description shows.
+// runFuzz is `vertrag fuzz`: test each operation with bodies and parameter
+// values drawn from its schemas instead of the single example the description
+// shows.
 //
 // It is a separate command rather than a flag on `run` because the two answer
 // different questions. `run` is deterministic and comparable against Dredd —
@@ -32,9 +33,9 @@ func runFuzz(args []string) error {
 	fs := flag.NewFlagSet("fuzz", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
 	endpoint := fs.String("endpoint", "", "base URL of the server under test")
-	cases := fs.Int("cases", 20, "bodies to try per operation")
+	cases := fs.Int("cases", 20, "values to try per body and per parameter")
 	seed := fs.Uint64("seed", 0, "replay a previous run (0 picks one and reports it)")
-	mode := fs.String("mode", "both", "which bodies to send: valid, invalid, or both")
+	mode := fs.String("mode", "both", "which values to send: valid, invalid, or both")
 	noColor := fs.Bool("no-color", false, "disable coloured output")
 	var headers stringList
 	fs.Var(&headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
@@ -88,12 +89,12 @@ func runFuzz(args []string) error {
 
 	transactions := filterTransactions(stripAPIName(result.Transactions), settings)
 
-	// An operation with no request schema has nothing to draw from. Saying how
-	// many were passed over, and why, is the difference between a quiet run
-	// that tested little and one a reader can trust.
+	// An operation whose body and parameters all lack schemas has nothing to
+	// draw from. Saying how many were passed over, and why, is the difference
+	// between a quiet run that tested little and one a reader can trust.
 	probeable, skipped := partitionBySchema(transactions)
 	if len(probeable) == 0 {
-		fmt.Printf("No operation carries a request body schema, so there is nothing to generate from.\n")
+		fmt.Printf("No operation carries a schema for its body or for any parameter, so there is nothing to generate from.\n")
 		if skipped > 0 {
 			fmt.Printf("%d transaction(s) were passed over for that reason.\n", skipped)
 		}
@@ -112,7 +113,74 @@ func runFuzz(args []string) error {
 	}, settings.Color)
 }
 
-// probeAll runs every operation through every requested mode and reports.
+// target is one part of a request generation can vary, with the way to put a
+// generated value back into the request it came from.
+//
+// Body and parameter differ in where the value goes and in nothing else, so
+// they are probed by the same loop: a run that swept bodies thoroughly and
+// parameters occasionally would find whichever bugs the loop happened to be
+// written for.
+type target struct {
+	subject fuzz.Subject
+	schema  generate.Schema
+	apply   func(compile.Request, string) (compile.Request, error)
+}
+
+// probeTargets lists what can be generated for a request: its body, when the
+// description gave the body a schema, and every parameter that carries one.
+//
+// A parameter whose schema describes an array or an object is left out rather
+// than attempted, because there is no single string that unambiguously carries
+// one — see fuzz.Probeable. A schema that will not parse is different, and is
+// returned separately: that is a description someone should look at, not a
+// decision this made.
+func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.Subject) {
+	if strings.TrimSpace(request.Schema) != "" {
+		schema, err := decodeSchema(request.Schema)
+		switch {
+		case err != nil:
+			unreadable = append(unreadable, fuzz.Subject{In: fuzz.InBody})
+		default:
+			targets = append(targets, target{
+				subject: fuzz.Subject{In: fuzz.InBody},
+				schema:  schema,
+				apply: func(r compile.Request, value string) (compile.Request, error) {
+					r.Body = value
+					return r, nil
+				},
+			})
+		}
+	}
+
+	for _, parameter := range request.Parameters {
+		if strings.TrimSpace(parameter.Schema) == "" {
+			continue
+		}
+		subject := fuzz.Subject{In: parameter.In, Name: parameter.Name}
+
+		schema, err := decodeSchema(parameter.Schema)
+		if err != nil {
+			unreadable = append(unreadable, subject)
+			continue
+		}
+		if !fuzz.Probeable(schema) {
+			continue
+		}
+
+		targets = append(targets, target{
+			subject: subject,
+			schema:  schema,
+			apply: func(r compile.Request, value string) (compile.Request, error) {
+				return r.SetParameter(parameter, value)
+			},
+		})
+	}
+
+	return targets, unreadable
+}
+
+// probeAll runs every target of every operation through every requested mode and
+// reports.
 func probeAll(
 	ctx context.Context,
 	engine *runner.Runner,
@@ -124,39 +192,65 @@ func probeAll(
 ) error {
 	findings := 0
 	requests := 0
+	probed := 0
+	unprobeable := 0
 
 	for _, transaction := range transactions {
-		schema, err := decodeSchema(transaction.Request.Schema)
-		if err != nil {
-			fmt.Printf("%s: schema could not be read, skipping (%v)\n", transaction.Name, err)
-			continue
+		targets, unreadable := probeTargets(transaction.Request)
+		for _, subject := range unreadable {
+			fmt.Printf("%s: the %s schema could not be read, so it was not probed\n",
+				transaction.Name, subject.Describe())
 		}
 
-		for _, mode := range modes {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
+		for _, target := range targets {
+			probed++
 
-			send := func(ctx context.Context, body string) (validate.Message, error) {
-				requests++
-				attempt := transaction
-				attempt.Request.Body = body
-				return engine.Send(ctx, attempt)
-			}
+			for _, mode := range modes {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 
-			finding, found := fuzz.Probe(ctx, schema, mode, send, options)
-			if !found {
-				continue
+				send := func(ctx context.Context, value string) (validate.Message, error) {
+					request, err := target.apply(transaction.Request, value)
+					if err != nil {
+						return validate.Message{}, err
+					}
+					attempt := transaction
+					attempt.Request = request
+					requests++
+					return engine.Send(ctx, attempt)
+				}
+
+				var finding fuzz.Finding
+				var found bool
+				if target.subject.In == fuzz.InBody {
+					finding, found = fuzz.Probe(ctx, target.schema, mode, send, options)
+				} else {
+					finding, found = fuzz.ProbeParameter(ctx, target.subject, target.schema, mode, send, options)
+				}
+
+				switch {
+				case !found:
+				case finding.Unprobeable:
+					// Not a server mistake, so it does not fail the run — but it
+					// is counted, because a probe that sent nothing proves
+					// nothing and the summary would otherwise imply it did.
+					unprobeable++
+				default:
+					findings++
+					printFinding(transaction, target, finding, color)
+				}
 			}
-			findings++
-			printFinding(transaction, finding, color)
 		}
 	}
 
-	fmt.Printf("\n%d operation(s) probed, %d request(s) sent, %d finding(s)",
-		len(transactions), requests, findings)
+	fmt.Printf("\n%d operation(s) probed over %d body and parameter target(s), %d request(s) sent, %d finding(s)",
+		len(transactions), probed, requests, findings)
+	if unprobeable > 0 {
+		fmt.Printf(", %d probe(s) had nothing to send and tested nothing", unprobeable)
+	}
 	if skipped > 0 {
-		fmt.Printf(", %d transaction(s) skipped for having no request schema", skipped)
+		fmt.Printf(", %d transaction(s) skipped for having no schema to generate from", skipped)
 	}
 	fmt.Println()
 
@@ -166,7 +260,7 @@ func probeAll(
 	return nil
 }
 
-func printFinding(transaction compile.Transaction, finding fuzz.Finding, color bool) {
+func printFinding(transaction compile.Transaction, target target, finding fuzz.Finding, color bool) {
 	const (
 		red   = "\033[31m"
 		dim   = "\033[2m"
@@ -179,11 +273,18 @@ func printFinding(transaction compile.Transaction, finding fuzz.Finding, color b
 		return code + text + reset
 	}
 
+	// The request shown is the one that produced the finding, not the compiled
+	// one: for a path or query parameter they differ, and the whole value of
+	// the report is being able to repeat the request that failed.
+	request := transaction.Request
+	if sent, err := target.apply(request, finding.Value); err == nil {
+		request = sent
+	}
+
 	fmt.Printf("\n%s %s\n", paint(red, "finding:"), transaction.Name)
 	fmt.Printf("  %s\n", finding.Message)
-	fmt.Printf("  %s %s %s\n", paint(dim, "request:"),
-		transaction.Request.Method, transaction.Request.URI)
-	fmt.Printf("  %s %s\n", paint(dim, "body:   "), finding.Body)
+	fmt.Printf("  %s %s %s\n", paint(dim, "request:"), request.Method, request.URI)
+	fmt.Printf("  %s %s\n", paint(dim, finding.Subject.Describe()+":"), finding.Value)
 	fmt.Printf("  %s %s\n", paint(dim, "status: "), finding.Status)
 }
 
@@ -193,7 +294,8 @@ func partitionBySchema(transactions []compile.Transaction) ([]compile.Transactio
 	var probeable []compile.Transaction
 	skipped := 0
 	for _, transaction := range transactions {
-		if strings.TrimSpace(transaction.Request.Schema) == "" {
+		targets, unreadable := probeTargets(transaction.Request)
+		if len(targets) == 0 && len(unreadable) == 0 {
 			skipped++
 			continue
 		}

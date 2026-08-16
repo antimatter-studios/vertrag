@@ -38,10 +38,10 @@ func main() {
 
 	second, _ := fuzz.Probe(context.Background(), schema, generate.Invalid,
 		accepts, fuzz.Options{Cases: 50, Seed: 7})
-	if first.Body != second.Body {
-		fmt.Printf("FAIL: seed 7 gave %s then %s\n", first.Body, second.Body)
+	if first.Value != second.Value {
+		fmt.Printf("FAIL: seed 7 gave %s then %s\n", first.Value, second.Value)
 		return
 	}
 
-	fmt.Println("OK", first.Body)
+	fmt.Println("OK", first.Value)
 }

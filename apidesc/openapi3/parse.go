@@ -161,9 +161,15 @@ type header struct {
 	value string
 
 	// schema is the JSON Schema the document gave this header's value, empty
-	// when it gave none or gave one vertrag will not act on. Only a response
-	// header carries it: a request header's value is vertrag's own doing, so
-	// there is nothing to check it against.
+	// when it gave none or gave one vertrag will not act on. It serves both
+	// directions and means something different in each.
+	//
+	// On a RESPONSE header it is what the received value is validated against.
+	// On a REQUEST header it marks the header as a declared parameter — which
+	// is what distinguishes one from a header the message itself states, a
+	// Content-Type being no parameter at all — and is what generation draws
+	// from. A request header's value is otherwise vertrag's own doing, so there
+	// would be nothing to check it against.
 	schema string
 }
 
@@ -274,7 +280,11 @@ func setHeaders(element *refract.Element, headers []header) {
 	}
 	httpHeaders := refract.Named("httpHeaders")
 	for _, h := range headers {
-		httpHeaders.Append(refract.Member(h.name, refract.String(h.value)))
+		value := refract.String(h.value)
+		if h.schema != "" {
+			value.SetAttr(refract.SchemaAttribute, refract.String(h.schema))
+		}
+		httpHeaders.Append(refract.Member(h.name, value))
 	}
 	element.SetAttr("headers", httpHeaders)
 }
