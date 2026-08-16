@@ -1,0 +1,36 @@
+openapi: 3.0.0
+info:
+  title: Cookies and duplicates
+  version: "1.0.0"
+  description: >
+    A cookie parameter, and the same name used in two locations at once.
+    Both are places a tester can put a value where it does not belong, or
+    let one parameter overwrite another that merely shares its name.
+
+paths:
+  /session:
+    get:
+      summary: A cookie parameter
+      parameters:
+        - name: sessionId
+          in: cookie
+          example: abc123
+          schema: {type: string, minLength: 4}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}
+
+  /collide/{id}:
+    get:
+      summary: One name in three places at once
+      parameters:
+        - {name: id, in: path, required: true, example: 7, schema: {type: integer, minimum: 1}}
+        - {name: id, in: query, example: q-value, schema: {type: string, minLength: 2}}
+        - {name: id, in: header, example: h-value, schema: {type: string, minLength: 2}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}

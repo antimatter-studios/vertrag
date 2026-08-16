@@ -287,6 +287,7 @@ func (d *document) validateOperation(operation node) []annotation {
 		for _, parameter := range op.Get("parameters").Items() {
 			out = append(out, d.validateParameter(parameter)...)
 		}
+		out = append(out, d.reportCollidingParameters(op.Get("parameters"))...)
 		out = append(out, d.validateRequestBody(op.Get("requestBody"))...)
 		out = append(out, d.validateResponses(op.Get("responses"))...)
 		for _, server := range op.Get("servers").Items() {
@@ -294,6 +295,41 @@ func (d *document) validateOperation(operation node) []annotation {
 		}
 		return out
 	})
+}
+
+// reportCollidingParameters warns about one name used in both the path and the
+// query.
+//
+// A URI template expands every occurrence of a variable from a single value, so
+// `/collide/{id}{?id}` cannot carry a different id in each position: whichever
+// was assigned last wins both, and the request goes to a path the description
+// never described. There is no spelling for it in a template, so the honest
+// answer is to say so rather than build a URL that looks deliberate.
+func (d *document) reportCollidingParameters(parameters node) []annotation {
+	inPath := map[string]bool{}
+	for _, parameter := range parameters.Items() {
+		resolved := d.Resolve(parameter)
+		if resolved.Get("in").Str() == "path" {
+			inPath[resolved.Get("name").Str()] = true
+		}
+	}
+
+	var out []annotation
+	for _, parameter := range parameters.Items() {
+		resolved := d.Resolve(parameter)
+		name := resolved.Get("name").Str()
+		if resolved.Get("in").Str() != "query" || !inPath[name] {
+			continue
+		}
+		out = append(out, d.at(annotation{
+			class: "warning",
+			message: fmt.Sprintf(
+				"'Parameter Object' %q is declared in both the path and the query; "+
+					"a URI template expands both from one value, so the path will carry the query's",
+				name),
+		}, resolved.Get("name")))
+	}
+	return out
 }
 
 func (d *document) validateParameter(parameter node) []annotation {
