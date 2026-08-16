@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/compile"
-	"github.com/antimatter-studios/vertrag/internal/runner"
+	"github.com/antimatter-studios/vertrag/runner"
 )
 
 func prepared(t *testing.T) *runner.Transaction {

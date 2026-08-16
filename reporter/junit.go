@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/antimatter-studios/vertrag/internal/runner"
+	"github.com/antimatter-studios/vertrag/runner"
 )
 
 // JUnit writes results as JUnit XML, which is what CI systems read.

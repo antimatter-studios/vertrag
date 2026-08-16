@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/compile"
-	"github.com/antimatter-studios/vertrag/internal/config"
+	"github.com/antimatter-studios/vertrag/config"
 )
 
 // TestStripAPIName pins the name hooks actually see.

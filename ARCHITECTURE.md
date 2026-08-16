@@ -14,6 +14,10 @@ alphabetical.
 | `validate` | Whether a response matches what was promised |
 | `uritemplate` | URI template expansion |
 | `yamldoc` | YAML/JSON navigation that keeps source positions |
+| `config` | Reads `vertrag.yml`, and the `dredd.yml` it is a superset of |
+| `runner` | Sends the transactions and judges what comes back |
+| `hooks` | Runs Node.js hook files and lets them rewrite transactions |
+| `reporter` | Renders results — a terminal log, or JUnit XML for CI |
 
 These are stages, not layers: each has one input type and one output type, and
 each is tested against a reference implementation on its own. That is what lets
@@ -24,14 +28,15 @@ compile difference, because they are compared separately.
 
 | Package | Why it is not importable |
 | --- | --- |
-| `internal/config` | Reads `dredd.yml`; shaped by the CLI's needs, not a library's |
-| `internal/runner` | Executes transactions; its API is still moving |
-| `internal/hooks` | Runs hook files; coupled to the runner's transaction type |
-| `internal/reporter` | Renders results for a terminal |
-| `internal/oracle` | Differential tests only |
+| `internal/oracle` | Differential tests; it has no callers and never should |
 
-These stay unexported because their interfaces are not settled. Exporting one is
-a promise, and a promise made early is a promise broken later.
+`internal/` is for code that genuinely must not be depended on, which here means
+the test harness alone. An earlier version of this file kept the runner, hooks,
+config and reporter unexported on the grounds that their interfaces were still
+moving — but a pre-1.0 module promises nothing about any of its packages, and
+hiding them only stopped anyone using them. Running Node.js hook files over
+Dredd's worker protocol, or writing JUnit XML from arbitrary results, are useful
+outside this binary.
 
 ## Why one module rather than several
 

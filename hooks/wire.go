@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/runner"
+	"github.com/antimatter-studios/vertrag/runner"
 	"github.com/antimatter-studios/vertrag/validate"
 )
 

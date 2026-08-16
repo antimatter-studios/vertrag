@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/runner"
+	"github.com/antimatter-studios/vertrag/runner"
 )
 
 // CLI writes Dredd's default output: one line per transaction, then the

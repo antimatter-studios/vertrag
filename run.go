@@ -12,10 +12,10 @@ import (
 
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
-	"github.com/antimatter-studios/vertrag/internal/config"
-	"github.com/antimatter-studios/vertrag/internal/hooks"
-	"github.com/antimatter-studios/vertrag/internal/reporter"
-	"github.com/antimatter-studios/vertrag/internal/runner"
+	"github.com/antimatter-studios/vertrag/config"
+	"github.com/antimatter-studios/vertrag/hooks"
+	"github.com/antimatter-studios/vertrag/reporter"
+	"github.com/antimatter-studios/vertrag/runner"
 )
 
 // runRun is `vertrag run`: read a description, derive the transactions, send

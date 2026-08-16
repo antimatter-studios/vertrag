@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/antimatter-studios/vertrag/internal/runner"
+	"github.com/antimatter-studios/vertrag/runner"
 )
 
 // nodeWorker is embedded so a released binary carries everything it needs. A
