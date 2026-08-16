@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/antimatter-studios/vertrag/runner"
 	"github.com/antimatter-studios/vertrag/validate"
@@ -85,12 +86,12 @@ func applyWire(t *runner.Transaction, w wireTransaction) {
 	t.Request.Method = w.Request.Method
 	t.Request.URI = w.Request.URI
 	t.Request.Headers = copyHeaders(w.Request.Headers)
-	t.Request.Body = w.Request.Body
+	t.Request.Body = keptBody(t.Request.Body, w.Request.Body)
 
 	t.Expected = validate.Message{
 		StatusCode: w.Expected.StatusCode,
 		Headers:    copyHeaders(w.Expected.Headers),
-		Body:       w.Expected.Body,
+		Body:       keptBody(t.Expected.Body, w.Expected.Body),
 		BodySchema: w.Expected.BodySchema,
 	}
 
@@ -159,4 +160,48 @@ func splitEndpoint(endpoint string) (host, port, protocol string) {
 		}
 	}
 	return host, port, protocol
+}
+
+// keptBody decides whether a hook actually changed a body.
+//
+// The protocol is newline-delimited JSON, and Go's encoder replaces every byte
+// that is not valid UTF-8 with U+FFFD. A PNG header of eight bytes arrives at
+// the worker as fourteen, and taking that back would replace the recorded body
+// with a corrupted one — so a binary response would be validated, reported and
+// diffed against something the server never sent.
+//
+// A hook that did not touch the body sends back exactly what it was given, so
+// comparing against the same round trip identifies that case exactly: if the
+// returned value matches what the hook would have seen, the original bytes are
+// kept. Only a hook that genuinely rewrote the body has its version taken, and
+// there the corruption is moot — a hook cannot express arbitrary bytes in JSON
+// anyway, so whatever it sent is what it meant.
+//
+// Dredd has the same defect and no equivalent guard. Reproducing it would mean
+// corrupting a body to match, which is a poor reason to corrupt a body.
+func keptBody(original, returned string) string {
+	if original == returned {
+		return returned
+	}
+	if returned == overTheWire(original) {
+		// Unchanged by the hook; the difference is the wire's doing.
+		return original
+	}
+	return returned
+}
+
+// overTheWire renders a string as the hook worker would have received it.
+func overTheWire(body string) string {
+	if utf8.ValidString(body) {
+		return body
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return body
+	}
+	var decoded string
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return body
+	}
+	return decoded
 }

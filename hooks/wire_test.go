@@ -6,6 +6,7 @@ import (
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/runner"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 func prepared(t *testing.T) *runner.Transaction {
@@ -200,5 +201,53 @@ func TestUnsupportedHookLanguageIsRejected(t *testing.T) {
 	_, err := Start(t.Context(), Options{Language: "python"})
 	if err == nil {
 		t.Fatal("an unsupported hooks language should be reported")
+	}
+}
+
+// TestABinaryBodySurvivesAHookThatDoesNotTouchIt pins a corruption that reached
+// validation.
+//
+// The hook protocol is newline-delimited JSON, and Go's encoder replaces every
+// byte that is not valid UTF-8 with U+FFFD — a PNG header of eight bytes
+// arrives at the worker as fourteen. Taking that value back replaced the
+// recorded body with a corrupted one, so a binary response was validated,
+// reported and diffed against something the server never sent.
+func TestABinaryBodySurvivesAHookThatDoesNotTouchIt(t *testing.T) {
+	binary := string([]byte{0x89, 'P', 'N', 'G', 0x00, 0xFF, 0xFE, 0x01})
+
+	transaction := &runner.Transaction{
+		Request:  runner.Request{Method: "GET", Headers: map[string]string{}, Body: binary},
+		Expected: validate.Message{StatusCode: "200", Body: binary},
+	}
+
+	// What a worker that only read the transaction would send back.
+	wire := toWire(transaction)
+	applyWire(transaction, wire)
+
+	if transaction.Request.Body != binary {
+		t.Errorf("request body corrupted: %d bytes in, %d out",
+			len(binary), len(transaction.Request.Body))
+	}
+	if transaction.Expected.Body != binary {
+		t.Errorf("expected body corrupted: %d bytes in, %d out",
+			len(binary), len(transaction.Expected.Body))
+	}
+}
+
+// TestAHookThatRewritesABodyStillWins pins that the guard does not make bodies
+// read-only. A hook exists to change things, and one that genuinely rewrote the
+// body has its version taken.
+func TestAHookThatRewritesABodyStillWins(t *testing.T) {
+	transaction := &runner.Transaction{
+		Request:  runner.Request{Method: "POST", Headers: map[string]string{}, Body: `{"a":1}`},
+		Expected: validate.Message{StatusCode: "200"},
+	}
+
+	wire := toWire(transaction)
+	wire.Request.Body = `{"a":2}`
+	applyWire(transaction, wire)
+
+	if transaction.Request.Body != `{"a":2}` {
+		t.Errorf("body = %q, want the hook's version", transaction.Request.Body)
 	}
 }
