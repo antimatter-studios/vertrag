@@ -25,7 +25,7 @@ func main() {
 		},
 	}
 	// A server that enforces nothing, so the invalid mode always has a finding.
-	accepts := func(ctx context.Context, body string) (validate.Message, error) {
+	accepts := func(ctx context.Context, body any) (validate.Message, error) {
 		return validate.Message{StatusCode: "201"}, nil
 	}
 

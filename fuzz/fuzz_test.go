@@ -26,9 +26,13 @@ var userSchema = generate.Schema{
 type server func(body map[string]any) string
 
 func (s server) sender() Sender {
-	return func(ctx context.Context, body string) (validate.Message, error) {
+	return func(ctx context.Context, body any) (validate.Message, error) {
+		text, isText := body.(string)
+		if !isText {
+			return validate.Message{StatusCode: "400"}, nil
+		}
 		var decoded map[string]any
-		if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+		if err := json.Unmarshal([]byte(text), &decoded); err != nil {
 			// Not an object: a correct server rejects it.
 			return validate.Message{StatusCode: "400"}, nil
 		}
@@ -144,7 +148,7 @@ func TestFindingIsShrunk(t *testing.T) {
 	}
 
 	var body map[string]any
-	if err := json.Unmarshal([]byte(finding.Value), &body); err != nil {
+	if err := json.Unmarshal([]byte(text(finding.Value)), &body); err != nil {
 		t.Fatalf("finding body does not parse: %v", err)
 	}
 
@@ -159,7 +163,7 @@ func TestFindingIsShrunk(t *testing.T) {
 }
 
 func TestTransportFailureIsReported(t *testing.T) {
-	failing := func(ctx context.Context, body string) (validate.Message, error) {
+	failing := func(ctx context.Context, body any) (validate.Message, error) {
 		return validate.Message{}, context.DeadlineExceeded
 	}
 	if _, found := Probe(context.Background(), userSchema, generate.Valid, failing, Options{Cases: 5}); !found {
@@ -179,7 +183,7 @@ func TestUnviolatableSchemaIsNotReportedAsABypass(t *testing.T) {
 	constUnderDraft4 := generate.Schema{"const": "widget"}
 
 	sent := 0
-	accepts := func(ctx context.Context, body string) (validate.Message, error) {
+	accepts := func(ctx context.Context, body any) (validate.Message, error) {
 		sent++
 		return validate.Message{StatusCode: "201"}, nil
 	}
@@ -207,7 +211,7 @@ func TestDialectDeclaredMakesTheSameSchemaProbeable(t *testing.T) {
 	}
 
 	sent := 0
-	accepts := func(ctx context.Context, body string) (validate.Message, error) {
+	accepts := func(ctx context.Context, body any) (validate.Message, error) {
 		sent++
 		return validate.Message{StatusCode: "201"}, nil
 	}
@@ -223,4 +227,17 @@ func TestDialectDeclaredMakesTheSameSchemaProbeable(t *testing.T) {
 	if !strings.Contains(finding.Message, "not enforced") {
 		t.Errorf("message = %q, want the validation-bypass finding", finding.Message)
 	}
+}
+
+// text renders a finding's value, which is `any` because a parameter may be a
+// list.
+func text(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }

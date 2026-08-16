@@ -2,6 +2,7 @@ package compile
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/uritemplate"
@@ -23,10 +24,15 @@ import (
 // the property the whole exercise depends on: the generated request differs from
 // the compiled one in exactly one parameter, so whatever the server does
 // differently is about that parameter.
-func (r Request) SetParameter(parameter Parameter, value string) (Request, error) {
+// The value is `any` rather than a string because a parameter may be a list.
+// A list has no single text form — whether it becomes `tags=a&tags=b` or
+// `tags=a,b` depends on the explode modifier, which the URI template already
+// carries — so rendering it here would mean reimplementing the expander's own
+// rules beside it and getting one of the two wrong.
+func (r Request) SetParameter(parameter Parameter, value any) (Request, error) {
 	switch parameter.In {
 	case InHeader:
-		r.Headers = setHeader(r.Headers, parameter.Name, value)
+		r.Headers = setHeader(r.Headers, parameter.Name, headerText(value))
 		return r, nil
 	case InPath, InQuery:
 	default:
@@ -75,4 +81,29 @@ func setHeader(headers []Header, name, value string) []Header {
 		replaced = append(replaced, Header{Name: name, Value: value})
 	}
 	return replaced
+}
+
+// headerText renders a value for a header, which is text whatever it describes.
+//
+// A list becomes a comma-separated line, which is HTTP's own #rule and what the
+// runner's joining of a repeated header produces.
+func headerText(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			parts = append(parts, headerText(item))
+		}
+		return strings.Join(parts, ",")
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(typed)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(value)
+	}
 }

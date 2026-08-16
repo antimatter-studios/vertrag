@@ -19,11 +19,14 @@ type recorder struct {
 }
 
 func (r *recorder) sender() Sender {
-	return func(ctx context.Context, value string) (validate.Message, error) {
-		r.sent = append(r.sent, value)
+	return func(ctx context.Context, value any) (validate.Message, error) {
+		// A parameter's value is `any` so a list can reach the URI template
+		// intact; a test asserting on what was sent wants the text either way.
+		rendered := text(value)
+		r.sent = append(r.sent, rendered)
 		status := "200"
 		if r.reply != nil {
-			status = r.reply(value)
+			status = r.reply(rendered)
 		}
 		return validate.Message{StatusCode: status}, nil
 	}
@@ -261,7 +264,16 @@ func TestProbeableRejectsSchemasWithNoSingleWireForm(t *testing.T) {
 		{generate.Schema{"type": "boolean"}, true},
 		{generate.Schema{"type": []any{"string", "null"}}, true},
 		{generate.Schema{"enum": []any{"a", "b"}}, true},
-		{generate.Schema{"type": "array", "items": map[string]any{"type": "string"}}, false},
+		// An array IS probeable now: the URI template already records whether
+		// its members repeat the key or share one, so the expander renders it
+		// by the description's own rule rather than a guess. Only the default
+		// `form` style is expressible that way — spaceDelimited, pipeDelimited
+		// and deepObject are not parsed at all, so a document using one is
+		// rendered by the wrong rule and is a gap, not a capability.
+		{generate.Schema{"type": "array", "items": map[string]any{"type": "string"}}, true},
+		// An object still is not: which of comma or a repeated key separates
+		// its members is decided by a style the compiled request does not
+		// record.
 		{generate.Schema{"type": "object"}, false},
 	} {
 		if got := Probeable(test.schema); got != test.want {
@@ -278,7 +290,7 @@ func TestProbeableRejectsSchemasWithNoSingleWireForm(t *testing.T) {
 // the whole content of the report — an empty finding would say a request failed
 // and leave the reader to find out which.
 func TestATransportFailureNamesTheValueThatCausedIt(t *testing.T) {
-	refusing := func(ctx context.Context, value string) (validate.Message, error) {
+	refusing := func(ctx context.Context, value any) (validate.Message, error) {
 		return validate.Message{}, context.DeadlineExceeded
 	}
 

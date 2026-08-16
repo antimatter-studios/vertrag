@@ -76,10 +76,13 @@ func enableOutsideTests() {
 
 // Sender performs one generated request and reports what came back.
 //
-// The string is whatever the probe generated: the request body, or the value of
+// The value is whatever the probe generated: the request body, or the value of
 // the one parameter being varied. Where it belongs in the request is the
 // caller's business, since only the caller knows how to put it there.
-type Sender func(ctx context.Context, value string) (validate.Message, error)
+// The value is `any` because a parameter may be a list, which has no single
+// text form — the URI template decides whether it becomes a repeated key or a
+// comma-separated one, and rendering it here would reimplement that beside it.
+type Sender func(ctx context.Context, value any) (validate.Message, error)
 
 // Options controls how hard a probe looks.
 type Options struct {
@@ -130,7 +133,7 @@ func (s Subject) Describe() string {
 type Finding struct {
 	Mode    generate.Mode
 	Subject Subject
-	Value   string
+	Value   any
 	Status  string
 	Message string
 

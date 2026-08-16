@@ -22,29 +22,41 @@ import (
 type wire struct {
 	// render turns a drawn value into what will actually be sent, and reports
 	// false for a value that has no such form and must not be sent.
-	render func(value any) (string, bool)
+	//
+	// The result is `any` rather than a string because a list has no single
+	// text form: whether it becomes `tags=a&tags=b` or `tags=a,b` is decided by
+	// the explode modifier, which the URI template already carries. Handing the
+	// list on lets the expander apply its own rules rather than having them
+	// reimplemented alongside and one of the two got wrong.
+	render func(value any) (any, bool)
 
 	// interpret returns every value a correct server could decode the rendered
 	// form back into, each as a JSON document ready to validate. More than one
 	// means the description left the reading ambiguous; none means the form
 	// cannot be interpreted at all.
-	interpret func(rendered string) []string
+	interpret func(rendered any) []string
 }
 
 // bodyForm sends a body as JSON, which the server reads back as JSON. There is
 // only ever one reading, and it is the value that was drawn.
 func bodyForm() wire {
 	return wire{
-		render: func(value any) (string, bool) {
+		render: func(value any) (any, bool) {
 			encoded, err := json.Marshal(value)
 			if err != nil {
 				// A value that will not serialise is a generator problem, not a
 				// server one, and blaming the server for it would be wrong.
-				return "", false
+				return nil, false
 			}
 			return string(encoded), true
 		},
-		interpret: func(rendered string) []string { return []string{rendered} },
+		interpret: func(rendered any) []string {
+			text, ok := rendered.(string)
+			if !ok {
+				return nil
+			}
+			return []string{text}
+		},
 	}
 }
 
@@ -52,20 +64,61 @@ func bodyForm() wire {
 // value or a header field can hold.
 func parameterForm(subject Subject, schema generate.Schema) wire {
 	return wire{
-		render: func(value any) (string, bool) {
+		render: func(value any) (any, bool) {
+			// A list is only a list on the wire when the SCHEMA says so. Where
+			// the schema describes a string and the generator drew a list to
+			// violate it, there is no form that means "a list where text was
+			// expected" — the server reads whatever text arrives, which is a
+			// perfectly good string, and would be reported for accepting it.
+			if list, isList := value.([]any); isList && contains(declaredTypes(schema), "array") {
+				if len(list) == 0 {
+					// An empty list expands to nothing, which is an absent
+					// parameter rather than an empty one — a different question
+					// from the one being asked.
+					return nil, false
+				}
+				// A list is handed on whole, for the URI template to expand by
+				// the rules the description chose. What cannot be done is any
+				// style other than the default `form` — spaceDelimited,
+				// pipeDelimited and deepObject are not parsed, so a document
+				// using one would have its list rendered by the wrong rule and
+				// the server judged on it.
+				for _, item := range list {
+					text, ok := scalarText(item)
+					if !ok || !sendable(subject.In, text) {
+						return nil, false
+					}
+				}
+				return list, true
+			}
+
 			rendered, ok := scalarText(value)
 			if !ok {
-				// An array or an object has no one form here: which of comma,
-				// space, pipe or a repeated key separates its members is
-				// decided by a serialisation style the compiled request no
-				// longer records. Guessing would send something the description
-				// never described, and then judge the server on it.
-				return "", false
+				// An object has no one form here: which of comma or a repeated
+				// key separates its members is decided by a serialisation style
+				// the compiled request does not record. Guessing would send
+				// something the description never described, and then judge the
+				// server on it.
+				return nil, false
 			}
 			return rendered, sendable(subject.In, rendered)
 		},
-		interpret: func(rendered string) []string {
-			return interpretations(schema, rendered)
+		interpret: func(rendered any) []string {
+			if list, isList := rendered.([]any); isList {
+				// A list arrives at the server as a list however it was
+				// separated on the wire, so the drawn value is what it holds
+				// and there is no reading to be ambiguous about.
+				encoded, err := json.Marshal(list)
+				if err != nil {
+					return nil
+				}
+				return []string{string(encoded)}
+			}
+			text, ok := rendered.(string)
+			if !ok {
+				return nil
+			}
+			return interpretations(schema, text)
 		},
 	}
 }
@@ -291,6 +344,12 @@ func declaredTypes(schema generate.Schema) []string {
 // and abandoned every time.
 func Probeable(schema generate.Schema) bool {
 	for _, declared := range declaredTypes(schema) {
+		if declared == "array" {
+			// A list is sent by the URI template's own expansion, so it needs
+			// no coercion — but only under the default `form` style, which is
+			// the one the template can express.
+			continue
+		}
 		if _, ok := coerce(declared, "x"); !ok {
 			return false
 		}

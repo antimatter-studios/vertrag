@@ -123,7 +123,7 @@ func runFuzz(args []string) error {
 type target struct {
 	subject fuzz.Subject
 	schema  generate.Schema
-	apply   func(compile.Request, string) (compile.Request, error)
+	apply   func(compile.Request, any) (compile.Request, error)
 }
 
 // probeTargets lists what can be generated for a request: its body, when the
@@ -144,8 +144,14 @@ func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.
 			targets = append(targets, target{
 				subject: fuzz.Subject{In: fuzz.InBody},
 				schema:  schema,
-				apply: func(r compile.Request, value string) (compile.Request, error) {
-					r.Body = value
+				apply: func(r compile.Request, value any) (compile.Request, error) {
+					body, ok := value.(string)
+					if !ok {
+						// Only a parameter can be a list; a body is always the
+						// JSON text the generator serialised.
+						return r, fmt.Errorf("a request body must be text, got %T", value)
+					}
+					r.Body = body
 					return r, nil
 				},
 			})
@@ -170,7 +176,7 @@ func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.
 		targets = append(targets, target{
 			subject: subject,
 			schema:  schema,
-			apply: func(r compile.Request, value string) (compile.Request, error) {
+			apply: func(r compile.Request, value any) (compile.Request, error) {
 				return r.SetParameter(parameter, value)
 			},
 		})
@@ -210,7 +216,7 @@ func probeAll(
 					return ctx.Err()
 				}
 
-				send := func(ctx context.Context, value string) (validate.Message, error) {
+				send := func(ctx context.Context, value any) (validate.Message, error) {
 					request, err := target.apply(transaction.Request, value)
 					if err != nil {
 						return validate.Message{}, err

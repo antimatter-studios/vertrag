@@ -232,9 +232,9 @@ func drawArray(t *rapid.T, schema Schema, mode Mode, depth int) any {
 		case hasMin && min > 0:
 			// Short of the minimum, including the boundary a handler checking
 			// `len(x) > 0` gets wrong.
-			return make([]any, rapid.IntRange(0, min-1).Draw(t, "too-few"))
+			return fill(t, Schema(items), rapid.IntRange(0, min-1).Draw(t, "too-few"), depth)
 		case hasMax:
-			return make([]any, rapid.IntRange(max+1, max+4).Draw(t, "too-many"))
+			return fill(t, Schema(items), rapid.IntRange(max+1, max+4).Draw(t, "too-many"), depth)
 		default:
 			return rapid.SampledFrom([]any{"vertrag-not-an-array", 42}).Draw(t, "wrong-type")
 		}
@@ -388,4 +388,20 @@ func numberAt(schema Schema, key string) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// fill builds a list of the given length whose members are all valid.
+//
+// The members have to be drawn rather than left as the zero value, and the
+// reason is not tidiness. `make([]any, n)` produces a list of nils, so an array
+// meant to be invalid only in its LENGTH was also invalid in every element —
+// which for a body means the finding could be about either, and for a parameter
+// means the list has no wire form at all and is never sent. The count is the
+// constraint under test, so it should be the only one broken.
+func fill(t *rapid.T, items Schema, length, depth int) []any {
+	out := make([]any, 0, length)
+	for i := 0; i < length; i++ {
+		out = append(out, draw(t, items, Valid, depth+1))
+	}
+	return out
 }
