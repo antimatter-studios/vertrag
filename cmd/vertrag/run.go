@@ -161,16 +161,16 @@ func runRun(args []string) error {
 		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
 	}
 
-	source, err := os.ReadFile(settings.Blueprint)
+	source, err := os.ReadFile(settings.Spec)
 	if err != nil {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
 
-	parsed, err := apidesc.Parse(source, settings.Blueprint)
+	parsed, err := apidesc.Parse(source, settings.Spec)
 	if err != nil {
-		return fmt.Errorf("parsing %s: %w", settings.Blueprint, err)
+		return fmt.Errorf("parsing %s: %w", settings.Spec, err)
 	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Blueprint)
+	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
 
 	annotations.Annotations(toAnnotations(result.Annotations))
 	if hasErrors(result.Annotations) {
@@ -359,8 +359,8 @@ func resolveConfig(path string, positional []string) (config.Config, error) {
 	// errors against the port that was not asked for. So where the two disagree,
 	// say which one is being used rather than leaving it to be deduced.
 	if len(positional) > 0 {
-		noteOverride(&settings, "the description", positional[0], settings.Blueprint)
-		settings.Blueprint = positional[0]
+		noteOverride(&settings, "the description", positional[0], settings.Spec)
+		settings.Spec = positional[0]
 	}
 	if len(positional) > 1 {
 		noteOverride(&settings, "the endpoint", positional[1], settings.Endpoint)

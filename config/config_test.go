@@ -55,8 +55,8 @@ endpoint: 'http://localhost:4000'
 		t.Fatalf("Load: %v", err)
 	}
 
-	if config.Blueprint != "./openapi.json" {
-		t.Errorf("blueprint = %q", config.Blueprint)
+	if config.Spec != "./openapi.json" {
+		t.Errorf("blueprint = %q", config.Spec)
 	}
 	if config.Endpoint != "http://localhost:4000" {
 		t.Errorf("endpoint = %q", config.Endpoint)
@@ -262,10 +262,10 @@ func TestValidate(t *testing.T) {
 		config  Config
 		wantErr bool
 	}{
-		{"complete", Config{Blueprint: "api.yml", Endpoint: "http://localhost:4000"}, false},
-		{"no blueprint", Config{Endpoint: "http://localhost"}, true},
-		{"no endpoint", Config{Blueprint: "api.yml"}, true},
-		{"endpoint without a scheme", Config{Blueprint: "api.yml", Endpoint: "localhost:4000"}, true},
+		{"complete", Config{Spec: "api.yml", Endpoint: "http://localhost:4000"}, false},
+		{"no spec", Config{Endpoint: "http://localhost"}, true},
+		{"no endpoint", Config{Spec: "api.yml"}, true},
+		{"endpoint without a scheme", Config{Spec: "api.yml", Endpoint: "localhost:4000"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.config.Validate()

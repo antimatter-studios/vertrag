@@ -20,7 +20,7 @@ func writeConfig(t *testing.T, name, body string) string {
 
 func TestAuthFromVertragFile(t *testing.T) {
 	path := writeConfig(t, "vertrag.yml", `
-blueprint: ./api.yml
+spec: ./api.yml
 endpoint: http://localhost:4210
 auth:
   login:
@@ -64,7 +64,7 @@ auth:
 // not, testing different things from one file that looks shared.
 func TestAuthIsIgnoredInADreddFile(t *testing.T) {
 	path := writeConfig(t, "dredd.yml", `
-blueprint: ./api.yml
+spec: ./api.yml
 endpoint: http://localhost:4210
 auth:
   login: {path: /auth/login}
@@ -95,7 +95,7 @@ auth:
 }
 
 func TestAuthAbsentIsNotConfigured(t *testing.T) {
-	path := writeConfig(t, "vertrag.yml", "blueprint: ./api.yml\nendpoint: http://x\n")
+	path := writeConfig(t, "vertrag.yml", "spec: ./api.yml\nendpoint: http://x\n")
 
 	settings, err := config.Load(path)
 	if err != nil {
@@ -109,9 +109,65 @@ func TestAuthAbsentIsNotConfigured(t *testing.T) {
 	}
 }
 
+// `blueprint` was the former name for `spec`. It still works — no existing
+// config should break over a rename — but it is no longer documented, and a run
+// says so once so the rename can actually finish rather than lingering forever.
+func TestBlueprintIsStillReadAndSaysSo(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", "blueprint: ./api.yml\nendpoint: http://x\n")
+
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.Spec != "./api.yml" {
+		t.Errorf("spec = %q, want the value blueprint gave", settings.Spec)
+	}
+	if len(settings.Notes) != 1 || !strings.Contains(settings.Notes[0], "`spec`") {
+		t.Errorf("notes = %v, want one naming the new key", settings.Notes)
+	}
+}
+
+// A file carrying both is the state a half-finished rename leaves behind. `spec`
+// wins, and which one won is said rather than left to be found by experiment.
+func TestSpecWinsOverBlueprint(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml",
+		"spec: ./new.yml\nblueprint: ./old.yml\nendpoint: http://x\n")
+
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.Spec != "./new.yml" {
+		t.Errorf("spec = %q, want ./new.yml to win", settings.Spec)
+	}
+	if len(settings.Notes) != 1 {
+		t.Fatalf("notes = %v, want exactly one", settings.Notes)
+	}
+	for _, want := range []string{"both", "./new.yml"} {
+		if !strings.Contains(settings.Notes[0], want) {
+			t.Errorf("note does not mention %q: %s", want, settings.Notes[0])
+		}
+	}
+}
+
+// The order the two keys appear in must not decide the winner: YAML is a
+// mapping, and a reader would not expect line order to matter.
+func TestSpecWinsWhateverTheOrder(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml",
+		"blueprint: ./old.yml\nspec: ./new.yml\nendpoint: http://x\n")
+
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.Spec != "./new.yml" {
+		t.Errorf("spec = %q, want ./new.yml to win regardless of order", settings.Spec)
+	}
+}
+
 func TestAuthStaticHeaderNeedsNoLogin(t *testing.T) {
 	path := writeConfig(t, "vertrag.yml", `
-blueprint: ./api.yml
+spec: ./api.yml
 endpoint: http://x
 auth:
   header: 'X-API-Key: abc123'

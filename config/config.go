@@ -23,10 +23,14 @@ import (
 
 // Config is a test run's settings.
 type Config struct {
-	// Blueprint is the API description document to test against. Dredd calls it
-	// a blueprint whatever the format, and the key is kept for compatibility.
-	Blueprint string
-	Endpoint  string
+	// Spec is the API description document to test against, from the `spec` key.
+	//
+	// It was `blueprint`, which is still read and no longer documented: the key
+	// was named after API Blueprint, and that is the one format vertrag does not
+	// support. A primary setting named after the thing it cannot do is worse
+	// than a rename.
+	Spec     string
+	Endpoint string
 
 	// Hookfiles are loaded by a language-specific worker, except for Go, which
 	// has no hooks yet.
@@ -213,6 +217,9 @@ func IsDreddFile(path string) bool {
 // be told from one explicitly set to a zero value — `color: false` means
 // something different from no `color` key at all.
 type file struct {
+	Spec *string `yaml:"spec"`
+	// Blueprint is the former spelling of `spec`. Still read so no existing
+	// config breaks, deliberately absent from the documentation.
 	Blueprint  *string  `yaml:"blueprint"`
 	Endpoint   *string  `yaml:"endpoint"`
 	Hookfiles  any      `yaml:"hookfiles"`
@@ -318,6 +325,20 @@ func Load(path string) (Config, error) {
 	// dredd.yml, `auth` would authenticate vertrag's run and not Dredd's — and
 	// Dredd ignores keys it does not recognise without a word — so a project
 	// running both would have the two quietly testing different things.
+	switch {
+	case parsed.Spec != nil && parsed.Blueprint != nil:
+		config.Notes = append(config.Notes, fmt.Sprintf(
+			"%s sets both `spec` and `blueprint`; using spec (%s). `blueprint` is the "+
+				"former name for the same setting and can be deleted.", path, config.Spec))
+	case parsed.Blueprint != nil && !IsDreddFile(path):
+		// Not said for a Dredd file, which is already told about renaming itself
+		// and does not need a second migration note in the same breath.
+		config.Notes = append(config.Notes, fmt.Sprintf(
+			"%s uses `blueprint`, which still works and is no longer documented. It is "+
+				"now `spec` — the old name came from API Blueprint, the one format "+
+				"vertrag does not support.", path))
+	}
+
 	var own []string
 	if parsed.Auth != nil {
 		own = append(own, "`auth`")
@@ -452,7 +473,10 @@ func applyAuth(auth *Auth, parsed authFile) {
 }
 
 func apply(config *Config, parsed file) {
-	setString(&config.Blueprint, parsed.Blueprint)
+	// The old spelling first, so `spec` wins when a file carries both. Load
+	// reports that rather than letting it be discovered by experiment.
+	setString(&config.Spec, parsed.Blueprint)
+	setString(&config.Spec, parsed.Spec)
 	setString(&config.Endpoint, parsed.Endpoint)
 	setString(&config.Language, parsed.Language)
 	setString(&config.Server, parsed.Server)
@@ -590,8 +614,8 @@ func setDuration(target *time.Duration, value *float64, unit time.Duration) {
 
 // Validate reports settings that would make a run impossible.
 func (c Config) Validate() error {
-	if c.Blueprint == "" {
-		return fmt.Errorf("no API description given: set `blueprint` in the config or pass one as an argument")
+	if c.Spec == "" {
+		return fmt.Errorf("no API description given: set `spec` in the config or pass one as an argument")
 	}
 	if c.Endpoint == "" {
 		return fmt.Errorf("no endpoint given: set `endpoint` in the config or pass --endpoint")

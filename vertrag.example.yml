@@ -5,7 +5,7 @@
 
 # --- What to test ------------------------------------------------------------
 
-blueprint: ./openapi.json          # the API description: OpenAPI 2 or 3
+spec: ./openapi.json               # the API description: OpenAPI 2 or 3
 endpoint: http://localhost:4000    # the server under test
 
 # --- Which transactions ------------------------------------------------------

@@ -109,27 +109,29 @@ Tuesday is a feature there and a broken build here.
 
 ## Configuration
 
-vertrag reads `vertrag.yml`, which is a **superset of `dredd.yml`**: every key
-Dredd understands means the same thing, and vertrag's own settings are added
-alongside. It looks for `vertrag.yml`, `vertrag.yaml`, then `dredd.yml`.
-
-So the upgrade path is: change nothing, and vertrag reads what you have. Rename
-the file when you want vertrag's own settings. See
-[`vertrag.example.yml`](vertrag.example.yml).
+vertrag reads `vertrag.yml`. Every setting it takes is in
+[`vertrag.example.yml`](vertrag.example.yml), with the reasoning next to it.
 
 ```yaml
-blueprint: ./openapi.json          # Dredd's keys, unchanged
+spec: ./openapi.json               # the API description: OpenAPI 2 or 3
 endpoint: http://localhost:4000
-hookfiles: ./dredd-hooks.js
+hookfiles: ./hooks.js
 
 reporter: [cli, junit]             # a readable log and a machine-readable file
 output: ["", report.xml]
 
-checks:                            # vertrag's own
+checks:
   server-error: true
   content-type: true
   header-schema: false             # off by default; see below
 ```
+
+Coming from Dredd, a `dredd.yml` is read when no vertrag file is present and
+every key it understands means the same thing here — so the upgrade is to change
+nothing, and the migration is to rename the file. That fallback is a
+convenience with an expected end rather than a second supported format: as the
+two diverge it will be removed. vertrag's own settings are read only from a
+vertrag file.
 
 `header-schema` validates a response header's value against the JSON Schema the
 description gave it — so a `X-Rate-Limit` documented as a non-negative integer

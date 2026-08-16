@@ -79,15 +79,15 @@ func runFuzz(args []string) error {
 		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
 	}
 
-	source, err := os.ReadFile(settings.Blueprint)
+	source, err := os.ReadFile(settings.Spec)
 	if err != nil {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
-	parsed, err := apidesc.Parse(source, settings.Blueprint)
+	parsed, err := apidesc.Parse(source, settings.Spec)
 	if err != nil {
-		return fmt.Errorf("parsing %s: %w", settings.Blueprint, err)
+		return fmt.Errorf("parsing %s: %w", settings.Spec, err)
 	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Blueprint)
+	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
 
 	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color}
 	annotations.Annotations(toAnnotations(result.Annotations))
