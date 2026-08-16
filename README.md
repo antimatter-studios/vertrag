@@ -3,15 +3,20 @@
 Contract-test your HTTP API against its description document — a single static
 binary, no Node runtime, no `node_modules`.
 
-vertrag is a Go implementation of [Dredd](https://github.com/antimatter-studios/dredd).
-It reads an API description (OpenAPI 3, OpenAPI 2, API Blueprint), derives the
-HTTP requests that description promises, sends them to a running server, and
-checks the responses against what was promised.
+vertrag reads an API description (OpenAPI 3 or OpenAPI 2), derives the HTTP
+requests that description promises, sends them to a running server, and checks
+the responses against what was promised.
+
+It began as a Go implementation of [Dredd](https://github.com/antimatter-studios/dredd),
+whose upstream is archived, and stays compatible with the things a project
+depends on — `dredd.yml`, hook files, and the names hooks address transactions
+by. Where Dredd is simply wrong, vertrag is not: see
+[Where vertrag differs](#where-vertrag-differs-from-dredd).
 
 > **Status: usable for OpenAPI 3 and OpenAPI 2.** vertrag reads a description,
 > sends the requests it promises, validates the responses and exits non-zero on
 > failure — with an existing `dredd.yml` and Node.js hook files working
-> unchanged. API Blueprint has no parser yet. See [Roadmap](#roadmap).
+> unchanged. See [Roadmap](#roadmap).
 
 ## Install
 
@@ -105,13 +110,6 @@ can be checked for all three formats using the API Elements Dredd ships — whic
 is why it was verified long before any parser existed. A parse failure is
 therefore always a parser failure, never an ambiguous end-to-end one.
 
-API Blueprint has no parser yet, so it reports a skip naming what is uncovered
-rather than failing:
-
-```console
---- SKIP: TestParseMatchesReference/apib
-```
-
 It has also been run against a real API: 51 paths and 140 transactions of a
 production OpenAPI 3 service, with its own `dredd.yml` and a 431-line hook file,
 against a live server. vertrag and Dredd reported the same 35 passing, 15
@@ -146,7 +144,6 @@ vertrag keeps that shape:
 | `internal/uritemplate` | URI template expansion | Done, oracle-verified |
 | `internal/apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
 | `internal/apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
-| `internal/apidesc` (API Blueprint) | Blueprint → API Elements | Not started |
 | `internal/validate` | Response validation (Gavel) | Done, oracle-verified |
 | `internal/runner` | Sending requests, judging responses | Done |
 | `internal/hooks` | Running Node.js hook files | Done |
@@ -172,7 +169,45 @@ when it reproduces its pair.
 5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
 7. Reporters other than the CLI one (dot, markdown, xunit, HTML)
-8. API Blueprint parser — pure Go, so the binary stays static
+8. Adversarial input generation, with shrinking
+
+## Not supported: API Blueprint
+
+Dredd also reads API Blueprint. vertrag does not, and will not.
+
+The format is finished: its repository is archived, its parser (drafter) is
+archived, and Apiary — who created it — was bought in 2017. Its parser draws
+about a tenth of the downloads the OpenAPI ones do. Supporting it would mean
+either linking 2 MB of Emscripten-compiled C++, which ends the static binary, or
+writing a Markdown-based format parser from its specification.
+
+A Blueprint document therefore reports that it is unsupported rather than being
+parsed badly. The compiler still handles Blueprint semantics — its transaction
+example numbering is covered by 29 fixtures — so if that decision is ever
+revisited, only the parser is missing and its expected output is already
+recorded.
+
+## Where vertrag differs from Dredd
+
+Compatibility is kept where it is convention and dropped where Dredd is wrong.
+
+**Kept**, because breaking it breaks working projects and improves nothing:
+`dredd.yml`, the hook API and its wire protocol, and the names hooks address
+transactions by. There is no better transaction name — only the one already
+written in someone's hook file.
+
+**Dropped**, because reproducing a defect makes the tests wrong:
+
+| | Dredd | vertrag |
+| --- | --- | --- |
+| Percent-encoding | `%A` for a newline; `%2F` re-escaped to `%252F` | RFC 3986 |
+| Body validation | Full JSON Schema | Full JSON Schema, drafts 4 to 2020-12 |
+| Diagnostics | Two validators, two wordings for one problem | One wording |
+
+A run against a live API will therefore report failures Dredd would not. Those
+are contract violations that were previously going unnoticed, not regressions,
+and vertrag labels them as checks Dredd does not make so an upgrade is not
+mistaken for one.
 
 ## Hooks
 

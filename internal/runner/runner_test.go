@@ -135,8 +135,13 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 	}))
 	defer server.Close()
 
-	results, _ := New(server.URL).Run(context.Background(),
-		[]compile.Transaction{transaction("GET", "/old", "301", "", "")})
+	// A redirect does not promise JSON, so the transaction does not declare a
+	// content type — otherwise the content-type check would rightly object to
+	// the text/html the redirect actually carries.
+	source := transaction("GET", "/old", "301", "", "")
+	source.Response.Headers = nil
+
+	results, _ := New(server.URL).Run(context.Background(), []compile.Transaction{source})
 
 	if results[0].Status != StatusPass {
 		t.Errorf("status = %q, want pass: the redirect itself was described (%v)",
@@ -352,6 +357,76 @@ func TestFullPathRedirects(t *testing.T) {
 	}
 	if results[0].Request.URI != "/redirected" {
 		t.Errorf("reported URI = %q, want /redirected", results[0].Request.URI)
+	}
+}
+
+// TestChecksBeyondDredd pins the failures vertrag raises and Dredd does not.
+func TestChecksBeyondDredd(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		handler     http.HandlerFunc
+		wantFinding string
+	}{
+		{
+			name: "a server error is named as one",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			wantFinding: "failed rather than disagreed",
+		},
+		{
+			// Dredd checks that expected headers are present and never compares
+			// their values, so this passes there.
+			name: "a wrong content type is caught",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusOK)
+			},
+			wantFinding: "the response is text/html, but the description promises application/json",
+		},
+		{
+			name: "a missing content type is caught",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header()["Content-Type"] = nil
+				w.WriteHeader(http.StatusOK)
+			},
+			wantFinding: "carries no Content-Type",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(test.handler)
+			defer server.Close()
+
+			results, _ := New(server.URL).Run(context.Background(),
+				[]compile.Transaction{transaction("GET", "/x", "200", "", "")})
+
+			if results[0].Status != StatusFail {
+				t.Fatalf("status = %q, want fail", results[0].Status)
+			}
+			joined := strings.Join(results[0].Beyond, " | ")
+			if !strings.Contains(joined, test.wantFinding) {
+				t.Errorf("beyond-Dredd findings = %v, want one mentioning %q",
+					results[0].Beyond, test.wantFinding)
+			}
+		})
+	}
+}
+
+// TestMatchingContentTypeIgnoresParameters pins that a charset the document did
+// not mention is not a contract violation.
+func TestMatchingContentTypeIgnoresParameters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	results, _ := New(server.URL).Run(context.Background(),
+		[]compile.Transaction{transaction("GET", "/x", "200", "", "")})
+
+	if len(results[0].Beyond) != 0 {
+		t.Errorf("findings = %v, want none: a charset is not a violation", results[0].Beyond)
 	}
 }
 

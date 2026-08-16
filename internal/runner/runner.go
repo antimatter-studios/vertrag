@@ -39,7 +39,12 @@ type Result struct {
 	Expected validate.Message
 	Actual   validate.Message
 	// Errors explains a failure or an error, whichever occurred.
-	Errors     []string
+	Errors []string
+	// Beyond holds failures from checks Dredd does not make. They are kept
+	// apart so a report can say so: a project upgrading from Dredd meets these
+	// for the first time, and an unexplained new failure reads as a regression
+	// rather than as a contract violation that was going unnoticed.
+	Beyond     []string
 	Validation validate.Result
 	Duration   time.Duration
 }
@@ -331,6 +336,11 @@ func (t *Transaction) validated(elapsed time.Duration) Result {
 		Validation: validation,
 		Duration:   elapsed,
 	}
+	result.Beyond = beyondDredd(t.Expected, t.Real)
+	if len(result.Beyond) > 0 {
+		result.Status = StatusFail
+	}
+
 	if !validation.Valid {
 		result.Status = StatusFail
 		// Fields are reported in a fixed order so two runs of the same failure

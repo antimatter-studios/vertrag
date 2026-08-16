@@ -88,7 +88,7 @@ func TestUnsupportedFormatsReportRatherThanCrash(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"unrecognised", "# Just a heading\n", "Could not recognize API description format"},
+		{"unrecognised", "# Just a heading\n", "Could not recognize the API description format"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := Parse([]byte(test.source), "api")

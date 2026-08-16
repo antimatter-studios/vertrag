@@ -93,12 +93,17 @@ func Parse(source []byte, filename string) (Result, error) {
 		return Result{MediaType: mediaType, Elements: elements}, nil
 	}
 
-	// API Blueprint has no parser yet. An empty parse result carrying the
-	// reason is returned rather than an error, so the caller reports it the way
-	// it reports any other unusable document instead of crashing.
-	reason := "API Blueprint documents are not supported yet"
+	// API Blueprint is deliberately unsupported rather than unfinished. The
+	// format is archived, as is its only parser, which is 2 MB of
+	// Emscripten-compiled C++ — linking it would end the static binary, and
+	// reimplementing a Markdown-based format is not worth doing for a format
+	// nobody is writing any more.
+	//
+	// Reporting that through the parse result rather than as an error means the
+	// caller shows it the way it shows any other unusable document.
+	reason := "API Blueprint is not supported; vertrag reads OpenAPI 3 and OpenAPI 2"
 	if !recognised {
-		reason = "Could not recognize API description format, assuming API Blueprint"
+		reason = "Could not recognize the API description format"
 	}
 	result := refract.Named("parseResult", annotationElement("error", reason))
 	return Result{MediaType: mediaType, Elements: result}, nil
