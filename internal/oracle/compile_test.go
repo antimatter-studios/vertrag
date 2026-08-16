@@ -29,8 +29,11 @@ import (
 // mediaTypes maps a corpus directory to the media type its documents were
 // parsed from. The compiler branches on it, so it is part of the input.
 var mediaTypes = map[string]string{
-	"apib":     "text/vnd.apiblueprint",
-	"openapi2": "application/swagger+yaml",
+	"apib": "text/vnd.apiblueprint",
+	// Both YAML and JSON Swagger documents report the JSON media type; the
+	// reference takes the first its adapter declares and does not distinguish
+	// the serialisation.
+	"openapi2": "application/swagger+json",
 	"openapi3": "application/vnd.oai.openapi",
 }
 
