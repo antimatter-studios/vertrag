@@ -1,0 +1,28 @@
+{
+  "_why": "2020-12's tuple. Both positions hold the other's type, which draft-4 has no way to express and ajv 6 silently ignored.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        }
+      ]
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "[1,\"two\"]"
+  }
+}

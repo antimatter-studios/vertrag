@@ -1,0 +1,25 @@
+{
+  "_why": "A property that requires another. Silently ignored before ajv 8, so a body missing the dependency passed.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "dependentRequired": {
+        "a": [
+          "b"
+        ]
+      }
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"a\":1}"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "_why": "3.1 spells nullability as a type list rather than the `nullable` keyword 3.0 invented.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "maybe": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"maybe\":42}"
+  }
+}

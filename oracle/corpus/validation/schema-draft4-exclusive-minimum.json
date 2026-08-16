@@ -1,0 +1,27 @@
+{
+  "_why": "The draft-4 spelling of the same constraint, so the two dialects are differenced side by side and a fix to one cannot quietly break the other.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "http://json-schema.org/draft-04/schema#",
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 5,
+          "exclusiveMinimum": true
+        }
+      }
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"n\":5}"
+  }
+}

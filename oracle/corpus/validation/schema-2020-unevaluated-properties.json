@@ -1,0 +1,24 @@
+{
+  "_why": "A document saying 'no other fields' got a green run whatever the server sent, because the keyword did not exist below 2019-09.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "a": {}
+      },
+      "unevaluatedProperties": false
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"a\":1,\"extra\":2}"
+  }
+}

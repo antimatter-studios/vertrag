@@ -1,0 +1,25 @@
+{
+  "_why": "const arrived in 2019-09. Under a draft-4 label every value satisfies it.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "widget"
+        }
+      }
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"kind\":\"other\"}"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "_why": "The keyword that made a 3.1 document untestable: draft-4 spells it as a boolean beside minimum, so a number was not a legal value and Gavel rejected the whole schema. On ajv 8 it is the bound itself and 5 is not above 5.",
+  "expected": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "exclusiveMinimum": 5
+        }
+      }
+    }
+  },
+  "real": {
+    "statusCode": "200",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"n\":5}"
+  }
+}
