@@ -37,15 +37,7 @@ func TestParseMatchesReference(t *testing.T) {
 			// A format with no parser is reported once, as a skip naming what
 			// is missing. Letting every fixture fail instead would bury the
 			// formats that ARE covered under noise that says nothing new.
-			// OpenAPI 2 has a parser under construction. It is measured only
-			// when asked for, so its remaining disagreements do not fail the
-			// build — but the count stays visible rather than the work being
-			// invisible until it is finished.
-			if mediaTypes[dir] == apidesc.MediaTypeOpenAPI2 && os.Getenv("VERTRAG_OAS2") == "" {
-				t.Skipf("OpenAPI 2 parser is in progress; set VERTRAG_OAS2=1 to measure it against %d document(s)",
-					len(documents))
-			}
-			if !apidesc.Implemented(mediaTypes[dir]) && mediaTypes[dir] != apidesc.MediaTypeOpenAPI2 {
+			if !apidesc.Implemented(mediaTypes[dir]) {
 				t.Skipf("no %s parser yet: %d document(s) in the corpus are not covered",
 					mediaTypes[dir], len(documents))
 			}
@@ -73,14 +65,7 @@ func compareDocument(t *testing.T, root, document string) {
 	// path and hide the differences that matter.
 	filename := filepath.Base(document)
 
-	parse := apidesc.Parse
-	if strings.Contains(document, "openapi2") {
-		parse = func(source []byte, _ string) (apidesc.Result, error) {
-			return apidesc.ParseOpenAPI2(source)
-		}
-	}
-
-	result, err := parse(source, filename)
+	result, err := apidesc.Parse(source, filename)
 	if err != nil {
 		t.Fatalf("vertrag failed to parse the document: %v", err)
 	}

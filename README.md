@@ -8,10 +8,10 @@ It reads an API description (OpenAPI 3, OpenAPI 2, API Blueprint), derives the
 HTTP requests that description promises, sends them to a running server, and
 checks the responses against what was promised.
 
-> **Status: usable for OpenAPI 3.** vertrag reads a description, sends the
-> requests it promises, validates the responses and exits non-zero on failure —
-> with an existing `dredd.yml` and Node.js hook files working unchanged.
-> OpenAPI 2 and API Blueprint have no parser yet. See [Roadmap](#roadmap).
+> **Status: usable for OpenAPI 3 and OpenAPI 2.** vertrag reads a description,
+> sends the requests it promises, validates the responses and exits non-zero on
+> failure — with an existing `dredd.yml` and Node.js hook files working
+> unchanged. API Blueprint has no parser yet. See [Roadmap](#roadmap).
 
 ## Install
 
@@ -93,7 +93,7 @@ Currently agreeing, field for field:
 | Suite | Compared | Covers |
 | --- | --- | --- |
 | Compile | 59 fixtures | API Blueprint, OpenAPI 2 and OpenAPI 3 — transaction naming, URI expansion, bodies, diagnostics |
-| Parse | 5 documents | OpenAPI 3 end to end: source document to transactions |
+| Parse | 38 documents | OpenAPI 3 and OpenAPI 2 end to end: source document to transactions |
 | Validate | 20 cases | Pass/fail verdicts and their error text, against Gavel |
 
 Agreement includes the generated request and response bodies, the JSON Schemas
@@ -105,13 +105,17 @@ can be checked for all three formats using the API Elements Dredd ships — whic
 is why it was verified long before any parser existed. A parse failure is
 therefore always a parser failure, never an ambiguous end-to-end one.
 
-Formats with no parser yet do not fail the suite; they report a skip naming what
-is uncovered:
+API Blueprint has no parser yet, so it reports a skip naming what is uncovered
+rather than failing:
 
 ```console
 --- SKIP: TestParseMatchesReference/apib
---- SKIP: TestParseMatchesReference/openapi2
 ```
+
+It has also been run against a real API: 51 paths and 140 transactions of a
+production OpenAPI 3 service, with its own `dredd.yml` and a 431-line hook file,
+against a live server. vertrag and Dredd reported the same 35 passing, 15
+failing, 90 skipped — the same fifteen failures, not merely the same count.
 
 ### What faithfulness costs
 
@@ -141,7 +145,7 @@ vertrag keeps that shape:
 | `internal/compile` | API Elements → HTTP transactions | Done, oracle-verified |
 | `internal/uritemplate` | URI template expansion | Done, oracle-verified |
 | `internal/apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
-| `internal/apidesc` (OpenAPI 2) | Swagger → API Elements | Not started |
+| `internal/apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
 | `internal/apidesc` (API Blueprint) | Blueprint → API Elements | Not started |
 | `internal/validate` | Response validation (Gavel) | Done, oracle-verified |
 | `internal/runner` | Sending requests, judging responses | Done |
@@ -166,8 +170,8 @@ when it reproduces its pair.
 3. ~~Response validation~~ — done, oracle-verified against Gavel
 4. ~~Transaction runner~~ — done
 5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
-6. Reporters other than the CLI one (dot, markdown, xunit, HTML)
-7. OpenAPI 2 parser
+6. ~~OpenAPI 2 parser~~ — done, oracle-verified
+7. Reporters other than the CLI one (dot, markdown, xunit, HTML)
 8. API Blueprint parser — pure Go, so the binary stays static
 
 ## Hooks

@@ -1,6 +1,7 @@
 package openapi2
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -11,10 +12,29 @@ import (
 func Parse(source []byte) (*refract.Element, error) {
 	doc, err := parseDocument(source)
 	if err != nil {
-		return nil, err
+		// A document that will not parse is reported through the result rather
+		// than as a Go error: it is the document's problem, and the caller
+		// shows it the way it shows every other problem with a description.
+		failure := refract.Text("annotation", yamlErrorMessage(source, err))
+		failure.AddClass("error")
+		return refract.Named("parseResult", failure), nil
 	}
 
 	parseResult := refract.Named("parseResult")
+
+	// An error anywhere stops everything, as it does for OpenAPI 3: a document
+	// the parser could not fully read cannot be trusted to say what a server
+	// should do.
+	diagnostics := doc.validate()
+	if errs := errorsOnly(diagnostics); len(errs) > 0 {
+		for _, element := range annotationElements(errs) {
+			parseResult.Append(element)
+		}
+		return parseResult, nil
+	}
+	for _, element := range annotationElements(diagnostics) {
+		parseResult.Append(element)
+	}
 
 	api := refract.Named("category")
 	api.AddClass("api")
@@ -49,7 +69,7 @@ func (d *document) parsePathItem(path entry, basePath string, consumes, produces
 		return nil
 	}
 
-	href := basePath + path.key.str()
+	href := joinPath(basePath, path.key.str())
 
 	resource := refract.Named("resource")
 	resource.SetAttr("href", refract.String(href))
@@ -65,6 +85,11 @@ func (d *document) parsePathItem(path entry, basePath string, consumes, produces
 		}
 	}
 
+	// A query parameter declared for the whole path belongs on the resource's
+	// own href, and so appears in every transaction name beneath it.
+	if query := pathParameters.queryNames(); len(query) > 0 {
+		resource.SetAttr("href", refract.String(href+"{?"+strings.Join(query, ",")+"}"))
+	}
 	if hrefVariables := pathParameters.hrefVariables(); hrefVariables != nil {
 		resource.SetAttr("hrefVariables", hrefVariables)
 	}
@@ -94,12 +119,14 @@ func (d *document) parseOperation(href string, member entry, pathParameters *par
 	}
 
 	// An operation narrows the document's content types rather than adding to
-	// them, so its own list replaces the global one entirely.
-	if own := stringList(operation.get("consumes")); len(own) > 0 {
-		consumes = own
+	// them, so its own list replaces the global one entirely — including an
+	// empty list, which is how a document says "this operation produces
+	// nothing", and which is why presence is tested rather than length.
+	if own := operation.get("consumes"); own.valid() {
+		consumes = stringList(own)
 	}
-	if own := stringList(operation.get("produces")); len(own) > 0 {
-		produces = own
+	if own := operation.get("produces"); own.valid() {
+		produces = stringList(own)
 	}
 
 	requests := d.buildRequests(params, consumes)
@@ -114,6 +141,9 @@ func (d *document) parseOperation(href string, member entry, pathParameters *par
 
 // message is a request or response under construction.
 type message struct {
+	// accept is what the request asks for; contentType is what the message
+	// carries. They differ when a response declares its own content type.
+	accept      string
 	contentType string
 	body        string
 	hasBody     bool
@@ -141,9 +171,58 @@ func (d *document) buildRequests(params *parameters, consumes []string) []messag
 
 	requests := make([]message, 0, len(consumes))
 	for _, contentType := range consumes {
-		requests = append(requests, message{contentType: contentType, body: body, hasBody: hasBody})
+		request := message{contentType: contentType, body: body, hasBody: hasBody}
+
+		// A multipart request carries its fields in the body rather than as a
+		// JSON document, so the body is assembled from the form parameters and
+		// the boundary the content type names.
+		if boundary := multipartBoundary(contentType); boundary != "" {
+			if assembled, ok := multipartBody(params, boundary); ok {
+				request.body, request.hasBody = assembled, true
+			}
+		}
+
+		requests = append(requests, request)
 	}
 	return requests
+}
+
+// multipartBoundary reads the boundary out of a multipart content type.
+func multipartBoundary(contentType string) string {
+	if !strings.HasPrefix(strings.ToLower(contentType), "multipart/") {
+		return ""
+	}
+	for _, part := range strings.Split(contentType, ";")[1:] {
+		name, value, found := strings.Cut(strings.TrimSpace(part), "=")
+		if found && strings.EqualFold(name, "boundary") {
+			return strings.Trim(value, `"`)
+		}
+	}
+	return ""
+}
+
+// multipartBody assembles the form parameters into a multipart payload.
+//
+// Line endings are CRLF throughout, because that is what the format requires
+// and what a server parsing it will expect.
+func multipartBody(params *parameters, boundary string) (string, bool) {
+	fields := params.in("formData")
+	if len(fields) == 0 {
+		return "", false
+	}
+
+	var body strings.Builder
+	for _, field := range fields {
+		value := ""
+		if field.hasValue {
+			value = stringifyScalar(field.value)
+		}
+		fmt.Fprintf(&body, "--%s\r\nContent-Disposition: form-data; name=%q\r\n\r\n%s\r\n",
+			boundary, field.name, value)
+	}
+	fmt.Fprintf(&body, "\r\n--%s--\r\n", boundary)
+
+	return body.String(), true
 }
 
 // requestBody renders the `in: body` parameter, which is how Swagger carries a
@@ -164,24 +243,23 @@ func (d *document) requestBody(params *parameters) (string, bool) {
 
 // parseResponses turns a Responses Object into the responses to expect.
 //
-// Only the first produced content type is used. Swagger lists what a server
-// CAN return, not what it will, and the alternatives describe the same
-// response rather than different ones — unlike `consumes`, where each entry is
-// a different request to make.
+// Two rules here are surprising enough to state. Only a JSON media type from
+// `produces` is used, and a document producing only XML or plain text gets no
+// content type at all — Swagger lists what a server CAN return rather than what
+// it will, and the reference only commits to one it can generate a body for.
+// And `default` responses are ignored outright: a response with no status code
+// says nothing about what to assert.
 func (d *document) parseResponses(n node, produces []string) []message {
 	if !n.isMapping() {
 		return nil
 	}
 
-	contentType := ""
-	if len(produces) > 0 {
-		contentType = produces[0]
-	}
+	contentType := jsonMediaType(produces)
 
 	var responses []message
 	for _, member := range n.entries() {
 		key := member.key.str()
-		if !statusCodePattern.MatchString(key) && key != "default" {
+		if !statusCodePattern.MatchString(key) {
 			continue
 		}
 
@@ -209,16 +287,17 @@ func (d *document) parseResponses(n node, produces []string) []message {
 		variants := responseVariants(response.get("examples"), contentType, override)
 
 		for _, variant := range variants {
-			msg := message{contentType: variant.contentType, headers: headers, schema: converted}
-			if statusCodePattern.MatchString(key) {
-				msg.statusCode = key
-			}
+			msg := message{accept: variant.accept, contentType: variant.contentType, headers: headers, schema: converted}
+			msg.statusCode = key
 
 			if variant.example.valid() {
 				if body, ok := renderBody(scalarValue(variant.example)); ok {
 					msg.body, msg.hasBody = body, true
 				}
-			} else if schema.valid() {
+			} else if schema.valid() && isJSONMediaType(variant.contentType) {
+				// Without a JSON media type there is nothing to render the
+				// generated value into, so the response carries its schema but
+				// no example body.
 				if value, ok := d.generateValue(schema, nil); ok {
 					if body, ok := renderBody(value); ok {
 						msg.body, msg.hasBody = body, true
@@ -233,7 +312,12 @@ func (d *document) parseResponses(n node, produces []string) []message {
 }
 
 // variant is one media type a response is described in.
+//
+// accept and contentType are separate because a response's declared
+// content-type header changes what comes back without changing what the request
+// asks for: the operation still produces what it says it produces.
 type variant struct {
+	accept      string
 	contentType string
 	example     node
 }
@@ -241,20 +325,19 @@ type variant struct {
 // responseVariants lists the exchanges a response describes.
 func responseVariants(examples node, produced, override string) []variant {
 	if override != "" {
-		// An explicit content-type header settles it: one exchange, in that
-		// type, whatever the examples are keyed by.
-		return []variant{{contentType: override, example: examples.get(override)}}
+		return []variant{{accept: produced, contentType: override, example: examples.get(override)}}
 	}
 
 	if entries := examples.entries(); len(entries) > 0 {
 		out := make([]variant, 0, len(entries))
 		for _, member := range entries {
-			out = append(out, variant{contentType: member.key.str(), example: member.value})
+			mediaType := member.key.str()
+			out = append(out, variant{accept: mediaType, contentType: mediaType, example: member.value})
 		}
 		return out
 	}
 
-	return []variant{{contentType: produced}}
+	return []variant{{accept: produced, contentType: produced}}
 }
 
 // parseResponseHeaders reads a Headers Object, separating out a declared
@@ -300,8 +383,8 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			if request.contentType != "" {
 				headers = append(headers, header{"Content-Type", request.contentType})
 			}
-			if response.contentType != "" {
-				headers = append(headers, header{"Accept", response.contentType})
+			if response.accept != "" {
+				headers = append(headers, header{"Accept", response.accept})
 			}
 			for _, param := range headerParams {
 				if !containsHeader(headers, param.name) {
@@ -371,6 +454,44 @@ func schemaAsset(schema string) *refract.Element {
 	asset.AddClass("messageBodySchema")
 	asset.SetAttr("contentType", refract.String("application/schema+json"))
 	return asset
+}
+
+// joinPath puts basePath in front of a path without doubling the separator.
+//
+// `basePath: /` is common and means "no prefix"; concatenating it blindly would
+// send every request to a doubled slash, which some servers route differently
+// and others reject.
+func joinPath(basePath, path string) string {
+	basePath = strings.TrimSuffix(basePath, "/")
+	if basePath == "" {
+		return path
+	}
+	return basePath + path
+}
+
+// jsonMediaType picks the media type a response is described in: the first JSON
+// one offered, or none at all.
+func jsonMediaType(produces []string) string {
+	for _, mediaType := range produces {
+		if isJSONMediaType(mediaType) {
+			return mediaType
+		}
+	}
+	return ""
+}
+
+// isJSONMediaType covers application/json and the `+json` suffix conventions.
+func isJSONMediaType(mediaType string) bool {
+	base := mediaType
+	if i := strings.IndexByte(base, ';'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToLower(strings.TrimSpace(base))
+	if !strings.HasPrefix(base, "application/") {
+		return false
+	}
+	subtype := strings.TrimPrefix(base, "application/")
+	return subtype == "json" || strings.HasSuffix(subtype, "+json")
 }
 
 // stringList reads a sequence of strings, which Swagger uses for consumes,

@@ -17,6 +17,9 @@ import (
 // Dredd sends.
 const swaggerNumberSample = -100000000
 
+// jsonSchemaDraft is the dialect the reference declares its output in.
+const jsonSchemaDraft = "http://json-schema.org/draft-04/schema#"
+
 // generateValue builds the sample value a message body is rendered from.
 //
 // Swagger's rules are simpler than OpenAPI 3's: every property of an object is
@@ -83,10 +86,18 @@ func (d *document) generateObject(schema node, seen map[string]bool) *orderedMap
 	return out
 }
 
-// schemaExample derives the value a schema demonstrates outright.
+// schemaExample derives the value a schema or parameter demonstrates outright.
+//
+// `x-example` comes first because Swagger has no `example` keyword for
+// parameters — the extension is how a document says what to send, and Dredd
+// honours it above the `default`, which describes what the server assumes when
+// nothing is sent rather than what a test should send.
 func schemaExample(schema node) (any, bool) {
 	if !schema.valid() {
 		return nil, false
+	}
+	if example := schema.get("x-example"); example.valid() {
+		return scalarValue(example), true
 	}
 	if example := schema.get("example"); example.valid() {
 		return scalarValue(example), true
@@ -155,6 +166,8 @@ func (d *document) convertSchema(schema node) (string, bool) {
 	if !ok {
 		return "", false
 	}
+
+	result.Set("$schema", jsonSchemaDraft)
 
 	if len(references) > 0 {
 		definitions := newOrderedMap()

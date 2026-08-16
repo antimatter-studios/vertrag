@@ -70,24 +70,7 @@ func Detect(source []byte) (mediaType string, recognised bool) {
 // covered yet, rather than reporting a wall of failures that all mean the same
 // thing.
 func Implemented(mediaType string) bool {
-	// OpenAPI 2 has a parser, but it does not yet agree with Dredd on every
-	// fixture. Until it does it stays unavailable: a parser that produces
-	// almost-right transactions is worse than none, because the run looks
-	// successful and tests something other than what the document says.
-	return mediaType == MediaTypeOpenAPI3
-}
-
-// ParseOpenAPI2 reads a Swagger 2.0 document.
-//
-// It is separate from Parse because the parser is not finished: this entry
-// point exists so the differential tests can measure it without offering it to
-// users as though it worked.
-func ParseOpenAPI2(source []byte) (Result, error) {
-	elements, err := openapi2.Parse(source)
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{MediaType: MediaTypeOpenAPI2, Elements: elements}, nil
+	return mediaType == MediaTypeOpenAPI3 || mediaType == MediaTypeOpenAPI2
 }
 
 // Parse reads a description document into API Elements.
@@ -102,23 +85,20 @@ func Parse(source []byte, filename string) (Result, error) {
 		}
 		return Result{MediaType: mediaType, Elements: elements}, nil
 
+	case MediaTypeOpenAPI2:
+		elements, err := openapi2.Parse(source)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{MediaType: mediaType, Elements: elements}, nil
 	}
 
-	// The remaining formats have no finished parser. An empty parse result
-	// carrying the reason is returned rather than an error, so the caller
-	// reports it the way it reports any other unusable document instead of
-	// crashing.
-	//
-	// OpenAPI 2 lands here on purpose: openapi2.Parse exists and the oracle
-	// measures it, but it does not agree with Dredd on every fixture yet, and
-	// almost-right transactions would make a run look successful while testing
-	// something other than what the document says.
+	// API Blueprint has no parser yet. An empty parse result carrying the
+	// reason is returned rather than an error, so the caller reports it the way
+	// it reports any other unusable document instead of crashing.
 	reason := "API Blueprint documents are not supported yet"
-	switch {
-	case !recognised:
+	if !recognised {
 		reason = "Could not recognize API description format, assuming API Blueprint"
-	case mediaType == MediaTypeOpenAPI2:
-		reason = "OpenAPI 2 documents are not supported yet"
 	}
 	result := refract.Named("parseResult", annotationElement("error", reason))
 	return Result{MediaType: mediaType, Elements: result}, nil

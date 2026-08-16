@@ -2,6 +2,7 @@
 package openapi2
 
 import (
+	"bytes"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -20,6 +21,10 @@ type node struct {
 // internal references and report source positions.
 type document struct {
 	root node
+
+	// lineCount is how many lines the source had, so a span that runs to the
+	// end of the document has somewhere to end.
+	lineCount int
 
 	// order is every node in document order, with subtreeSize recording how
 	// many nodes each one spans. Together they answer "what comes after this
@@ -44,11 +49,23 @@ func parseDocument(source []byte) (*document, error) {
 	}
 	doc := &document{
 		root:        node{content},
+		lineCount:   countLines(source),
 		index:       map[*yaml.Node]int{},
 		subtreeSize: map[*yaml.Node]int{},
 	}
 	doc.indexNodes(content)
 	return doc, nil
+}
+
+// countLines counts the lines a source has, not counting a phantom empty one
+// after a trailing newline — which is where a span running to the end of the
+// document would otherwise land.
+func countLines(source []byte) int {
+	newlines := bytes.Count(source, []byte("\n"))
+	if len(source) > 0 && !bytes.HasSuffix(source, []byte("\n")) {
+		return newlines + 1
+	}
+	return newlines
 }
 
 // indexNodes records every node in pre-order, so a subtree occupies a
@@ -85,13 +102,20 @@ func (d *document) span(n node) (startLine, startCol, endLine, endCol int) {
 		return startLine, startCol, startLine, startCol + rawScalarWidth(n)
 	}
 
-	position, known := d.index[n.Node]
-	if known {
+	endLine, endCol = d.endOf(n)
+	return startLine, startCol, endLine, endCol
+}
+
+// endOf is where a node's subtree stops: the start of whatever token follows
+// it, or one past the end of the document when nothing does.
+func (d *document) endOf(n node) (line, column int) {
+	if position, known := d.index[n.Node]; known {
 		if next := position + d.subtreeSize[n.Node]; next < len(d.order) {
-			return startLine, startCol, d.order[next].Line, d.order[next].Column
+			return d.order[next].Line, d.order[next].Column
 		}
+		return d.lineCount + 1, 1
 	}
-	return startLine, startCol, startLine, startCol
+	return n.Line, n.Column
 }
 
 // rawScalarWidth is the width of a scalar as written, counting the quotes a

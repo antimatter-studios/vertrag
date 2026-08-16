@@ -40,13 +40,13 @@ func TestDetect(t *testing.T) {
 }
 
 func TestImplemented(t *testing.T) {
-	if !Implemented(MediaTypeOpenAPI3) {
-		t.Error("OpenAPI 3 has a parser")
-	}
-	for _, mediaType := range []string{MediaTypeOpenAPI2, MediaTypeAPIBlueprint} {
-		if Implemented(mediaType) {
-			t.Errorf("%s has no parser yet and must not claim otherwise", mediaType)
+	for _, mediaType := range []string{MediaTypeOpenAPI3, MediaTypeOpenAPI2} {
+		if !Implemented(mediaType) {
+			t.Errorf("%s has a parser", mediaType)
 		}
+	}
+	if Implemented(MediaTypeAPIBlueprint) {
+		t.Error("API Blueprint has no parser yet and must not claim otherwise")
 	}
 }
 
@@ -88,7 +88,6 @@ func TestUnsupportedFormatsReportRatherThanCrash(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"OpenAPI 2", `swagger: "2.0"`, "OpenAPI 2 documents are not supported yet"},
 		{"unrecognised", "# Just a heading\n", "Could not recognize API description format"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

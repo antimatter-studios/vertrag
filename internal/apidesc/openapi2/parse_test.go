@@ -296,7 +296,13 @@ paths:
 	}
 }
 
-func TestPathAndQueryParameters(t *testing.T) {
+// TestParameterValuePrecedence pins where a URI parameter's value comes from.
+//
+// `x-example` is what to send. A `default` describes what the server assumes
+// when the parameter is omitted, which is a different claim, so it does not
+// become the value — the first enum entry is used instead. Getting this
+// backwards sends requests to URLs the document never described.
+func TestParameterValuePrecedence(t *testing.T) {
 	result := compileSource(t, `
 swagger: '2.0'
 info: {title: P, version: '1.0'}
@@ -305,16 +311,37 @@ paths:
     get:
       summary: S
       parameters:
-        - {name: id, in: path, required: true, type: string, x-example: ignored, default: abc}
-        - {name: q, in: query, type: string, default: term}
+        - {name: id, in: path, required: true, type: string, x-example: chosen, default: ignored}
+        - {name: q, in: query, type: string, default: ignored, enum: [first, second]}
       responses:
         200: {description: OK}
 `)
 	if len(result.Transactions) != 1 {
 		t.Fatalf("transactions = %d", len(result.Transactions))
 	}
-	if got := result.Transactions[0].Request.URI; got != "/things/abc?q=term" {
-		t.Errorf("uri = %q, want /things/abc?q=term", got)
+	if got := result.Transactions[0].Request.URI; got != "/things/chosen?q=first" {
+		t.Errorf("uri = %q, want /things/chosen?q=first", got)
+	}
+}
+
+// TestPathLevelQueryParameterNamesTheResource pins that a query parameter
+// declared for the whole path reaches the resource's href, and so appears in
+// every transaction name beneath it — which hooks address transactions by.
+func TestPathLevelQueryParameterNamesTheResource(t *testing.T) {
+	result := compileSource(t, `
+swagger: '2.0'
+info: {title: P, version: '1.0'}
+paths:
+  /things:
+    parameters:
+      - {name: q, in: query, type: string}
+    get:
+      summary: S
+      responses:
+        200: {description: OK}
+`)
+	if want := "P > /things{?q} > S > 200"; result.Transactions[0].Name != want {
+		t.Errorf("name = %q, want %q", result.Transactions[0].Name, want)
 	}
 }
 
@@ -327,7 +354,7 @@ paths:
     get:
       summary: S
       parameters:
-        - {name: X-Token, in: header, type: string, default: abc}
+        - {name: X-Token, in: header, type: string, x-example: abc}
       responses:
         200: {description: OK}
 `)
@@ -356,9 +383,93 @@ paths:
 	}
 }
 
-func TestParseRejectsMalformedYAML(t *testing.T) {
-	if _, err := Parse([]byte("swagger: '2.0'\n\tbad")); err == nil {
-		t.Error("unparseable YAML should be an error")
+// TestMalformedYAMLIsReportedNotThrown pins that a document which will not
+// parse comes back as a diagnostic rather than a Go error: it is the document's
+// problem, and the caller reports it the way it reports any other.
+func TestMalformedYAMLIsReportedNotThrown(t *testing.T) {
+	result := compileSource(t, "swagger: \"2.0\"\npaths: {/pets:\n")
+
+	if len(result.Transactions) != 0 {
+		t.Errorf("transactions = %d, want 0", len(result.Transactions))
+	}
+	if len(result.Annotations) != 1 || result.Annotations[0].Type != "error" {
+		t.Fatalf("annotations = %#v, want one error", result.Annotations)
+	}
+	// An unterminated flow collection is the common way a hand-edited document
+	// fails, and its wording is translated to the reference's.
+	if got := result.Annotations[0].Message; got != "unexpected end of the stream within a flow collection" {
+		t.Errorf("message = %q", got)
+	}
+}
+
+// TestMultipartBody pins the payload assembled from formData parameters.
+func TestMultipartBody(t *testing.T) {
+	result := compileSource(t, `
+swagger: '2.0'
+info: {title: P, version: '1.0'}
+consumes: ['multipart/form-data; boundary=B']
+paths:
+  /data:
+    post:
+      summary: S
+      parameters:
+        - {name: text, in: formData, type: string, x-example: hello}
+      responses:
+        200: {description: OK}
+`)
+	want := "--B\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\nhello\r\n\r\n--B--\r\n"
+	if got := result.Transactions[0].Request.Body; got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
+// TestDefaultResponseIsSkippedWithAWarning pins that a response with no status
+// code says nothing to assert, and that saying so is the difference between a
+// deliberate choice and silently dropping it.
+func TestDefaultResponseIsSkippedWithAWarning(t *testing.T) {
+	result := compileSource(t, `
+swagger: '2.0'
+info: {title: P, version: '1.0'}
+paths:
+  /p:
+    get:
+      summary: S
+      responses:
+        200: {description: OK}
+        default: {description: whatever}
+`)
+	if len(result.Transactions) != 1 {
+		t.Errorf("transactions = %d, want 1: the default response is skipped", len(result.Transactions))
+	}
+	if len(result.Annotations) != 1 || result.Annotations[0].Message != "Default response is not yet supported" {
+		t.Errorf("annotations = %#v, want the skip to be reported", result.Annotations)
+	}
+}
+
+// TestPathParameterWithoutAPlaceholder pins that a document describing a
+// request it has not said how to build is an error, and that an error suppresses
+// the transactions rather than guessing a URI.
+func TestPathParameterWithoutAPlaceholder(t *testing.T) {
+	result := compileSource(t, `
+swagger: '2.0'
+info: {title: P, version: '1.0'}
+paths:
+  /pet:
+    get:
+      summary: S
+      parameters:
+        - {name: id, in: path, required: true, type: string}
+      responses:
+        200: {description: OK}
+`)
+	if len(result.Transactions) != 0 {
+		t.Errorf("transactions = %d, want 0", len(result.Transactions))
+	}
+	if len(result.Annotations) != 1 || result.Annotations[0].Type != "error" {
+		t.Fatalf("annotations = %#v, want one error", result.Annotations)
+	}
+	if !strings.Contains(result.Annotations[0].Message, `has a path parameter named "id"`) {
+		t.Errorf("message = %q", result.Annotations[0].Message)
 	}
 }
 

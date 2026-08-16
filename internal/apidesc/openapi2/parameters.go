@@ -40,10 +40,14 @@ func (d *document) parseParameters(n node) *parameters {
 			node:     resolved,
 			schema:   resolved.get("schema"),
 		}
-		// The parameter itself carries the example, default or enum that fills
-		// the URI in.
-		if value, ok := schemaExample(resolved); ok {
-			p.value, p.hasValue = value, true
+		// Only `x-example` supplies the value to send. A `default` describes
+		// what the server assumes when the parameter is omitted, which is a
+		// different claim — it is carried through as an attribute, and the URI
+		// falls back to the first enum value instead.
+		if example := resolved.get("x-example"); example.valid() {
+			p.value, p.hasValue = scalarValue(example), true
+		} else if example := resolved.get("example"); example.valid() {
+			p.value, p.hasValue = scalarValue(example), true
 		}
 		params.ordered = append(params.ordered, p)
 	}
