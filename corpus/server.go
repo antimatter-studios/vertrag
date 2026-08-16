@@ -10,6 +10,7 @@ import (
 
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/generate"
 	"github.com/antimatter-studios/vertrag/validate"
 )
 
@@ -285,20 +286,75 @@ func schemaFor(schemas map[string]json.RawMessage, name string) (json.RawMessage
 	return nil, false
 }
 
-// headerValueFor invents a value satisfying a header's schema, since the
+// headerValueFor invents a value satisfying a header's schema, since a
 // description declares the shape of these rather than an example.
+//
+// It honours the constraints rather than picking by type alone. An earlier
+// version returned "corpus" for every string, which a header declaring an enum
+// forbids — so the reference server sent a value its own description called
+// invalid, and the conformance test reported vertrag for catching it correctly.
 func headerValueFor(schema json.RawMessage) string {
 	var decoded map[string]any
 	if err := json.Unmarshal(schema, &decoded); err != nil {
 		return "1"
 	}
+
+	// An enum lists every permitted value, so nothing outside it will do.
+	if values, ok := decoded["enum"].([]any); ok && len(values) > 0 {
+		return stringifyScalar(values[0])
+	}
+	if fixed, ok := decoded["const"]; ok {
+		return stringifyScalar(fixed)
+	}
+
+	constraints := generate.Constraints{
+		Pattern: text(decoded["pattern"]),
+		Format:  text(decoded["format"]),
+
+		MinLength: number(decoded["minLength"]),
+		MaxLength: number(decoded["maxLength"]),
+		Minimum:   number(decoded["minimum"]),
+		Maximum:   number(decoded["maximum"]),
+	}
+
 	switch decoded["type"] {
 	case "integer", "number":
-		return "1"
+		// Zero unless a bound moves it, matching how a specimen is chosen
+		// everywhere else.
+		return strconv.FormatFloat(constraints.Number(0), 'f', -1, 64)
 	case "boolean":
 		return "true"
 	default:
+		if value := constraints.String(); value != "" {
+			return value
+		}
 		return "corpus"
+	}
+}
+
+func text(value any) string {
+	out, _ := value.(string)
+	return out
+}
+
+func number(value any) *float64 {
+	out, ok := value.(float64)
+	if !ok {
+		return nil
+	}
+	return &out
+}
+
+func stringifyScalar(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(typed)
+	default:
+		return fmt.Sprint(value)
 	}
 }
 

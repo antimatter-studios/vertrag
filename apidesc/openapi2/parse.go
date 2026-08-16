@@ -1,6 +1,7 @@
 package openapi2
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -362,9 +363,67 @@ func (d *document) parseResponseHeaders(n node) ([]header, string) {
 			override = value
 			continue
 		}
-		headers = append(headers, header{name: name, value: value})
+		headers = append(headers, header{
+			name:   name,
+			value:  value,
+			schema: headerSchema(member.Value),
+		})
 	}
 	return headers, override
+}
+
+// headerSchema renders a Swagger Header Object as the JSON Schema it describes.
+//
+// Swagger has no Schema Object here. A header states its `type` and constraints
+// inline, where OpenAPI 3 nests them under `schema`, so the same header written
+// in the two formats produced a schema in one and nothing in the other — and
+// vertrag's header validation, which reads only the schema, silently did
+// nothing for every Swagger document.
+//
+// A header describing an array is skipped rather than approximated: its wire
+// form depends on `collectionFormat`, and guessing at that would fail servers
+// using any of the four spellings this does not implement.
+func headerSchema(header node) string {
+	declared := header.Get("type").Str()
+	if declared == "" || declared == "array" || declared == "file" {
+		return ""
+	}
+
+	schema := newOrderedMap()
+	schema.Set("type", declared)
+	for _, keyword := range []string{
+		"format", "pattern", "enum",
+		"maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum",
+		"maxLength", "minLength", "multipleOf",
+	} {
+		if value, ok := scalarOrSequence(header.Get(keyword)); ok {
+			schema.Set(keyword, value)
+		}
+	}
+
+	encoded, ok := encodeToString(schema)
+	if !ok {
+		return ""
+	}
+	return encoded
+}
+
+// scalarOrSequence reads a keyword whose value may be a single value or a list,
+// which is what separates `enum` from every other constraint.
+func scalarOrSequence(n node) (any, bool) {
+	switch {
+	case n.IsSequence():
+		items := n.Items()
+		values := make([]any, 0, len(items))
+		for _, item := range items {
+			values = append(values, scalarValue(item))
+		}
+		return values, len(values) > 0
+	case n.IsScalar():
+		return scalarValue(n), true
+	default:
+		return nil, false
+	}
 }
 
 // buildTransactions pairs every request with every response.
@@ -416,6 +475,9 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			if response.schema != "" {
 				httpResponse.Append(schemaAsset(response.schema))
+			}
+			if asset := headerSchemasAsset(response.headers); asset != nil {
+				httpResponse.Append(asset)
 			}
 
 			transactions = append(transactions,
@@ -513,4 +575,40 @@ func stringList(n node) []string {
 		}
 	}
 	return out
+}
+
+// headerSchemasAsset carries one JSON Schema per response header, in the same
+// shape the OpenAPI 3 parser emits so the compiler and validator need no idea
+// which format a document was written in.
+func headerSchemasAsset(headers []header) *refract.Element {
+	schemas := newOrderedMap()
+	for _, h := range headers {
+		if h.schema != "" {
+			schemas.Set(h.name, json.RawMessage(h.schema))
+		}
+	}
+	if schemas.Len() == 0 {
+		return nil
+	}
+
+	encoded, ok := encodeToString(schemas)
+	if !ok {
+		return nil
+	}
+
+	asset := refract.Text("asset", encoded)
+	asset.AddClass("messageHeadersSchema")
+	// A map of schemas is not itself a schema, so it is described as the JSON
+	// object it is rather than borrowing the body schema's media type.
+	asset.SetAttr("contentType", refract.String("application/json"))
+	return asset
+}
+
+// encodeToString renders a value as the JSON text an asset carries.
+func encodeToString(value any) (string, bool) {
+	encoded, err := marshalJSON(value)
+	if err != nil {
+		return "", false
+	}
+	return encoded, true
 }

@@ -3,15 +3,19 @@
   "info": {
     "title": "Swagger Widgets",
     "version": "1.0.0",
-    "description": "The same ground as widgets.yml in Swagger 2.0. It exists because the differential oracle cannot cover this: its Swagger fixtures come from Dredd's own suite, which carries no minLength, no pattern, no minimum and no minItems anywhere, because Dredd acts on none of them. A reference implementation can only be differenced against for behaviour it has."
+    "description": "The same ground as widgets.yml in Swagger 2.0. It exists because the differential oracle cannot cover this: its Swagger fixtures come from Dredd's own suite, which carries no minLength, no pattern, no minimum and no minItems anywhere, because Dredd acts on none of them. A reference implementation can only be differenced against for behaviour it has. Its response headers carry inline type constraints rather than a Schema Object, which is Swagger's spelling and was silently unvalidated until the parser learned to render them as schemas."
   },
   "basePath": "/",
   "paths": {
     "/widgets": {
       "post": {
         "summary": "Create a widget",
-        "consumes": ["application/json"],
-        "produces": ["application/json"],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
         "parameters": [
           {
             "name": "body",
@@ -19,12 +23,34 @@
             "required": true,
             "schema": {
               "type": "object",
-              "required": ["name", "size", "code"],
+              "required": [
+                "name",
+                "size",
+                "code"
+              ],
               "properties": {
-                "name": {"type": "string", "minLength": 3, "maxLength": 12},
-                "size": {"type": "integer", "minimum": 10, "maximum": 500},
-                "code": {"type": "string", "pattern": "^[A-Z]{3}$"},
-                "tags": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
+                "name": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 12
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 500
+                },
+                "code": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "tags": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             }
           }
@@ -34,10 +60,32 @@
             "description": "Created",
             "schema": {
               "type": "object",
-              "required": ["id", "name"],
+              "required": [
+                "id",
+                "name"
+              ],
               "properties": {
-                "id": {"type": "integer", "minimum": 1},
-                "name": {"type": "string", "minLength": 3}
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 3
+                }
+              }
+            },
+            "headers": {
+              "X-Widget-Count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "X-Widget-Kind": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "deluxe"
+                ]
               }
             }
           }
