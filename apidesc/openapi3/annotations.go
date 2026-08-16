@@ -164,7 +164,7 @@ var (
 		// constraint does nothing when it is the very thing being checked, and
 		// the natural response to that is to delete it. Each was measured
 		// against the validator rather than assumed.
-		supported: []string{"type", "enum", "const", "properties", "items", "required",
+		supported: []string{"$ref", "type", "enum", "const", "properties", "items", "required",
 			"nullable", "oneOf", "allOf", "anyOf", "not", "additionalProperties",
 			"default", "title", "description", "example",
 			"multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum",
@@ -186,13 +186,13 @@ var (
 		// is where these keywords remain inert — but a key that is honoured by
 		// one command is not an unsupported key, and saying it is invites
 		// deleting the constraint that fuzzing depends on.
-		supported: []string{"type", "enum", "const", "description", "title", "example",
+		supported: []string{"$ref", "type", "enum", "const", "description", "title", "example",
 			"multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum",
 			"maxLength", "minLength", "pattern", "format",
 			"maxItems", "minItems", "uniqueItems", "maxProperties", "minProperties",
 			"properties", "items", "required", "nullable", "default",
 			"oneOf", "allOf", "anyOf", "not", "additionalProperties"},
-		unsupported: []string{"$ref", "discriminator", "readOnly", "writeOnly",
+		unsupported: []string{"discriminator", "readOnly", "writeOnly",
 			"xml", "externalDocs", "deprecated"},
 	}
 )

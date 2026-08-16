@@ -41,6 +41,12 @@ var violations = []struct {
 	{"items", `{"type":"array","items":{"type":"string"}}`, `[1]`},
 	{"properties", `{"type":"object","properties":{"a":{"type":"string"}}}`, `{"a":1}`},
 	{"type", `{"type":"string"}`, `1`},
+	// A reference is acted on wherever a schema can appear: the target's
+	// constraints reach the compiled transaction and are enforced. It is in
+	// this table because it was listed unsupported for parameter schemas while
+	// being resolved for them, which the guard could not see while the only
+	// keywords it knew were the ones a body is validated with.
+	{"$ref", `{"$ref":"#/definitions/T","definitions":{"T":{"type":"string"}}}`, `1`},
 }
 
 // TestNoActedOnKeywordIsCalledUnsupported is a structural guard against a

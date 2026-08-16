@@ -1,0 +1,86 @@
+openapi: 3.0.0
+info:
+  title: References
+  version: "1.0.0"
+  description: >
+    References of every shape a document uses them in: to a schema, to a
+    parameter, to a response, to a request body, and nested several deep.
+    Each is somewhere a resolver can stop one link short and produce a
+    specimen the description never described.
+
+components:
+  schemas:
+    Id: {type: integer, minimum: 1}
+    Name: {type: string, minLength: 2, maxLength: 20}
+    Widget:
+      type: object
+      required: [id, name]
+      properties:
+        id: {$ref: "#/components/schemas/Id"}
+        name: {$ref: "#/components/schemas/Name"}
+    WidgetList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items: {$ref: "#/components/schemas/Widget"}
+
+  parameters:
+    WidgetId:
+      name: widgetId
+      in: path
+      required: true
+      example: 3
+      schema: {$ref: "#/components/schemas/Id"}
+
+  requestBodies:
+    NewWidget:
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Widget"}
+
+  responses:
+    NotFound:
+      description: Missing
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: {$ref: "#/components/schemas/Name"}
+
+paths:
+  /widgets:
+    get:
+      summary: A referenced list, two levels deep
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WidgetList"}
+    post:
+      summary: A referenced request body
+      requestBody: {$ref: "#/components/requestBodies/NewWidget"}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Widget"}
+
+  /widgets/{widgetId}:
+    get:
+      summary: A referenced parameter and a referenced response
+      parameters:
+        - {$ref: "#/components/parameters/WidgetId"}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Widget"}
+        "404": {$ref: "#/components/responses/NotFound"}
