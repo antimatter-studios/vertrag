@@ -99,6 +99,17 @@ var divergences = []divergence{
 	},
 	{
 		fixture: "composition",
+		path:    "transactions[0].response.body",
+		reason: "Dredd acts on none of allOf, anyOf or oneOf when the schema " +
+			"has no type of its own, so a body composed with allOf gets no " +
+			"specimen at all — and an endpoint whose REQUEST body is an allOf " +
+			"is therefore sent nothing, which any server requiring the body " +
+			"rejects. vertrag merges the branches, since a value satisfying " +
+			"only the first satisfies the allOf no better than one satisfying " +
+			"none.",
+	},
+	{
+		fixture: "composition",
 		path:    "transactions[3].response.body",
 		reason: "Dredd sends the zero value of the declared type whatever the " +
 			"schema says, so a string with a minLength is demonstrated by \"\" " +

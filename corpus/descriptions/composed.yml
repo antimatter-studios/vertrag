@@ -1,0 +1,58 @@
+openapi: 3.0.0
+info:
+  title: Composed
+  version: "1.0.0"
+  description: >
+    Schemas built from other schemas, and references between them. A
+    specimen has to satisfy the composition as a whole, not just the branch
+    a generator happened to walk into.
+
+components:
+  schemas:
+    Identified:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, minimum: 1}
+    Named:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 2}
+    Node:
+      type: object
+      required: [label]
+      properties:
+        label: {type: string, minLength: 1}
+        child: {$ref: "#/components/schemas/Node"}
+
+paths:
+  /composed:
+    get:
+      summary: Composition and references
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [both, either, referenced, recursive]
+                properties:
+                  # must satisfy BOTH branches at once
+                  both:
+                    allOf:
+                      - $ref: "#/components/schemas/Identified"
+                      - $ref: "#/components/schemas/Named"
+                  # exactly one branch
+                  either:
+                    oneOf:
+                      - {type: object, required: [kind, size], properties: {kind: {type: string, enum: [box]}, size: {type: integer, minimum: 1}}}
+                      - {type: object, required: [kind, radius], properties: {kind: {type: string, enum: [ball]}, radius: {type: number, minimum: 0.5}}}
+                  # at least one branch
+                  atLeastOne:
+                    anyOf:
+                      - {type: string, minLength: 3}
+                      - {type: integer, minimum: 5}
+                  referenced: {$ref: "#/components/schemas/Identified"}
+                  recursive: {$ref: "#/components/schemas/Node"}

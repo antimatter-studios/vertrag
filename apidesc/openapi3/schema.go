@@ -157,11 +157,26 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return out, true
 
 	default:
-		// An untyped schema may still offer alternatives. Only the first is
-		// used, because a message carries one body — and only oneOf, since
-		// allOf and anyOf are not acted on at all.
-		if branches := schema.Get("oneOf").Items(); len(branches) > 0 {
-			return d.generateValue(branches[0], seen)
+		// An untyped schema may still be built out of others.
+		//
+		// `allOf` has to be satisfied in full — every branch at once — so the
+		// branches are merged. Dredd acts on none of these and falls through to
+		// the empty string, which for an allOf of two object schemas is a
+		// specimen satisfying neither.
+		if branches := schema.Get("allOf").Items(); len(branches) > 0 {
+			return d.mergeAll(branches, seen)
+		}
+
+		// `oneOf` and `anyOf` both permit a value matching one branch, so the
+		// first that can be demonstrated is a valid specimen for either. They
+		// differ in whether matching several is allowed, which constrains a
+		// value being checked rather than one being invented.
+		for _, keyword := range []string{"oneOf", "anyOf"} {
+			for _, branch := range schema.Get(keyword).Items() {
+				if value, ok := d.generateValue(branch, seen); ok {
+					return value, true
+				}
+			}
 		}
 
 		// Otherwise there is nothing to go on. The reference does not infer a
@@ -766,4 +781,42 @@ func optionalNumberAt(schema node, key string) (float64, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+// mergeAll builds one specimen satisfying every branch of an `allOf`.
+//
+// The branches are almost always object schemas contributing properties, and
+// the merged object carries all of them — a value satisfying only the first
+// branch satisfies the allOf no better than one satisfying none.
+//
+// A branch that is not an object cannot be merged with anything, so the first
+// such branch is the whole answer. That is a narrowing, not a fudge: an allOf
+// combining a scalar with an object describes a value nothing can satisfy, and
+// the schema is what is wrong there.
+func (d *document) mergeAll(branches []node, seen map[string]bool) (any, bool) {
+	merged := newOrderedMap()
+	mergedAny := false
+
+	for _, branch := range branches {
+		value, ok := d.generateValue(branch, seen)
+		if !ok {
+			continue
+		}
+
+		nested, isObject := value.(*orderedMap)
+		if !isObject {
+			// Not combinable. Whatever it is, it is the only specimen on offer.
+			return value, true
+		}
+		for _, key := range nested.Keys() {
+			v, _ := nested.Get(key)
+			merged.Set(key, v)
+		}
+		mergedAny = true
+	}
+
+	if !mergedAny {
+		return nil, false
+	}
+	return merged, true
 }
