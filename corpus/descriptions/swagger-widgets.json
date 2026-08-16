@@ -1,0 +1,48 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Swagger Widgets",
+    "version": "1.0.0",
+    "description": "The same ground as widgets.yml in Swagger 2.0. It exists because the differential oracle cannot cover this: its Swagger fixtures come from Dredd's own suite, which carries no minLength, no pattern, no minimum and no minItems anywhere, because Dredd acts on none of them. A reference implementation can only be differenced against for behaviour it has."
+  },
+  "basePath": "/",
+  "paths": {
+    "/widgets": {
+      "post": {
+        "summary": "Create a widget",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["name", "size", "code"],
+              "properties": {
+                "name": {"type": "string", "minLength": 3, "maxLength": 12},
+                "size": {"type": "integer", "minimum": 10, "maximum": 500},
+                "code": {"type": "string", "pattern": "^[A-Z]{3}$"},
+                "tags": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "type": "object",
+              "required": ["id", "name"],
+              "properties": {
+                "id": {"type": "integer", "minimum": 1},
+                "name": {"type": "string", "minLength": 3}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

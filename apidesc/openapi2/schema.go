@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/antimatter-studios/vertrag/generate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -47,11 +48,18 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return value, true
 	}
 
+	constraints := constraintsOf(schema)
+
 	switch schema.Get("type").Str() {
 	case "string":
-		return "", true
+		return constraints.String(), true
 	case "integer", "number":
-		return float64(swaggerNumberSample), true
+		// The implausible sample is only a starting point. Where the schema
+		// states a minimum it is almost always above it — -100000000 satisfies
+		// virtually no lower bound — so the bounds move it, and a specimen the
+		// document itself calls invalid is not a placeholder, it is a request
+		// any conforming server refuses.
+		return constraints.Number(swaggerNumberSample), true
 	case "boolean":
 		return false, true
 	case "array":
@@ -63,7 +71,13 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		if !ok {
 			return []any{}, true
 		}
-		return []any{value}, true
+
+		length := generate.Items(numberOf(schema, "minItems"))
+		out := make([]any, 0, length)
+		for i := 0; i < length; i++ {
+			out = append(out, value)
+		}
+		return out, true
 	case "object":
 		return d.generateObject(schema, seen), true
 	default:

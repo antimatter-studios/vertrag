@@ -2,7 +2,6 @@ package openapi3
 
 import (
 	"encoding/json"
-	"math"
 	"strconv"
 	"strings"
 
@@ -104,9 +103,9 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 
 	switch declaredType(schema) {
 	case "string":
-		return exampleString(schema), true
+		return constraintsOf(schema).String(), true
 	case "integer", "number":
-		return exampleNumber(schema), true
+		return constraintsOf(schema).Number(0), true
 	case "boolean":
 		return false, true
 
@@ -125,10 +124,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		// One item demonstrates the shape, which is all a document without a
 		// minItems asks for. With one, the array has to actually carry that
 		// many or it is a specimen the schema forbids.
-		length := int(numberAt(schema, "minItems", 1))
-		if length < 1 {
-			length = 1
-		}
+		length := generate.Items(numberOf(schema, "minItems"))
 		out := make([]any, 0, length)
 		for i := 0; i < length; i++ {
 			out = append(out, value)
@@ -250,25 +246,10 @@ func isValuelessPrimitiveSchema(schema node) bool {
 		// a minLength, a pattern, a format or an enum each describe the
 		// contents exactly — and an array whose items carry any of those has a
 		// specimen worth sending.
-		return !hasContentConstraint(schema)
+		return !constraintsOf(schema).Describes()
 	default:
 		return false
 	}
-}
-
-// hasContentConstraint reports whether a primitive schema says anything about
-// its values beyond their type.
-func hasContentConstraint(schema node) bool {
-	for _, keyword := range []string{
-		"enum", "const", "pattern", "format",
-		"minLength", "maxLength", "minimum", "maximum",
-		"exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-	} {
-		if schema.Get(keyword).Valid() {
-			return true
-		}
-	}
-	return false
 }
 
 // renderBody serialises a generated value for a media type.
@@ -711,104 +692,6 @@ func baseMediaType(mediaType string) string {
 		mediaType = mediaType[:i]
 	}
 	return strings.ToLower(strings.TrimSpace(mediaType))
-}
-
-// A specimen value has to satisfy the schema it came from.
-//
-// Dredd sends the zero value of the declared type — "" for a string, 0 for a
-// number — whatever the schema says. Where the schema has a lower bound that is
-// a body the document itself calls invalid, and the consequence is not
-// cosmetic: it is sent as the REQUEST body, so a server correctly enforcing its
-// own contract answers 400, and the run reports the server as broken for doing
-// exactly what it published. An endpoint whose fields carry a minLength or a
-// minimum cannot be tested at all.
-//
-// The bounds are therefore honoured. The value stays the smallest the schema
-// permits, so a document without bounds produces what it always did.
-
-// exampleString picks the shortest string the schema allows.
-func exampleString(schema node) string {
-	// A pattern and a format each describe the value exactly, and are checked
-	// by the validator, so a specimen ignoring them is one the document calls
-	// invalid. They come first because a length bound cannot be honoured at the
-	// same time in general — a string matching a regex is whatever length that
-	// regex makes it — and of the two constraints the exact one is the one a
-	// server actually enforces.
-	if pattern := schema.Get("pattern").Str(); pattern != "" {
-		if value, ok := generate.FromPattern(pattern); ok {
-			return value
-		}
-	}
-	if format := schema.Get("format").Str(); format != "" {
-		if value, ok := generate.FromFormat(format); ok {
-			return value
-		}
-	}
-
-	length := numberAt(schema, "minLength", 0)
-	if max, declared := optionalNumberAt(schema, "maxLength"); declared && max < length {
-		// A schema whose maxLength is below its minLength permits nothing at
-		// all. Following the upper bound keeps this to one impossible
-		// constraint rather than two.
-		length = max
-	}
-	if length <= 0 {
-		return ""
-	}
-	return strings.Repeat("x", int(length))
-}
-
-// exampleNumber picks the smallest number the schema allows, staying at zero
-// when it allows that.
-func exampleNumber(schema node) float64 {
-	value := 0.0
-
-	if min, declared := optionalNumberAt(schema, "minimum"); declared && value < min {
-		value = min
-	}
-	// draft-4, which OpenAPI 3.0 yields, spells this as a boolean modifying
-	// `minimum`; 2019-09 onwards spells it as the bound itself. Both mean the
-	// bound is not itself permitted.
-	if schema.Get("exclusiveMinimum").Bool() {
-		value++
-	} else if bound, declared := optionalNumberAt(schema, "exclusiveMinimum"); declared && value <= bound {
-		value = bound + 1
-	}
-
-	if step, declared := optionalNumberAt(schema, "multipleOf"); declared && step > 0 {
-		// Round UP to the next multiple. Rounding down would satisfy
-		// multipleOf by breaking the minimum that was just applied, and a
-		// minimum is rarely itself a multiple: `multipleOf: 5, minimum: 7`
-		// permits 10, not 7 and not 5.
-		value = math.Ceil(value/step) * step
-	}
-
-	if max, declared := optionalNumberAt(schema, "maximum"); declared && value > max {
-		value = max
-	}
-	if bound, declared := optionalNumberAt(schema, "exclusiveMaximum"); declared && value >= bound {
-		value = bound - 1
-	}
-	return value
-}
-
-func numberAt(schema node, key string, fallback float64) float64 {
-	if value, declared := optionalNumberAt(schema, key); declared {
-		return value
-	}
-	return fallback
-}
-
-func optionalNumberAt(schema node, key string) (float64, bool) {
-	entry := schema.Get(key)
-	if !entry.IsScalar() {
-		return 0, false
-	}
-	value, err := strconv.ParseFloat(entry.Value, 64)
-	if err != nil {
-		return 0, false
-	}
-	return value, true
 }
 
 // mergeAll builds one specimen satisfying every branch of an `allOf`.
