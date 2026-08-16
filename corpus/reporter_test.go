@@ -73,6 +73,44 @@ func TestEveryReporterSurvivesEveryDescription(t *testing.T) {
 	}
 }
 
+// TestASkipSaysWhyInEveryReporter pins that a transaction which did not run
+// explains itself.
+//
+// A skip is the one outcome a reader cannot interpret without a reason: a
+// transaction excluded on purpose and a step abandoned because what it depended
+// on failed look identical, and only one of them is a problem. JUnit wrote
+// "skipped by a hook" for both, which is worse than saying nothing — it sends
+// the reader to look at hooks that had nothing to do with it.
+func TestASkipSaysWhyInEveryReporter(t *testing.T) {
+	results := []runner.Result{{
+		Name:    "a > skipped step",
+		Status:  runner.StatusSkip,
+		Request: runner.Request{Method: "GET", URI: "/a"},
+		Errors:  []string{"the step it follows did not pass"},
+	}}
+
+	for format, report := range reporters(&bytes.Buffer{}) {
+		t.Run(format, func(t *testing.T) {
+			var out bytes.Buffer
+			reporters(&out)[format].Report(results)
+			_ = report
+
+			rendered := out.String()
+			if strings.Contains(rendered, "skipped by a hook") {
+				t.Error("claims a hook skipped it, which nothing here did")
+			}
+			// The dot reporter prints one character per transaction and a
+			// summary; there is nowhere in that format for a reason to go.
+			if format == "dot" {
+				return
+			}
+			if !strings.Contains(rendered, "did not pass") {
+				t.Errorf("does not say why the step was skipped:\n%s", rendered)
+			}
+		})
+	}
+}
+
 // TestJUnitIsAlwaysWellFormedXML pins the one reporter whose output is parsed
 // by another program rather than read by a person.
 //

@@ -80,6 +80,14 @@ func (r CLI) line(result runner.Result) {
 	fmt.Fprintf(r.Out, "%s: %s %s (%s)\n",
 		label, result.Request.Method, result.Name, result.Duration.Round(1e6))
 
+	// A skip says why on the same line. It is the one outcome a reader cannot
+	// interpret without one — a transaction excluded on purpose and a step
+	// abandoned because what it depended on failed look identical otherwise,
+	// and only one of them is a problem.
+	if result.Status == runner.StatusSkip && len(result.Errors) > 0 {
+		fmt.Fprintf(r.Out, "      %s\n", r.paint(dim, strings.Join(result.Errors, "; ")))
+	}
+
 	if r.Details && result.Status == runner.StatusPass {
 		r.exchange(result)
 	}

@@ -94,7 +94,12 @@ func (r JUnit) Report(results []runner.Result) bool {
 			}
 		case runner.StatusSkip:
 			suite.Skipped++
-			testCase.Skipped = &junitSkipped{Message: "skipped by a hook"}
+			// The recorded reason, when there is one. A hook is no longer the
+			// only thing that skips a transaction — a step whose dependency
+			// failed is skipped by sequencing, and saying "skipped by a hook"
+			// there sends the reader to look at hooks that had nothing to do
+			// with it.
+			testCase.Skipped = &junitSkipped{Message: skipReason(result)}
 		}
 
 		suite.Cases = append(suite.Cases, testCase)
@@ -181,4 +186,15 @@ func truncate(body string) string {
 
 func seconds(d time.Duration) string {
 	return fmt.Sprintf("%.3f", d.Seconds())
+}
+
+// skipReason says why a transaction did not run.
+//
+// A hook may skip one without explaining itself, which is the only case left
+// where nothing better can be said.
+func skipReason(result runner.Result) string {
+	if len(result.Errors) > 0 {
+		return strings.Join(result.Errors, "; ")
+	}
+	return "skipped without a reason given"
 }
