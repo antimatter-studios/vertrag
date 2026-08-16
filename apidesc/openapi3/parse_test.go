@@ -616,7 +616,11 @@ paths:
 
 	// A type list including "null" means the same as 3.0's `nullable`, and a
 	// const has exactly one value it could be.
-	if got, want := result.Transactions[0].Response.Body, `{"maybe":null,"exact":"fixed","bounded":0}`; got != want {
+	// `bounded` is exclusiveMinimum: 0 in the 3.1 numeric spelling, so it must
+	// be greater than zero and the smallest specimen the schema permits is 1.
+	// This asserted 0 while the generator ignored bounds, which is to say it
+	// asserted a body the document called invalid.
+	if got, want := result.Transactions[0].Response.Body, `{"maybe":null,"exact":"fixed","bounded":1}`; got != want {
 		t.Errorf("body = %s, want %s", got, want)
 	}
 

@@ -99,6 +99,16 @@ var divergences = []divergence{
 	},
 	{
 		fixture: "composition",
+		path:    "transactions[3].response.body",
+		reason: "Dredd sends the zero value of the declared type whatever the " +
+			"schema says, so a string with a minLength is demonstrated by \"\" " +
+			"— a body the document itself calls invalid. Sent as a REQUEST body " +
+			"that makes any server correctly enforcing its own contract answer " +
+			"400, and the run blames the server for doing what it published. " +
+			"vertrag sends the smallest value the schema permits instead.",
+	},
+	{
+		fixture: "composition",
 		path:    "annotations",
 		reason:  constraintsAreSupported,
 	},

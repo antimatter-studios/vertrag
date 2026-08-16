@@ -1,0 +1,86 @@
+openapi: 3.0.0
+info:
+  title: Widgets
+  version: "1.0.0"
+  description: >
+    The broad case: parameters in every location, a request body with
+    constraints, several documented statuses, and response headers carrying
+    schemas. Everything a conforming server must get right.
+
+paths:
+  /widgets:
+    get:
+      summary: List widgets
+      parameters:
+        - name: limit
+          in: query
+          example: 10
+          schema: {type: integer, minimum: 1, maximum: 100}
+        - name: X-Tenant
+          in: header
+          example: acme
+          schema: {type: string, minLength: 3, maxLength: 8}
+      responses:
+        "200":
+          description: The widgets
+          headers:
+            X-Total-Count:
+              schema: {type: integer, minimum: 0}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [widgets]
+                properties:
+                  widgets:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name]
+                      properties:
+                        id: {type: integer, minimum: 1}
+                        name: {type: string, minLength: 1, maxLength: 40}
+
+    post:
+      summary: Create a widget
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, size]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 40}
+                size: {type: integer, minimum: 1, maximum: 500}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id: {type: integer, minimum: 1}
+                  name: {type: string}
+
+  /widgets/{id}:
+    get:
+      summary: Fetch a widget
+      parameters:
+        - name: id
+          in: path
+          required: true
+          example: 7
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: The widget
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id: {type: integer, minimum: 1}
+                  name: {type: string}
