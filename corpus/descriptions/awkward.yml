@@ -1,0 +1,53 @@
+openapi: 3.0.0
+info:
+  title: Awkward
+  version: "1.0.0"
+  description: >
+    Constraints that interact, where honouring one naively breaks another.
+    Each of these has a correct answer, and a generator that treats
+    constraints independently gets them wrong.
+
+paths:
+  /awkward:
+    get:
+      summary: Interacting constraints
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stepped, steppedAbove, tightBand, patternAndLength, listOfBounded, nestedDeep, emptyOk]
+                properties:
+                  # minimum is not itself a multiple: the answer is 10, not 7.
+                  stepped: {type: integer, multipleOf: 5, minimum: 7}
+                  # the only multiple of 3 in [10,12] is 12.
+                  steppedAbove: {type: integer, multipleOf: 3, minimum: 10, maximum: 12}
+                  # a single permitted value
+                  tightBand: {type: integer, minimum: 42, maximum: 42}
+                  # pattern wins, and it happens to satisfy the length too
+                  patternAndLength: {type: string, pattern: "^[a-z]{5}$", minLength: 5, maxLength: 5}
+                  # minItems on an array of constrained objects
+                  listOfBounded:
+                    type: array
+                    minItems: 2
+                    items:
+                      type: object
+                      required: [n]
+                      properties:
+                        n: {type: integer, minimum: 100}
+                  # nesting, where a bound sits three levels down
+                  nestedDeep:
+                    type: object
+                    required: [level2]
+                    properties:
+                      level2:
+                        type: object
+                        required: [level3]
+                        properties:
+                          level3: {type: string, minLength: 3}
+                  # a zero minimum really does permit zero
+                  emptyOk: {type: string, minLength: 0}
+                  # exclusive bounds in the 3.0 boolean spelling, upper side
+                  belowCeiling: {type: integer, maximum: 5, exclusiveMaximum: true}

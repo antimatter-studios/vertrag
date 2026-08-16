@@ -2,8 +2,11 @@ package openapi3
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
+
+	"github.com/antimatter-studios/vertrag/generate"
 
 	"github.com/antimatter-studios/vertrag/refract"
 	"gopkg.in/yaml.v3"
@@ -118,7 +121,19 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		if !ok {
 			return nil, false
 		}
-		return []any{value}, true
+
+		// One item demonstrates the shape, which is all a document without a
+		// minItems asks for. With one, the array has to actually carry that
+		// many or it is a specimen the schema forbids.
+		length := int(numberAt(schema, "minItems", 1))
+		if length < 1 {
+			length = 1
+		}
+		out := make([]any, 0, length)
+		for i := 0; i < length; i++ {
+			out = append(out, value)
+		}
+		return out, true
 
 	case "object":
 		// A property the document requires but cannot demonstrate leaves the
@@ -670,6 +685,23 @@ func baseMediaType(mediaType string) string {
 
 // exampleString picks the shortest string the schema allows.
 func exampleString(schema node) string {
+	// A pattern and a format each describe the value exactly, and are checked
+	// by the validator, so a specimen ignoring them is one the document calls
+	// invalid. They come first because a length bound cannot be honoured at the
+	// same time in general — a string matching a regex is whatever length that
+	// regex makes it — and of the two constraints the exact one is the one a
+	// server actually enforces.
+	if pattern := schema.Get("pattern").Str(); pattern != "" {
+		if value, ok := generate.FromPattern(pattern); ok {
+			return value
+		}
+	}
+	if format := schema.Get("format").Str(); format != "" {
+		if value, ok := generate.FromFormat(format); ok {
+			return value
+		}
+	}
+
 	length := numberAt(schema, "minLength", 0)
 	if max, declared := optionalNumberAt(schema, "maxLength"); declared && max < length {
 		// A schema whose maxLength is below its minLength permits nothing at
@@ -698,6 +730,14 @@ func exampleNumber(schema node) float64 {
 		value++
 	} else if bound, declared := optionalNumberAt(schema, "exclusiveMinimum"); declared && value <= bound {
 		value = bound + 1
+	}
+
+	if step, declared := optionalNumberAt(schema, "multipleOf"); declared && step > 0 {
+		// Round UP to the next multiple. Rounding down would satisfy
+		// multipleOf by breaking the minimum that was just applied, and a
+		// minimum is rarely itself a multiple: `multipleOf: 5, minimum: 7`
+		// permits 10, not 7 and not 5.
+		value = math.Ceil(value/step) * step
 	}
 
 	if max, declared := optionalNumberAt(schema, "maximum"); declared && value > max {

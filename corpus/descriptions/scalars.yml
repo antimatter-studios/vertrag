@@ -1,0 +1,37 @@
+openapi: 3.0.0
+info:
+  title: Scalars
+  version: "1.0.0"
+  description: >
+    Every scalar type and every constraint that can be put on one. Each
+    property is a separate way generation or validation can be wrong, and a
+    conforming server returning exactly what the schema describes should
+    produce no finding at all.
+
+paths:
+  /scalars:
+    get:
+      summary: Every scalar
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text, bounded, patterned, whole, fractional, flag, listed, fixed]
+                properties:
+                  text: {type: string}
+                  bounded: {type: string, minLength: 4, maxLength: 6}
+                  patterned: {type: string, pattern: "^[a-f0-9]{6}$"}
+                  whole: {type: integer, minimum: 10, maximum: 20}
+                  fractional: {type: number, minimum: 0.5, maximum: 1.5}
+                  stepped: {type: integer, multipleOf: 5, minimum: 5}
+                  exclusive: {type: integer, minimum: 0, exclusiveMinimum: true}
+                  flag: {type: boolean}
+                  listed: {type: string, enum: [alpha, beta, gamma]}
+                  fixed: {type: string, enum: [only]}
+                  nothing: {type: string, nullable: true}
+                  timestamp: {type: string, format: date-time}
+                  identifier: {type: string, format: uuid}
+                  address: {type: string, format: email}
