@@ -116,3 +116,69 @@ func TestSequencingRunsEveryTransactionExactlyOnce(t *testing.T) {
 		}
 	}
 }
+
+// TestAFailedStepSkipsWhatDependsOnItRatherThanCascading pins that one root
+// cause produces one finding.
+//
+// The chain is create, read what was created, delete what was read. If the
+// create fails, running the read anyway would send the description's own
+// example — a 404 against an identifier nothing made — and running the delete
+// would do it again. Three failures for one cause, two of them pointing
+// nowhere, is how a reader learns to stop reading a report.
+func TestAFailedStepSkipsWhatDependsOnItRatherThanCascading(t *testing.T) {
+	server, err := corpus.NewNamed("chained", corpus.FaultWrongStatus)
+	if err != nil {
+		t.Fatalf("building the server: %v", err)
+	}
+	http := httptest.NewServer(server.Stateful().Handler())
+	t.Cleanup(http.Close)
+
+	source, _ := corpus.Load("chained")
+	parsed, err := apidesc.Parse(source, "chained")
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	compiled := compile.Compile(parsed.MediaType, parsed.Elements, "chained")
+
+	engine := runner.New(http.URL)
+	engine.Plan = link.NewSequencer(compiled.Transactions)
+
+	results, err := engine.Run(context.Background(), compiled.Transactions)
+	if err != nil {
+		t.Fatalf("running: %v", err)
+	}
+
+	var failed, skipped int
+	for _, result := range results {
+		switch result.Status {
+		case runner.StatusFail, runner.StatusError:
+			failed++
+		case runner.StatusSkip:
+			skipped++
+		}
+	}
+
+	if failed != 1 {
+		t.Errorf("got %d failure(s) for one root cause, want 1", failed)
+		for _, result := range results {
+			t.Logf("  %-8s %s %v", result.Status, result.Name, result.Errors)
+		}
+	}
+	if skipped != 2 {
+		t.Errorf("got %d skip(s), want the two steps that depended on the failure", skipped)
+		for _, result := range results {
+			t.Logf("  %-8s %-46s %v", result.Status, result.Name, result.Errors)
+		}
+	}
+
+	// A skip has to say why, or it is indistinguishable from a transaction
+	// somebody excluded on purpose.
+	for _, result := range results {
+		if result.Status != runner.StatusSkip {
+			continue
+		}
+		if len(result.Errors) == 0 {
+			t.Errorf("%s was skipped with no reason given", result.Name)
+		}
+	}
+}

@@ -1,0 +1,55 @@
+openapi: 3.0.0
+info:
+  title: Chained
+  version: "1.0.0"
+  description: >
+    A three-step chain, so a failure in the first step has two others
+    depending on it. One root cause should produce one finding, not a
+    cascade of three that a reader has to untangle.
+
+paths:
+  /items:
+    post:
+      operationId: createItem
+      summary: Create
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties: {id: {type: integer, minimum: 1}}
+          links:
+            Read:
+              operationId: readItem
+              parameters: {itemId: "$response.body#/id"}
+
+  /items/{itemId}:
+    get:
+      operationId: readItem
+      summary: Read
+      parameters:
+        - {name: itemId, in: path, required: true, example: 1, schema: {type: integer, minimum: 1}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties: {id: {type: integer, minimum: 1}}
+          links:
+            Delete:
+              operationId: deleteItem
+              parameters: {itemId: "$request.path.itemId"}
+    delete:
+      operationId: deleteItem
+      summary: Delete
+      parameters:
+        - {name: itemId, in: path, required: true, example: 1, schema: {type: integer, minimum: 1}}
+      responses:
+        "204":
+          description: Deleted

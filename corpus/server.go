@@ -238,14 +238,19 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request, matched route) {
 		status = http.StatusOK
 	}
 
-	if s.stateful {
-		if reply, handled := s.statefulAnswer(w, r, matched, status); handled {
-			_ = reply
-			return
-		}
-	}
 	if s.faults.has(FaultWrongStatus) {
 		status = http.StatusInternalServerError
+	}
+
+	// After the faults, not before. Minting an identifier ran first and
+	// answered outright, so a stateful server ignored every fault on its
+	// creating operations — the fault was silently not committed, and a
+	// sequencing test measuring "what happens when the first step fails" was
+	// measuring a first step that passed.
+	if s.stateful {
+		if handled := s.statefulAnswer(w, r, matched, status); handled {
+			return
+		}
 	}
 
 	headers := s.headersFor(matched)
@@ -575,7 +580,7 @@ func dropAProperty(body string) string {
 // Deliberately narrow: it acts only on a 2xx that carries an `id`, and on a
 // path whose last segment is a variable. A corpus server that tried to model a
 // real datastore would become a thing needing its own tests.
-func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched route, status int) (string, bool) {
+func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched route, status int) bool {
 	last := ""
 	if n := len(matched.segments); n > 0 && matched.segments[n-1].variable {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -586,19 +591,22 @@ func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched 
 	// in document order does before the create has happened.
 	if last != "" && !s.minted[last] {
 		writeJSON(w, http.StatusNotFound, `{"error":"no such widget"}`, nil)
-		return "", true
+		return true
 	}
 
+	// Only a successful creation mints. A faulted status is not a creation,
+	// so the fault reaches the client and nothing is recorded — which is what
+	// makes a failed first step genuinely fail.
 	if status < 200 || status > 299 || last != "" {
-		return "", false
+		return false
 	}
 
 	var body map[string]any
 	if json.Unmarshal([]byte(matched.response.Body), &body) != nil {
-		return "", false
+		return false
 	}
 	if _, carries := body["id"]; !carries {
-		return "", false
+		return false
 	}
 
 	s.nextID++
@@ -608,8 +616,8 @@ func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched 
 
 	rewritten, err := json.Marshal(body)
 	if err != nil {
-		return "", false
+		return false
 	}
 	writeJSON(w, status, string(rewritten), s.headersFor(matched))
-	return string(rewritten), true
+	return true
 }
