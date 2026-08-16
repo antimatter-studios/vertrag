@@ -134,6 +134,8 @@ func runRun(args []string) error {
 		return nil
 	}
 
+	reportMissingCredentials(transactions, settings.Header)
+
 	if settings.DryRun {
 		for _, transaction := range transactions {
 			fmt.Fprintf(os.Stdout, "skip: %s %s %s\n",
@@ -437,4 +439,72 @@ func (l *stringList) String() string { return strings.Join(*l, ", ") }
 func (l *stringList) Set(value string) error {
 	*l = append(*l, value)
 	return nil
+}
+
+// reportMissingCredentials names the schemes a run has nothing to satisfy.
+//
+// vertrag cannot invent a credential, so a secured API answers 401 to
+// everything and the report is a wall of failures that say nothing about the
+// contract. Saying which scheme is wanted, and how to supply it, is the
+// difference between that and a run someone can fix in one command — and for a
+// key travelling in the query or a cookie, it is how they learn no flag will do
+// it at all.
+//
+// Said once per scheme rather than per transaction: an API where every
+// operation is secured would otherwise bury its own results.
+func reportMissingCredentials(transactions []compile.Transaction, headers []string) {
+	for _, security := range missingCredentials(transactions, headers) {
+		fmt.Fprintf(os.Stderr,
+			"vertrag: this description requires the %s credential (%s) and the run has none; %s\n",
+			security.Name, describeScheme(security), security.Supplier())
+	}
+}
+
+// missingCredentials selects the schemes a run has nothing to satisfy.
+func missingCredentials(transactions []compile.Transaction, headers []string) []compile.Security {
+	supplied := map[string]bool{}
+	for _, line := range headers {
+		if name, _, ok := strings.Cut(line, ":"); ok {
+			supplied[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+	}
+
+	seen := map[string]bool{}
+	var missing []compile.Security
+
+	for _, transaction := range transactions {
+		for _, security := range transaction.Security {
+			if seen[security.Name] {
+				continue
+			}
+
+			// A header scheme whose header the run already carries is
+			// satisfied as far as anything here can tell.
+			switch {
+			case security.Type == "apiKey" && security.In == "header" &&
+				supplied[strings.ToLower(security.Parameter)]:
+				seen[security.Name] = true
+				continue
+			case security.Type == "http" && supplied["authorization"]:
+				seen[security.Name] = true
+				continue
+			}
+
+			seen[security.Name] = true
+			missing = append(missing, security)
+		}
+	}
+
+	return missing
+}
+
+func describeScheme(security compile.Security) string {
+	switch {
+	case security.Type == "apiKey":
+		return security.Type + " " + security.Parameter + " in the " + security.In
+	case security.Scheme != "":
+		return security.Type + " " + security.Scheme
+	default:
+		return security.Type
+	}
 }

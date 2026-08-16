@@ -123,6 +123,14 @@ func (d *document) parseOperation(path string, member entry, pathParameters *par
 		transition.SetAttr("operationId", refract.String(id))
 	}
 
+	// What the operation requires a caller to prove. vertrag cannot invent a
+	// credential and does not try; carrying the requirement is what lets a run
+	// say WHICH scheme is missing instead of returning a wall of 401s that
+	// explain nothing.
+	if security := d.parseSecurity(operation); security != nil {
+		transition.SetAttr("security", security)
+	}
+
 	// Operation parameters override path parameters of the same name and
 	// location, which is what the specification asks for.
 	params := pathParameters.merge(d.parseParameters(operation.Get("parameters")))

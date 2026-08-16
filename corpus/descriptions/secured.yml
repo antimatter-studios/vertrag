@@ -1,0 +1,66 @@
+openapi: 3.0.0
+info:
+  title: Secured
+  version: "1.0.0"
+  description: >
+    Security schemes of each kind. A tester that ignores them sends
+    unauthenticated requests and reports a wall of 401s that say nothing
+    about the contract.
+
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key
+    BearerAuth:
+      type: http
+      scheme: bearer
+    BasicAuth:
+      type: http
+      scheme: basic
+
+paths:
+  /keyed:
+    get:
+      summary: An API key in a header
+      security: [{ApiKeyHeader: []}]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}
+
+  /queried:
+    get:
+      summary: An API key in the query
+      security: [{ApiKeyQuery: []}]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}
+
+  /bearer:
+    get:
+      summary: A bearer token
+      security: [{BearerAuth: []}]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}
+
+  /open:
+    get:
+      summary: No security at all
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}

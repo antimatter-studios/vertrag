@@ -135,6 +135,10 @@ type Transaction struct {
 	// the same reason OperationID is.
 	Links []Link `json:"-"`
 
+	// Security is what the operation requires a caller to prove. Absent from
+	// the JSON for the same reason OperationID is.
+	Security []Security `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//

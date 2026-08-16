@@ -142,6 +142,7 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		// share it.
 		OperationID: element.FindParent("transition").Attr("operationId").String(),
 		Links:       compileLinks(element.Child("httpResponse")),
+		Security:    compileSecurity(element.FindParent("transition")),
 	}, annotations
 }
 
