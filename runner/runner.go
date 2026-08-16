@@ -2,6 +2,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -225,7 +226,7 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 	}
 	defer response.Body.Close()
 
-	payload, err := io.ReadAll(response.Body)
+	payload, err := readBody(response)
 	if err != nil {
 		return validate.Message{}, fmt.Errorf("reading the response body: %w", err)
 	}
@@ -240,8 +241,88 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 	return validate.Message{
 		StatusCode: strconv.Itoa(response.StatusCode),
 		Headers:    headers,
-		Body:       string(payload),
+		Body:       payload,
 	}, nil
+}
+
+// Bounds on reading a streaming response.
+//
+// A stream does not end — that is what makes it a stream — so reading one to EOF
+// waits out the client timeout and then reports the transaction as an error,
+// which says the API was never asked when in fact it answered immediately and
+// correctly. These bounds stop the read instead, and whatever arrived by then is
+// taken as the body.
+//
+// Two seconds is the time bound because it is far longer than a server needs to
+// produce its opening events — a stream that has sent nothing in two seconds is
+// not merely slow — and short enough that a description covering a dozen
+// streaming endpoints costs seconds rather than the six minutes the thirty
+// second client timeout would have cost.
+//
+// A megabyte is the byte bound because a fast producer can push a great deal in
+// two seconds, and the whole of an expected body is written inline in the
+// description, so no expectation can be longer than what has already been read.
+// Reading past it buys nothing and spends the memory of whatever machine is
+// running the tests.
+const (
+	streamReadBudget = 2 * time.Second
+	streamReadLimit  = 1 << 20
+)
+
+// streamingMediaTypes are the media types whose responses are not meant to end.
+//
+// The list is explicit rather than inferred from a missing Content-Length,
+// because chunked encoding is ordinary: a JSON body of unknown length arrives
+// that way and still finishes. Types such as `application/x-ndjson` are left off
+// for the same reason — they arrive in pieces but they do stop, and cutting one
+// short would report a mismatch against a body the server sent in full.
+var streamingMediaTypes = map[string]bool{
+	"text/event-stream":         true,
+	"multipart/x-mixed-replace": true,
+}
+
+// readBody reads the response body, bounding the read when the media type is one
+// that streams.
+//
+// The bounds are deliberately not applied to every response. An ordinary body
+// ends on its own, and truncating a large but finite payload would report a
+// difference the server is not responsible for.
+func readBody(response *http.Response) (string, error) {
+	if !streamingMediaTypes[baseMediaType(response.Header.Get("Content-Type"))] {
+		payload, err := io.ReadAll(response.Body)
+		if err != nil {
+			return "", err
+		}
+		return string(payload), nil
+	}
+
+	var collected bytes.Buffer
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		io.Copy(&collected, io.LimitReader(response.Body, streamReadLimit))
+	}()
+
+	timer := time.NewTimer(streamReadBudget)
+	defer timer.Stop()
+
+	select {
+	case <-finished:
+		// The stream ended, or the byte bound was reached, on its own.
+	case <-timer.C:
+		// Closing the body is the only way to interrupt a read already blocked
+		// in the kernel. Waiting for the copy afterwards is not politeness: it is
+		// what makes reading the buffer below safe, since otherwise the copy is
+		// still appending to it while the response is being validated.
+		response.Body.Close()
+		<-finished
+	}
+
+	// A read error is dropped rather than returned. Ending the read early is
+	// this side's decision, so the error that follows describes vertrag rather
+	// than the server; and a stream cut short by the network is indistinguishable
+	// from one cut short here, which is the normal outcome for a stream anyway.
+	return collected.String(), nil
 }
 
 // Transaction is a compiled transaction as it moves through a run: hooks may

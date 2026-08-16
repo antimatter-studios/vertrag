@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/compile"
 )
@@ -443,6 +444,196 @@ func TestFullURLOverride(t *testing.T) {
 	}
 	if prepared.Endpoint() != "http://example.com" {
 		t.Errorf("Endpoint = %q", prepared.Endpoint())
+	}
+}
+
+// typed builds a transaction expecting a response of a given media type, which
+// the JSON-shaped helper above cannot express.
+func typed(uri, status, mediaType, body string) compile.Transaction {
+	source := transaction("GET", uri, status, body, "")
+	source.Response.Headers = []compile.Header{{Name: "Content-Type", Value: mediaType}}
+	return source
+}
+
+// streamServer answers /endless with a stream that never finishes, /prompt with
+// one that finishes at once, and /flood with one that arrives faster than the
+// time bound. Each handler stops when the client goes away, so the test server
+// can close.
+func streamServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+
+		switch r.URL.Path {
+		case "/prompt":
+			fmt.Fprint(w, "data: only\n\n")
+		case "/flood":
+			chunk := "data: " + strings.Repeat("x", 8<<10) + "\n\n"
+			for r.Context().Err() == nil {
+				fmt.Fprint(w, chunk)
+				flusher.Flush()
+			}
+		default:
+			for r.Context().Err() == nil {
+				fmt.Fprint(w, "data: tick\n\n")
+				flusher.Flush()
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// TestAnEndlessStreamIsReadForABoundedTimeRatherThanUntilTheClientTimeout pins
+// the fix for a Server-Sent Events endpoint stalling a whole run. Reading such a
+// body to EOF cannot finish, so the read used to run into the thirty second
+// client timeout and the transaction was then reported as an ERROR — as though
+// the server had never been reached, when it had answered instantly and
+// correctly. Both halves matter: the run has to stay quick, and the verdict has
+// to be about the response rather than about vertrag's own patience.
+func TestAnEndlessStreamIsReadForABoundedTimeRatherThanUntilTheClientTimeout(t *testing.T) {
+	server := streamServer(t)
+
+	results, err := New(server.URL).Run(context.Background(),
+		[]compile.Transaction{typed("/endless", "200", "text/event-stream", "data: tick\n\n")})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if results[0].Status == StatusError {
+		t.Errorf("a server that answered should not be an error: %v", results[0].Errors)
+	}
+	// Generous next to the two second bound and still far under the thirty
+	// second client timeout this is here to keep the run away from.
+	if results[0].Duration > 10*time.Second {
+		t.Errorf("the read took %s, so the bound did not apply", results[0].Duration)
+	}
+	if !strings.Contains(results[0].Actual.Body, "data: tick") {
+		t.Errorf("what arrived before the bound should be the body, got %q", results[0].Actual.Body)
+	}
+}
+
+// TestAStreamThatEndsPromptlyIsNotHeldForTheWholeBudget pins that the bound is a
+// ceiling and not a wait. An endpoint that declares itself a stream but answers
+// in one event is common — a description's example is one event — and paying two
+// seconds for each of those would be a slower run than reading to EOF was.
+func TestAStreamThatEndsPromptlyIsNotHeldForTheWholeBudget(t *testing.T) {
+	server := streamServer(t)
+
+	results, err := New(server.URL).Run(context.Background(),
+		[]compile.Transaction{typed("/prompt", "200", "text/event-stream", "data: only\n\n")})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if results[0].Duration >= streamReadBudget {
+		t.Errorf("a stream that ended took %s, the whole budget", results[0].Duration)
+	}
+	if results[0].Status != StatusPass {
+		t.Errorf("status = %q, want pass: %v", results[0].Status, results[0].Errors)
+	}
+}
+
+// TestAFastStreamStopsAtTheByteBound pins the second bound. The time bound alone
+// leaves a producer that is quick rather than slow free to hand the process as
+// much as it can push in two seconds, which is a memory problem rather than a
+// timing one.
+func TestAFastStreamStopsAtTheByteBound(t *testing.T) {
+	server := streamServer(t)
+
+	results, err := New(server.URL).Run(context.Background(),
+		[]compile.Transaction{typed("/flood", "200", "text/event-stream", "data: x\n\n")})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if got := len(results[0].Actual.Body); got != streamReadLimit {
+		t.Errorf("body = %d bytes, want the byte bound of %d", got, streamReadLimit)
+	}
+	if results[0].Duration >= streamReadBudget {
+		t.Error("the byte bound should end the read without waiting out the time bound")
+	}
+}
+
+// TestANonStreamingBodyIsReadWholeHoweverLarge pins that the bounds are scoped
+// to media types that stream. Applying them everywhere would silently truncate a
+// large but perfectly finite payload and report a mismatch the server had
+// nothing to do with.
+func TestANonStreamingBodyIsReadWholeHoweverLarge(t *testing.T) {
+	payload := strings.Repeat("a", streamReadLimit+4096)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, payload)
+	}))
+	defer server.Close()
+
+	results, err := New(server.URL).Run(context.Background(),
+		[]compile.Transaction{typed("/big", "200", "text/plain", payload)})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if got := len(results[0].Actual.Body); got != len(payload) {
+		t.Errorf("body = %d bytes, want the whole %d", got, len(payload))
+	}
+	if results[0].Status != StatusPass {
+		t.Errorf("status = %q, want pass: %v", results[0].Status, results[0].Errors)
+	}
+}
+
+// TestBodiesThatAreNotJSONAreRunAndCompared pins that CSV, binary and empty
+// responses are ordinary transactions. Projects using Dredd routinely excluded
+// these endpoints from their runs, so the assumption they cannot be tested
+// outlives the tools it came from; this says plainly that vertrag compares them,
+// passes the ones that match and fails the ones that do not.
+func TestBodiesThatAreNotJSONAreRunAndCompared(t *testing.T) {
+	// Two NULs, a lone 0x80 continuation byte and an 0xff, none of which is
+	// valid UTF-8 — the bytes that would corrupt a report if anything on the way
+	// out mistook the body for text.
+	binary := "\x00\x01\xff\xfe\x00ab\x80\x00"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/csv":
+			w.Header().Set("Content-Type", "text/csv")
+			fmt.Fprint(w, "id,name\r\n1,alice\r\n")
+		case "/binary":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			fmt.Fprint(w, binary)
+		case "/empty":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer server.Close()
+
+	results, err := New(server.URL).Run(context.Background(), []compile.Transaction{
+		typed("/csv", "200", "text/csv", "id,name\r\n1,alice\r\n"),
+		typed("/csv", "200", "text/csv", "id,name\r\n9,zed\r\n"),
+		typed("/binary", "200", "application/octet-stream", binary),
+		typed("/binary", "200", "application/octet-stream", "\x00different\x00"),
+		typed("/empty", "204", "application/octet-stream", ""),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for i, want := range []Status{StatusPass, StatusFail, StatusPass, StatusFail, StatusPass} {
+		if results[i].Status != want {
+			t.Errorf("result %d status = %q, want %q (errors: %v, beyond: %v)",
+				i, results[i].Status, want, results[i].Errors, results[i].Beyond)
+		}
+	}
+
+	// Byte for byte, because a binary body is only comparable if nothing on the
+	// way in has re-encoded it — replacing the invalid bytes with U+FFFD here
+	// would make two different downloads compare equal.
+	if results[2].Actual.Body != binary {
+		t.Errorf("binary body = %q, want it recorded unchanged", results[2].Actual.Body)
 	}
 }
 

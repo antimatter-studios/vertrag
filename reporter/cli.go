@@ -138,8 +138,42 @@ func (r CLI) body(indent, body string) {
 		body = body[:limit] + fmt.Sprintf("… (%d bytes truncated)", len(body)-limit)
 	}
 	for _, line := range strings.Split(body, "\n") {
-		fmt.Fprintf(r.Out, "%s%s\n", indent, line)
+		// A carriage return ending a line is the other half of a CRLF, which is
+		// how a CSV body is meant to be written; dropping it here is what keeps
+		// such a body readable while still treating a return in the middle of a
+		// line as the cursor move it is.
+		fmt.Fprintf(r.Out, "%s%s\n", indent, printable(strings.TrimSuffix(line, "\r")))
 	}
+}
+
+// printable replaces the bytes a response body must not be allowed to put on a
+// terminal as they stand.
+//
+// A body is whatever the server under test chose to send, and the report is the
+// only account the reader gets of it. Written out verbatim, an escape sequence
+// in a body can move the cursor, erase or recolour what is already on screen,
+// and so forge a passing line for a transaction that failed; the NUL bytes and
+// invalid UTF-8 of a binary body garble the lines around them. Neither is
+// exotic — an `application/octet-stream` download reaches this function on its
+// first mismatch.
+//
+// U+FFFD is the substitute because the XML encoder already puts exactly that in
+// the JUnit report for the same bytes, so the two reports of one run agree about
+// what came back.
+func printable(text string) string {
+	var out strings.Builder
+	out.Grow(len(text))
+	for _, r := range text {
+		// Invalid UTF-8 decodes to U+FFFD here already, which is the substitution
+		// this function would make anyway.
+		switch {
+		case r == '\t', r >= 0x20 && r != 0x7f && !(r >= 0x80 && r <= 0x9f):
+			out.WriteRune(r)
+		default:
+			out.WriteRune('�')
+		}
+	}
+	return out.String()
 }
 
 func (r CLI) summary(results []runner.Result) {
