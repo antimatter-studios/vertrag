@@ -141,6 +141,7 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		// because one operation can describe several exchanges and they all
 		// share it.
 		OperationID: element.FindParent("transition").Attr("operationId").String(),
+		Links:       compileLinks(element.Child("httpResponse")),
 	}, annotations
 }
 

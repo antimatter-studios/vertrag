@@ -99,10 +99,9 @@ var (
 		unsupported: []string{"required"},
 	}
 	specResponse = objectSpec{
-		name:        "Response Object",
-		supported:   []string{"content", "description", "headers"},
-		unsupported: []string{"links"},
-		required:    []string{"description"},
+		name:      "Response Object",
+		supported: []string{"content", "description", "headers", "links"},
+		required:  []string{"description"},
 	}
 	specMediaType = objectSpec{
 		name:        "Media Type Object",
@@ -119,6 +118,16 @@ var (
 		unsupported: []string{"description", "required", "deprecated", "allowEmptyValue",
 			"style", "explode", "allowReserved", "content", "example", "examples"},
 	}
+	specLink = objectSpec{
+		name: "Link Object",
+		supported: []string{"operationId", "operationRef", "parameters",
+			"requestBody", "description"},
+		// `server` would point the linked request at a different host. vertrag
+		// runs against one endpoint given on the command line, and silently
+		// redirecting part of a run elsewhere is the kind of surprise a test
+		// tool should not spring.
+		unsupported: []string{"server"},
+	}
 	specExample = objectSpec{
 		name:        "Example Object",
 		supported:   []string{"value"},
@@ -127,8 +136,8 @@ var (
 	specComponents = objectSpec{
 		name: "Components Object",
 		supported: []string{"schemas", "parameters", "requestBodies", "responses",
-			"headers", "examples", "securitySchemes", "pathItems"},
-		unsupported: []string{"links", "callbacks"},
+			"headers", "examples", "securitySchemes", "pathItems", "links"},
+		unsupported: []string{"callbacks"},
 	}
 
 	specSecurityScheme = objectSpec{
@@ -341,6 +350,11 @@ func (d *document) validateResponses(responses node) []annotation {
 			nested = append(nested, d.validateContent(response.Get("content"))...)
 			for _, header := range response.Get("headers").Entries() {
 				nested = append(nested, d.validateObject(header.Value, specHeader, nil)...)
+			}
+			// A malformed Link Object gets the same key-level diagnostics
+			// every other object gets, now that they are acted on.
+			for _, link := range response.Get("links").Entries() {
+				nested = append(nested, d.validateObject(link.Value, specLink, nil)...)
 			}
 			return nested
 		})...)

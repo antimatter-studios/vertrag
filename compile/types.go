@@ -130,6 +130,11 @@ type Transaction struct {
 	Name     string   `json:"name"`
 	Origin   Origin   `json:"origin"`
 
+	// Links are what the response this transaction expects declares it leads
+	// to, and are what `--sequence` orders a run by. Absent from the JSON for
+	// the same reason OperationID is.
+	Links []Link `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//

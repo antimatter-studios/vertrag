@@ -50,6 +50,7 @@ func (d *document) parseResponses(n node) []message {
 		}
 
 		headers := d.parseResponseHeaders(response.Get("headers"))
+		links := d.parseLinks(response.Get("links"))
 
 		for _, msg := range messages {
 			// A range or `default` carries no status code of its own. Leaving
@@ -59,6 +60,7 @@ func (d *document) parseResponses(n node) []message {
 				msg.statusCode = key
 			}
 			msg.headers = headers
+			msg.links = links
 			responses = append(responses, msg)
 		}
 	}

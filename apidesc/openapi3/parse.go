@@ -162,6 +162,10 @@ type message struct {
 	// empty for a body that was not named. It decides which request goes with
 	// which response: see pairs.
 	example string
+
+	// links are the operations this response declares it leads to. Only a
+	// response has them; a request cannot lead anywhere.
+	links *refract.Element
 }
 
 type header struct {
@@ -243,6 +247,9 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			if response.schema != "" {
 				httpResponse.Append(schemaAsset(response.schema))
+			}
+			if response.links != nil {
+				httpResponse.SetAttr("links", response.links)
 			}
 			if asset := headerSchemasAsset(responseHeaders); asset != nil {
 				httpResponse.Append(asset)
