@@ -43,11 +43,11 @@ func Parse(source []byte) (*refract.Element, error) {
 
 	api := refract.Named("category")
 	api.AddClass("api")
-	if title := doc.root.get("info").get("title").str(); title != "" {
+	if title := doc.Root.Get("info").Get("title").Str(); title != "" {
 		api.SetTitle(title)
 	}
 
-	for _, path := range doc.root.get("paths").entries() {
+	for _, path := range doc.Root.Get("paths").Entries() {
 		if resource := doc.parsePathItem(path); resource != nil {
 			api.Append(resource)
 		}
@@ -63,29 +63,29 @@ func Parse(source []byte) (*refract.Element, error) {
 // becomes a transition. The resource is left untitled, so the compiler names it
 // after its href — which is why OpenAPI transaction names contain the path.
 func (d *document) parsePathItem(path entry) *refract.Element {
-	pathItem := d.resolve(path.value)
-	if !pathItem.isMapping() {
+	pathItem := d.Resolve(path.Value)
+	if !pathItem.IsMapping() {
 		return nil
 	}
 
 	resource := refract.Named("resource")
-	resource.SetAttr("href", refract.String(path.key.str()))
+	resource.SetAttr("href", refract.String(path.Key.Str()))
 
 	// A path item's summary titles the resource, and the compiler prefers a
 	// title over an href when naming transactions. So adding a summary to a
 	// path renames every transaction under it — and therefore every hook that
 	// addresses one by name.
-	if summary := pathItem.get("summary").str(); summary != "" {
+	if summary := pathItem.Get("summary").Str(); summary != "" {
 		resource.SetTitle(summary)
 	}
 
-	pathParameters := d.parseParameters(pathItem.get("parameters"))
+	pathParameters := d.parseParameters(pathItem.Get("parameters"))
 
-	for _, member := range pathItem.entries() {
-		if !isHTTPMethod(member.key.str()) {
+	for _, member := range pathItem.Entries() {
+		if !isHTTPMethod(member.Key.Str()) {
 			continue
 		}
-		transition := d.parseOperation(path.key.str(), member, pathParameters)
+		transition := d.parseOperation(path.Key.Str(), member, pathParameters)
 		if transition != nil {
 			resource.Append(transition)
 		}
@@ -104,19 +104,19 @@ func (d *document) parsePathItem(path entry) *refract.Element {
 // parseOperation turns one HTTP method of a Path Item into a transition
 // carrying its transactions.
 func (d *document) parseOperation(path string, member entry, pathParameters *parameters) *refract.Element {
-	operation := member.value
-	if !operation.isMapping() {
+	operation := member.Value
+	if !operation.IsMapping() {
 		return nil
 	}
 
 	transition := refract.Named("transition")
-	if summary := operation.get("summary").str(); summary != "" {
+	if summary := operation.Get("summary").Str(); summary != "" {
 		transition.SetTitle(summary)
 	}
 
 	// Operation parameters override path parameters of the same name and
 	// location, which is what the specification asks for.
-	params := pathParameters.merge(d.parseParameters(operation.get("parameters")))
+	params := pathParameters.merge(d.parseParameters(operation.Get("parameters")))
 
 	// Query parameters are appended to the href as a template expression, so
 	// the compiler expands the ones that have example values and drops the
@@ -128,10 +128,10 @@ func (d *document) parseOperation(path string, member entry, pathParameters *par
 		transition.SetAttr("hrefVariables", hrefVariables)
 	}
 
-	requests := d.parseRequestBody(operation.get("requestBody"))
-	responses := d.parseResponses(operation.get("responses"))
+	requests := d.parseRequestBody(operation.Get("requestBody"))
+	responses := d.parseResponses(operation.Get("responses"))
 
-	method := strings.ToUpper(member.key.str())
+	method := strings.ToUpper(member.Key.Str())
 	for _, transaction := range buildTransactions(method, requests, responses, params.headers()) {
 		transition.Append(transaction)
 	}

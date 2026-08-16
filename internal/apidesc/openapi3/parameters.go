@@ -23,13 +23,13 @@ type parameters struct {
 // parseParameters reads a Parameter Object array.
 func (d *document) parseParameters(n node) *parameters {
 	params := &parameters{}
-	for _, item := range n.items() {
-		resolved := d.resolve(item)
-		if !resolved.isMapping() {
+	for _, item := range n.Items() {
+		resolved := d.Resolve(item)
+		if !resolved.IsMapping() {
 			continue
 		}
-		name := resolved.get("name").str()
-		in := resolved.get("in").str()
+		name := resolved.Get("name").Str()
+		in := resolved.Get("in").Str()
 		if name == "" || in == "" {
 			continue
 		}
@@ -37,10 +37,10 @@ func (d *document) parseParameters(n node) *parameters {
 		p := parameter{
 			name:     name,
 			in:       in,
-			required: resolved.get("required").boolValue(),
-			explode:  resolved.get("explode").boolValue(),
-			schema:   d.resolve(resolved.get("schema")),
-			example:  resolved.get("example"),
+			required: resolved.Get("required").Bool(),
+			explode:  resolved.Get("explode").Bool(),
+			schema:   d.Resolve(resolved.Get("schema")),
+			example:  resolved.Get("example"),
 		}
 
 		// Only the Parameter Object's own `example` supplies a value. A schema
@@ -48,7 +48,7 @@ func (d *document) parseParameters(n node) *parameters {
 		// the reference does not read `example` or `default` from there, and a
 		// parameter that relied on one would be expanded by vertrag into a URI
 		// Dredd never requests.
-		if p.example.valid() {
+		if p.example.Valid() {
 			p.value = scalarValue(p.example)
 			p.hasValue = true
 		}
@@ -157,10 +157,10 @@ func (p parameter) member() *refract.Element {
 		setPrimitive(value, p.value)
 	}
 
-	if p.schema.valid() {
-		if enum := p.schema.get("enum"); enum.isSequence() {
+	if p.schema.Valid() {
+		if enum := p.schema.Get("enum"); enum.IsSequence() {
 			enumerations := refract.Array()
-			for _, item := range enum.items() {
+			for _, item := range enum.Items() {
 				enumerations.Append(primitiveElement(scalarValue(item)))
 			}
 			value.SetAttr("enumerations", enumerations)

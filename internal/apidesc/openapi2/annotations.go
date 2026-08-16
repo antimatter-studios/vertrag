@@ -27,46 +27,46 @@ type annotation struct {
 func (d *document) validate() []annotation {
 	var out []annotation
 
-	root := d.root
-	if !root.isMapping() {
+	root := d.Root
+	if !root.IsMapping() {
 		return out
 	}
 
 	// Only one scheme can become a hostname, so listing several means all but
 	// the first are ignored.
-	if schemes := root.get("schemes"); len(schemes.items()) > 1 {
+	if schemes := root.Get("schemes"); len(schemes.Items()) > 1 {
 		out = append(out, d.at(annotation{
 			class:   "warning",
 			message: "Only the first scheme will be used to create a hostname",
-		}, root.keyNode("schemes"), schemes))
+		}, root.KeyNode("schemes"), schemes))
 	}
 
-	for _, path := range root.get("paths").entries() {
-		pathItem := path.value
-		if !pathItem.isMapping() {
+	for _, path := range root.Get("paths").Entries() {
+		pathItem := path.Value
+		if !pathItem.IsMapping() {
 			continue
 		}
 
-		out = append(out, d.validateParameters(path.key.str(), "", pathItem.get("parameters"))...)
+		out = append(out, d.validateParameters(path.Key.Str(), "", pathItem.Get("parameters"))...)
 
-		for _, member := range pathItem.entries() {
-			method := member.key.str()
+		for _, member := range pathItem.Entries() {
+			method := member.Key.Str()
 			if !isHTTPMethod(method) {
 				continue
 			}
-			operation := member.value
+			operation := member.Value
 
-			out = append(out, d.validateParameters(path.key.str(), method, operation.get("parameters"))...)
+			out = append(out, d.validateParameters(path.Key.Str(), method, operation.Get("parameters"))...)
 
 			// A response with no status code says nothing about what to
 			// assert, so it is skipped — and saying so is the difference
 			// between a deliberate choice and silently dropping it.
-			responses := operation.get("responses")
-			if key := responses.keyNode("default"); key.valid() {
+			responses := operation.Get("responses")
+			if key := responses.KeyNode("default"); key.Valid() {
 				out = append(out, d.at(annotation{
 					class:   "warning",
 					message: "Default response is not yet supported",
-				}, key, responses.get("default")))
+				}, key, responses.Get("default")))
 			}
 		}
 	}
@@ -83,12 +83,12 @@ func (d *document) validate() []annotation {
 func (d *document) validateParameters(path, method string, n node) []annotation {
 	var out []annotation
 
-	for _, item := range n.items() {
-		resolved := d.resolve(item)
-		if resolved.get("in").str() != "path" {
+	for _, item := range n.Items() {
+		resolved := d.Resolve(item)
+		if resolved.Get("in").Str() != "path" {
 			continue
 		}
-		name := resolved.get("name").str()
+		name := resolved.Get("name").Str()
 		if name == "" || strings.Contains(path, "{"+name+"}") {
 			continue
 		}
@@ -114,13 +114,13 @@ func (d *document) validateParameters(path, method string, n node) []annotation 
 // a diagnostic about `schemes` covers the list beneath it, which is what a
 // reader needs to see highlighted.
 func (d *document) at(a annotation, key, value node) annotation {
-	if !key.valid() {
+	if !key.Valid() {
 		return a
 	}
 
 	endLine, endCol := key.Line, key.Column+rawScalarWidth(key)
-	if value.valid() {
-		endLine, endCol = d.endOf(value)
+	if value.Valid() {
+		endLine, endCol = d.EndOf(value)
 	}
 
 	a.line, a.column = key.Line-1, key.Column-1

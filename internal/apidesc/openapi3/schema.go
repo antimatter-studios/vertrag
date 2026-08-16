@@ -16,10 +16,10 @@ import (
 // an untyped schema as having no value to offer, and a string element with no
 // content is how that is expressed.
 func schemaElementName(schema node) string {
-	if !schema.valid() {
+	if !schema.Valid() {
 		return "string"
 	}
-	switch schema.get("type").str() {
+	switch schema.Get("type").Str() {
 	case "integer", "number":
 		return "number"
 	case "boolean":
@@ -38,17 +38,17 @@ func schemaElementName(schema node) string {
 // The order is the document's own preference: an explicit example, then a
 // default, then the first allowed value of an enum.
 func schemaExample(schema node) (any, bool) {
-	if !schema.valid() {
+	if !schema.Valid() {
 		return nil, false
 	}
-	if example := schema.get("example"); example.valid() {
+	if example := schema.Get("example"); example.Valid() {
 		return scalarValue(example), true
 	}
-	if def := schema.get("default"); def.valid() {
+	if def := schema.Get("default"); def.Valid() {
 		return scalarValue(def), true
 	}
-	if enum := schema.get("enum"); enum.isSequence() {
-		if items := enum.items(); len(items) > 0 {
+	if enum := schema.Get("enum"); enum.IsSequence() {
+		if items := enum.Items(); len(items) > 0 {
 			return scalarValue(items[0]), true
 		}
 	}
@@ -68,12 +68,12 @@ func schemaExample(schema node) (any, bool) {
 // produces no body. A reference that leads back to itself has no value, which
 // is what stops a recursive schema from generating forever.
 func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) {
-	if !schema.valid() {
+	if !schema.Valid() {
 		return nil, false
 	}
 
 	// Follow a reference, refusing to re-enter one already being expanded.
-	if ref := schema.get("$ref"); ref.isScalar() {
+	if ref := schema.Get("$ref"); ref.IsScalar() {
 		if seen[ref.Value] {
 			return nil, false
 		}
@@ -81,7 +81,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		for k := range seen {
 			next[k] = true
 		}
-		return d.generateValue(d.pointer(ref.Value), next)
+		return d.generateValue(d.Pointer(ref.Value), next)
 	}
 
 	if value, ok := schemaExample(schema); ok {
@@ -89,11 +89,11 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 	}
 
 	// A nullable schema with nothing else to say demonstrates the null.
-	if schema.get("nullable").boolValue() {
+	if schema.Get("nullable").Bool() {
 		return nil, true
 	}
 
-	switch schema.get("type").str() {
+	switch schema.Get("type").Str() {
 	case "string":
 		return "", true
 	case "integer", "number":
@@ -102,7 +102,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return false, true
 
 	case "array":
-		items := schema.get("items")
+		items := schema.Get("items")
 		// An array of a bare primitive has no value: the document has said
 		// nothing about what would be in it, so there is no specimen to send.
 		if isValuelessPrimitiveSchema(items) {
@@ -122,9 +122,9 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		required := requiredProperties(schema)
 
 		out := newOrderedMap()
-		for _, property := range schema.get("properties").entries() {
-			name := property.key.str()
-			value, ok := d.generateValue(property.value, seen)
+		for _, property := range schema.Get("properties").Entries() {
+			name := property.Key.Str()
+			value, ok := d.generateValue(property.Value, seen)
 			if !ok {
 				if required[name] {
 					return nil, false
@@ -139,7 +139,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		// An untyped schema may still offer alternatives. Only the first is
 		// used, because a message carries one body — and only oneOf, since
 		// allOf and anyOf are not acted on at all.
-		if branches := schema.get("oneOf").items(); len(branches) > 0 {
+		if branches := schema.Get("oneOf").Items(); len(branches) > 0 {
 			return d.generateValue(branches[0], seen)
 		}
 
@@ -153,8 +153,8 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 // requiredProperties lists the property names a schema insists on.
 func requiredProperties(schema node) map[string]bool {
 	names := map[string]bool{}
-	for _, item := range schema.get("required").items() {
-		if name := item.str(); name != "" {
+	for _, item := range schema.Get("required").Items() {
+		if name := item.Str(); name != "" {
 			names[name] = true
 		}
 	}
@@ -164,16 +164,16 @@ func requiredProperties(schema node) map[string]bool {
 // isValuelessPrimitiveSchema reports whether a schema describes a primitive and
 // offers no specimen value for it.
 func isValuelessPrimitiveSchema(schema node) bool {
-	if !schema.isMapping() {
+	if !schema.IsMapping() {
 		return true
 	}
-	if schema.get("$ref").isScalar() {
+	if schema.Get("$ref").IsScalar() {
 		return false
 	}
 	if _, ok := schemaExample(schema); ok {
 		return false
 	}
-	switch schema.get("type").str() {
+	switch schema.Get("type").Str() {
 	case "string", "integer", "number", "boolean":
 		return true
 	default:
@@ -236,13 +236,15 @@ const jsonSchemaDraft = "http://json-schema.org/draft-04/schema#"
 // block gathered alongside, which keeps a recursive schema finite — inlining a
 // type that refers to itself would not terminate.
 func (d *document) convertSchema(schema node) (string, bool) {
-	resolved := node{schema.Node}
-	if !resolved.isMapping() {
+	// Deliberately NOT resolved: the reference a document wrote is what gets
+	// rewritten into the definitions block, so following it here would inline
+	// the target and lose the reference the output is built around.
+	if !schema.IsMapping() {
 		return "", false
 	}
 
 	var references []string
-	result, ok := d.convertSubSchema(resolved, &references)
+	result, ok := d.convertSubSchema(schema, &references)
 	if !ok {
 		return "", false
 	}
@@ -267,7 +269,7 @@ func (d *document) convertSchema(schema node) (string, bool) {
 			// itself finds the entry already present and stops.
 			definitions.Set(id, newOrderedMap())
 
-			referenced := d.pointer(reference)
+			referenced := d.Pointer(reference)
 			if converted, ok := d.convertSubSchema(referenced, &references); ok {
 				definitions.Set(id, converted)
 			}
@@ -304,13 +306,13 @@ func (d *document) convertSchema(schema node) (string, bool) {
 
 // convertSubSchema converts one schema node, collecting the references it makes.
 func (d *document) convertSubSchema(schema node, references *[]string) (*orderedMap, bool) {
-	if !schema.isMapping() {
+	if !schema.IsMapping() {
 		return nil, false
 	}
 
 	// A reference is recorded and rewritten rather than followed, so the
 	// definition it names is emitted once however many times it is used.
-	if ref := schema.get("$ref"); ref.isScalar() {
+	if ref := schema.Get("$ref"); ref.IsScalar() {
 		*references = append(*references, ref.Value)
 		out := newOrderedMap()
 		out.Set("$ref", localReference(ref.Value))
@@ -318,8 +320,8 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 	}
 
 	out := newOrderedMap()
-	for _, member := range schema.entries() {
-		key := member.key.str()
+	for _, member := range schema.Entries() {
+		key := member.Key.Str()
 
 		switch key {
 		// OpenAPI vocabulary with no JSON Schema meaning. `example` is dropped
@@ -330,7 +332,7 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 
 		case "allOf", "anyOf", "oneOf":
 			var list []any
-			for _, item := range member.value.items() {
+			for _, item := range member.Value.Items() {
 				if converted, ok := d.convertSubSchema(item, references); ok {
 					list = append(list, converted)
 				}
@@ -338,15 +340,15 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 			out.Set(key, list)
 
 		case "not":
-			if converted, ok := d.convertSubSchema(member.value, references); ok {
+			if converted, ok := d.convertSubSchema(member.Value, references); ok {
 				out.Set(key, converted)
 			}
 
 		case "items":
 			// Draft-04 allows items to be a single schema or a list of them.
-			if member.value.isSequence() {
+			if member.Value.IsSequence() {
 				var list []any
-				for _, item := range member.value.items() {
+				for _, item := range member.Value.Items() {
 					if converted, ok := d.convertSubSchema(item, references); ok {
 						list = append(list, converted)
 					}
@@ -354,27 +356,27 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 				out.Set(key, list)
 				continue
 			}
-			if converted, ok := d.convertSubSchema(member.value, references); ok {
+			if converted, ok := d.convertSubSchema(member.Value, references); ok {
 				out.Set(key, converted)
 			}
 
 		case "properties", "patternProperties":
 			properties := newOrderedMap()
-			for _, property := range member.value.entries() {
-				if converted, ok := d.convertSubSchema(property.value, references); ok {
-					properties.Set(property.key.str(), converted)
+			for _, property := range member.Value.Entries() {
+				if converted, ok := d.convertSubSchema(property.Value, references); ok {
+					properties.Set(property.Key.Str(), converted)
 				}
 			}
 			out.Set(key, properties)
 
 		case "additionalProperties", "additionalItems":
-			if member.value.isMapping() {
-				if converted, ok := d.convertSubSchema(member.value, references); ok {
+			if member.Value.IsMapping() {
+				if converted, ok := d.convertSubSchema(member.Value, references); ok {
 					out.Set(key, converted)
 				}
 				continue
 			}
-			out.Set(key, scalarValue(member.value))
+			out.Set(key, scalarValue(member.Value))
 
 		case "nullable":
 			// Handled after the loop, where the type it has to widen is known.
@@ -383,25 +385,25 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 		case "type":
 			// OpenAPI 2 carried a `file` type that JSON Schema has no notion
 			// of; it is narrowed to the closest thing a validator can check.
-			if member.value.str() == "file" {
+			if member.Value.Str() == "file" {
 				out.Set(key, "string")
 				continue
 			}
-			out.Set(key, scalarValue(member.value))
+			out.Set(key, scalarValue(member.Value))
 
 		default:
 			if strings.HasPrefix(key, "x-") {
 				continue
 			}
-			out.Set(key, scalarValue(member.value))
+			out.Set(key, scalarValue(member.Value))
 		}
 	}
 
-	if example := schema.get("example"); example.valid() {
+	if example := schema.Get("example"); example.Valid() {
 		out.Set("examples", []any{scalarValue(example)})
 	}
 
-	if schema.get("nullable").boolValue() {
+	if schema.Get("nullable").Bool() {
 		applyNullable(out)
 	}
 
@@ -478,7 +480,7 @@ func encodeToString(value any) (string, bool) {
 
 // scalarValue converts a YAML node to a plain Go value.
 func scalarValue(n node) any {
-	if !n.valid() {
+	if !n.Valid() {
 		return nil
 	}
 	switch n.Kind {
@@ -486,7 +488,7 @@ func scalarValue(n node) any {
 		return scalarFromTag(n)
 	case yaml.SequenceNode:
 		out := make([]any, 0, len(n.Content))
-		for _, item := range n.items() {
+		for _, item := range n.Items() {
 			out = append(out, scalarValue(item))
 		}
 		return out
@@ -494,8 +496,8 @@ func scalarValue(n node) any {
 		// Ordered, because a value from the document may end up serialised as a
 		// message body, where key order is part of the bytes being compared.
 		out := newOrderedMap()
-		for _, member := range n.entries() {
-			out.Set(member.key.str(), scalarValue(member.value))
+		for _, member := range n.Entries() {
+			out.Set(member.Key.Str(), scalarValue(member.Value))
 		}
 		return out
 	default:

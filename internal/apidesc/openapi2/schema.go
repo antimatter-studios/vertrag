@@ -27,12 +27,12 @@ const jsonSchemaDraft = "http://json-schema.org/draft-04/schema#"
 // item. Only a falsy result — the empty string from a bare string schema —
 // leads to no body at all.
 func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) {
-	schema = d.resolve(schema)
-	if !schema.valid() {
+	schema = d.Resolve(schema)
+	if !schema.Valid() {
 		return nil, false
 	}
 
-	if ref := schema.get("$ref"); ref.isScalar() {
+	if ref := schema.Get("$ref"); ref.IsScalar() {
 		if seen[ref.Value] {
 			return nil, false
 		}
@@ -40,14 +40,14 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		for k := range seen {
 			next[k] = true
 		}
-		return d.generateValue(d.pointer(ref.Value), next)
+		return d.generateValue(d.Pointer(ref.Value), next)
 	}
 
 	if value, ok := schemaExample(schema); ok {
 		return value, true
 	}
 
-	switch schema.get("type").str() {
+	switch schema.Get("type").Str() {
 	case "string":
 		return "", true
 	case "integer", "number":
@@ -55,8 +55,8 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 	case "boolean":
 		return false, true
 	case "array":
-		items := schema.get("items")
-		if !items.valid() {
+		items := schema.Get("items")
+		if !items.Valid() {
 			return []any{}, true
 		}
 		value, ok := d.generateValue(items, seen)
@@ -69,7 +69,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 	default:
 		// An untyped schema describing properties is an object in all but name,
 		// and Swagger documents rely on that far more than OpenAPI 3 ones do.
-		if schema.get("properties").isMapping() {
+		if schema.Get("properties").IsMapping() {
 			return d.generateObject(schema, seen), true
 		}
 		return "", true
@@ -78,9 +78,9 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 
 func (d *document) generateObject(schema node, seen map[string]bool) *orderedMap {
 	out := newOrderedMap()
-	for _, property := range schema.get("properties").entries() {
-		if value, ok := d.generateValue(property.value, seen); ok {
-			out.Set(property.key.str(), value)
+	for _, property := range schema.Get("properties").Entries() {
+		if value, ok := d.generateValue(property.Value, seen); ok {
+			out.Set(property.Key.Str(), value)
 		}
 	}
 	return out
@@ -93,20 +93,20 @@ func (d *document) generateObject(schema node, seen map[string]bool) *orderedMap
 // honours it above the `default`, which describes what the server assumes when
 // nothing is sent rather than what a test should send.
 func schemaExample(schema node) (any, bool) {
-	if !schema.valid() {
+	if !schema.Valid() {
 		return nil, false
 	}
-	if example := schema.get("x-example"); example.valid() {
+	if example := schema.Get("x-example"); example.Valid() {
 		return scalarValue(example), true
 	}
-	if example := schema.get("example"); example.valid() {
+	if example := schema.Get("example"); example.Valid() {
 		return scalarValue(example), true
 	}
-	if def := schema.get("default"); def.valid() {
+	if def := schema.Get("default"); def.Valid() {
 		return scalarValue(def), true
 	}
-	if enum := schema.get("enum"); enum.isSequence() {
-		if items := enum.items(); len(items) > 0 {
+	if enum := schema.Get("enum"); enum.IsSequence() {
+		if items := enum.Items(); len(items) > 0 {
 			return scalarValue(items[0]), true
 		}
 	}
@@ -157,7 +157,7 @@ func truthy(value any) bool {
 // Swagger schemas are already JSON Schema, so this mostly gathers the
 // definitions a reference points at rather than rewriting anything.
 func (d *document) convertSchema(schema node) (string, bool) {
-	if !schema.isMapping() {
+	if !schema.IsMapping() {
 		return "", false
 	}
 
@@ -182,7 +182,7 @@ func (d *document) convertSchema(schema node) (string, bool) {
 				continue
 			}
 			definitions.Set(id, newOrderedMap())
-			if converted, ok := d.convertSubSchema(d.pointer(reference), &references); ok {
+			if converted, ok := d.convertSubSchema(d.Pointer(reference), &references); ok {
 				definitions.Set(id, converted)
 			}
 		}
@@ -238,11 +238,11 @@ func schemaHasReferences(value any) bool {
 }
 
 func (d *document) convertSubSchema(schema node, references *[]string) (*orderedMap, bool) {
-	if !schema.isMapping() {
+	if !schema.IsMapping() {
 		return nil, false
 	}
 
-	if ref := schema.get("$ref"); ref.isScalar() {
+	if ref := schema.Get("$ref"); ref.IsScalar() {
 		*references = append(*references, ref.Value)
 		out := newOrderedMap()
 		out.Set("$ref", localReference(ref.Value))
@@ -250,33 +250,33 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 	}
 
 	out := newOrderedMap()
-	for _, member := range schema.entries() {
-		key := member.key.str()
+	for _, member := range schema.Entries() {
+		key := member.Key.Str()
 		switch key {
 		case "discriminator", "readOnly", "xml", "externalDocs", "example":
 			continue
 
 		case "properties", "patternProperties":
 			properties := newOrderedMap()
-			for _, property := range member.value.entries() {
-				if converted, ok := d.convertSubSchema(property.value, references); ok {
-					properties.Set(property.key.str(), converted)
+			for _, property := range member.Value.Entries() {
+				if converted, ok := d.convertSubSchema(property.Value, references); ok {
+					properties.Set(property.Key.Str(), converted)
 				}
 			}
 			out.Set(key, properties)
 
 		case "items", "not", "additionalProperties", "additionalItems":
-			if member.value.isMapping() {
-				if converted, ok := d.convertSubSchema(member.value, references); ok {
+			if member.Value.IsMapping() {
+				if converted, ok := d.convertSubSchema(member.Value, references); ok {
 					out.Set(key, converted)
 				}
 				continue
 			}
-			out.Set(key, scalarValue(member.value))
+			out.Set(key, scalarValue(member.Value))
 
 		case "allOf", "anyOf", "oneOf":
 			var list []any
-			for _, item := range member.value.items() {
+			for _, item := range member.Value.Items() {
 				if converted, ok := d.convertSubSchema(item, references); ok {
 					list = append(list, converted)
 				}
@@ -285,17 +285,17 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 
 		case "type":
 			// Swagger's `file` type has no JSON Schema equivalent.
-			if member.value.str() == "file" {
+			if member.Value.Str() == "file" {
 				out.Set(key, "string")
 				continue
 			}
-			out.Set(key, scalarValue(member.value))
+			out.Set(key, scalarValue(member.Value))
 
 		default:
 			if strings.HasPrefix(key, "x-") {
 				continue
 			}
-			out.Set(key, scalarValue(member.value))
+			out.Set(key, scalarValue(member.Value))
 		}
 	}
 	return out, true
@@ -312,7 +312,7 @@ func referenceID(reference string) string {
 
 // scalarValue converts a YAML node to a plain Go value.
 func scalarValue(n node) any {
-	if !n.valid() {
+	if !n.Valid() {
 		return nil
 	}
 	switch n.Kind {
@@ -320,14 +320,14 @@ func scalarValue(n node) any {
 		return scalarFromTag(n)
 	case yaml.SequenceNode:
 		out := make([]any, 0, len(n.Content))
-		for _, item := range n.items() {
+		for _, item := range n.Items() {
 			out = append(out, scalarValue(item))
 		}
 		return out
 	case yaml.MappingNode:
 		out := newOrderedMap()
-		for _, member := range n.entries() {
-			out.Set(member.key.str(), scalarValue(member.value))
+		for _, member := range n.Entries() {
+			out.Set(member.Key.Str(), scalarValue(member.Value))
 		}
 		return out
 	default:

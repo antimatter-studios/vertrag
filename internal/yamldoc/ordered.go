@@ -1,45 +1,45 @@
-package openapi3
+package yamldoc
 
 import (
 	"bytes"
 	"encoding/json"
 )
 
-// orderedMap is a JSON object that remembers the order its keys were written in.
+// OrderedMap is a JSON object that remembers the order its keys were written in.
 //
 // Go's maps do not, and here that matters: both the generated message bodies
 // and the JSON Schemas are compared as strings, so a body whose keys come out
 // in a different order is a different body. The reference preserves the order
 // of the source document throughout, and so must this.
-type orderedMap struct {
+type OrderedMap struct {
 	keys   []string
 	values map[string]any
 }
 
-func newOrderedMap() *orderedMap {
-	return &orderedMap{values: map[string]any{}}
+func NewOrderedMap() *OrderedMap {
+	return &OrderedMap{values: map[string]any{}}
 }
 
 // Set adds or replaces a key. A replaced key keeps its original position, which
 // is what JavaScript object assignment does.
-func (m *orderedMap) Set(key string, value any) {
+func (m *OrderedMap) Set(key string, value any) {
 	if _, exists := m.values[key]; !exists {
 		m.keys = append(m.keys, key)
 	}
 	m.values[key] = value
 }
 
-func (m *orderedMap) Get(key string) (any, bool) {
+func (m *OrderedMap) Get(key string) (any, bool) {
 	value, ok := m.values[key]
 	return value, ok
 }
 
-func (m *orderedMap) Has(key string) bool {
+func (m *OrderedMap) Has(key string) bool {
 	_, ok := m.values[key]
 	return ok
 }
 
-func (m *orderedMap) Delete(key string) {
+func (m *OrderedMap) Delete(key string) {
 	if _, exists := m.values[key]; !exists {
 		return
 	}
@@ -52,13 +52,13 @@ func (m *orderedMap) Delete(key string) {
 	}
 }
 
-func (m *orderedMap) Keys() []string { return m.keys }
+func (m *OrderedMap) Keys() []string { return m.keys }
 
-func (m *orderedMap) Len() int { return len(m.keys) }
+func (m *OrderedMap) Len() int { return len(m.keys) }
 
 // MarshalJSON writes the object in key order, without HTML escaping, so a value
 // containing `<`, `>` or `&` survives as written.
-func (m *orderedMap) MarshalJSON() ([]byte, error) {
+func (m *OrderedMap) MarshalJSON() ([]byte, error) {
 	if m == nil {
 		return []byte("null"), nil
 	}

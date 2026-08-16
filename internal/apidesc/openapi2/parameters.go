@@ -23,12 +23,12 @@ type parameters struct {
 
 func (d *document) parseParameters(n node) *parameters {
 	params := &parameters{}
-	for _, item := range n.items() {
-		resolved := d.resolve(item)
-		if !resolved.isMapping() {
+	for _, item := range n.Items() {
+		resolved := d.Resolve(item)
+		if !resolved.IsMapping() {
 			continue
 		}
-		name, in := resolved.get("name").str(), resolved.get("in").str()
+		name, in := resolved.Get("name").Str(), resolved.Get("in").Str()
 		if name == "" || in == "" {
 			continue
 		}
@@ -36,17 +36,17 @@ func (d *document) parseParameters(n node) *parameters {
 		p := parameter{
 			name:     name,
 			in:       in,
-			required: resolved.get("required").boolValue(),
+			required: resolved.Get("required").Bool(),
 			node:     resolved,
-			schema:   resolved.get("schema"),
+			schema:   resolved.Get("schema"),
 		}
 		// Only `x-example` supplies the value to send. A `default` describes
 		// what the server assumes when the parameter is omitted, which is a
 		// different claim — it is carried through as an attribute, and the URI
 		// falls back to the first enum value instead.
-		if example := resolved.get("x-example"); example.valid() {
+		if example := resolved.Get("x-example"); example.Valid() {
 			p.value, p.hasValue = scalarValue(example), true
-		} else if example := resolved.get("example"); example.valid() {
+		} else if example := resolved.Get("example"); example.Valid() {
 			p.value, p.hasValue = scalarValue(example), true
 		}
 		params.ordered = append(params.ordered, p)
@@ -129,17 +129,17 @@ func (p *parameters) hrefVariables() *refract.Element {
 }
 
 func (p parameter) member() *refract.Element {
-	value := refract.New(elementName(p.node.get("type").str()))
+	value := refract.New(elementName(p.node.Get("type").Str()))
 	if p.hasValue {
 		setPrimitive(value, p.value)
 	}
 
-	if def := p.node.get("default"); def.valid() {
+	if def := p.node.Get("default"); def.Valid() {
 		value.SetAttr("default", primitiveElement(scalarValue(def)))
 	}
-	if enum := p.node.get("enum"); enum.isSequence() {
+	if enum := p.node.Get("enum"); enum.IsSequence() {
 		enumerations := refract.Array()
-		for _, item := range enum.items() {
+		for _, item := range enum.Items() {
 			enumerations.Append(primitiveElement(scalarValue(item)))
 		}
 		value.SetAttr("enumerations", enumerations)

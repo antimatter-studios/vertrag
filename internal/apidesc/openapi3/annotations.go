@@ -2,6 +2,7 @@ package openapi3
 
 import (
 	"fmt"
+	"github.com/antimatter-studios/vertrag/internal/yamldoc"
 	"sort"
 	"strings"
 
@@ -77,7 +78,7 @@ var (
 	specPathItem = objectSpec{
 		name: "Path Item Object",
 		supported: append([]string{"summary", "description", "servers", "parameters"},
-			httpMethods...),
+			yamldoc.HTTPMethods...),
 		unsupported: []string{"$ref"},
 	}
 	specOperation = objectSpec{
@@ -174,27 +175,27 @@ var (
 func (d *document) validate() []annotation {
 	var out []annotation
 
-	root := d.root
-	if !root.isMapping() {
+	root := d.Root
+	if !root.IsMapping() {
 		return out
 	}
 
 	out = append(out, d.validateKeys(root, specOpenAPI)...)
 
-	out = append(out, d.validateObject(root.get("info"), specInfo,
+	out = append(out, d.validateObject(root.Get("info"), specInfo,
 		func(info node) []annotation {
 			var nested []annotation
-			nested = append(nested, d.validateObject(info.get("contact"), specContact, nil)...)
-			nested = append(nested, d.validateObject(info.get("license"), specLicense, nil)...)
+			nested = append(nested, d.validateObject(info.Get("contact"), specContact, nil)...)
+			nested = append(nested, d.validateObject(info.Get("license"), specLicense, nil)...)
 			return nested
 		})...)
 
-	for _, server := range root.get("servers").items() {
+	for _, server := range root.Get("servers").Items() {
 		out = append(out, d.validateServer(server)...)
 	}
 
-	out = append(out, d.validatePaths(root.get("paths"))...)
-	out = append(out, d.validateComponents(root.get("components"))...)
+	out = append(out, d.validatePaths(root.Get("paths"))...)
+	out = append(out, d.validateComponents(root.Get("components"))...)
 
 	return out
 }
@@ -202,8 +203,8 @@ func (d *document) validate() []annotation {
 func (d *document) validateServer(server node) []annotation {
 	return d.validateObject(server, specServer, func(s node) []annotation {
 		var nested []annotation
-		for _, variable := range s.get("variables").entries() {
-			nested = append(nested, d.validateObject(variable.value, specServerVariable, nil)...)
+		for _, variable := range s.Get("variables").Entries() {
+			nested = append(nested, d.validateObject(variable.Value, specServerVariable, nil)...)
 		}
 		return nested
 	})
@@ -211,13 +212,13 @@ func (d *document) validateServer(server node) []annotation {
 
 // validatePaths checks the Paths Object and everything beneath it.
 func (d *document) validatePaths(paths node) []annotation {
-	if !paths.isMapping() {
+	if !paths.IsMapping() {
 		return nil
 	}
 
 	var out []annotation
-	for _, member := range paths.entries() {
-		key := member.key.str()
+	for _, member := range paths.Entries() {
+		key := member.Key.Str()
 
 		// Every key of a Paths Object is a path template, and a path template
 		// starts with a slash. Anything else is a key in the wrong place.
@@ -225,10 +226,10 @@ func (d *document) validatePaths(paths node) []annotation {
 			if strings.HasPrefix(key, "x-") {
 				continue
 			}
-			out = append(out, d.invalidKey("Paths Object", member.key))
+			out = append(out, d.invalidKey("Paths Object", member.Key))
 			continue
 		}
-		out = append(out, d.validatePathItem(member.value)...)
+		out = append(out, d.validatePathItem(member.Value)...)
 	}
 	return out
 }
@@ -236,12 +237,12 @@ func (d *document) validatePaths(paths node) []annotation {
 func (d *document) validatePathItem(pathItem node) []annotation {
 	return d.validateObject(pathItem, specPathItem, func(item node) []annotation {
 		var out []annotation
-		for _, parameter := range item.get("parameters").items() {
+		for _, parameter := range item.Get("parameters").Items() {
 			out = append(out, d.validateParameter(parameter)...)
 		}
-		for _, member := range item.entries() {
-			if isHTTPMethod(member.key.str()) {
-				out = append(out, d.validateOperation(member.value)...)
+		for _, member := range item.Entries() {
+			if isHTTPMethod(member.Key.Str()) {
+				out = append(out, d.validateOperation(member.Value)...)
 			}
 		}
 		return out
@@ -251,12 +252,12 @@ func (d *document) validatePathItem(pathItem node) []annotation {
 func (d *document) validateOperation(operation node) []annotation {
 	return d.validateObject(operation, specOperation, func(op node) []annotation {
 		var out []annotation
-		for _, parameter := range op.get("parameters").items() {
+		for _, parameter := range op.Get("parameters").Items() {
 			out = append(out, d.validateParameter(parameter)...)
 		}
-		out = append(out, d.validateRequestBody(op.get("requestBody"))...)
-		out = append(out, d.validateResponses(op.get("responses"))...)
-		for _, server := range op.get("servers").items() {
+		out = append(out, d.validateRequestBody(op.Get("requestBody"))...)
+		out = append(out, d.validateResponses(op.Get("responses"))...)
+		for _, server := range op.Get("servers").Items() {
 			out = append(out, d.validateServer(server)...)
 		}
 		return out
@@ -270,31 +271,31 @@ func (d *document) validateParameter(parameter node) []annotation {
 		// A parameter travels in the path, the query string or a header.
 		// Anything else — a cookie — is a place this implementation does not
 		// put values, so the parameter would silently not be sent.
-		if in := p.get("in"); in.isScalar() && in.Value != "path" && in.Value != "query" && in.Value != "header" {
+		if in := p.Get("in"); in.IsScalar() && in.Value != "path" && in.Value != "query" && in.Value != "header" {
 			out = append(out, d.at(annotation{
 				class:   "warning",
 				message: fmt.Sprintf("'Parameter Object' 'in' '%s' is unsupported", in.Value),
 			}, in))
 		}
 
-		return append(out, d.validateSchema(p.get("schema"), specParameterSchema)...)
+		return append(out, d.validateSchema(p.Get("schema"), specParameterSchema)...)
 	})
 }
 
 func (d *document) validateRequestBody(body node) []annotation {
 	return d.validateObject(body, specRequestBody, func(b node) []annotation {
-		return d.validateContent(b.get("content"))
+		return d.validateContent(b.Get("content"))
 	})
 }
 
 func (d *document) validateResponses(responses node) []annotation {
-	if !responses.isMapping() {
+	if !responses.IsMapping() {
 		return nil
 	}
 
 	var out []annotation
-	for _, member := range responses.entries() {
-		key := member.key.str()
+	for _, member := range responses.Entries() {
+		key := member.Key.Str()
 		if strings.HasPrefix(key, "x-") {
 			continue
 		}
@@ -306,17 +307,17 @@ func (d *document) validateResponses(responses node) []annotation {
 			out = append(out, d.at(annotation{
 				class:   "warning",
 				message: "'Responses Object' response status code ranges are unsupported",
-			}, member.key))
+			}, member.Key))
 		default:
-			out = append(out, d.invalidKey("Responses Object", member.key))
+			out = append(out, d.invalidKey("Responses Object", member.Key))
 			continue
 		}
 
-		out = append(out, d.validateObject(member.value, specResponse, func(response node) []annotation {
+		out = append(out, d.validateObject(member.Value, specResponse, func(response node) []annotation {
 			var nested []annotation
-			nested = append(nested, d.validateContent(response.get("content"))...)
-			for _, header := range response.get("headers").entries() {
-				nested = append(nested, d.validateObject(header.value, specHeader, nil)...)
+			nested = append(nested, d.validateContent(response.Get("content"))...)
+			for _, header := range response.Get("headers").Entries() {
+				nested = append(nested, d.validateObject(header.Value, specHeader, nil)...)
 			}
 			return nested
 		})...)
@@ -325,19 +326,19 @@ func (d *document) validateResponses(responses node) []annotation {
 }
 
 func (d *document) validateContent(content node) []annotation {
-	if !content.isMapping() {
+	if !content.IsMapping() {
 		return nil
 	}
 
 	var out []annotation
-	for _, member := range content.entries() {
-		out = append(out, d.validateObject(member.value, specMediaType, func(mediaType node) []annotation {
+	for _, member := range content.Entries() {
+		out = append(out, d.validateObject(member.Value, specMediaType, func(mediaType node) []annotation {
 			var nested []annotation
-			nested = append(nested, d.validateSchema(mediaType.get("schema"), specSchema)...)
+			nested = append(nested, d.validateSchema(mediaType.Get("schema"), specSchema)...)
 
-			examples := mediaType.get("examples").entries()
+			examples := mediaType.Get("examples").Entries()
 			for _, example := range examples {
-				nested = append(nested, d.validateObject(example.value, specExample, nil)...)
+				nested = append(nested, d.validateObject(example.Value, specExample, nil)...)
 			}
 			// A transaction carries one body, so only the first example can be
 			// sent. The rest are dropped, and saying so is the difference
@@ -346,7 +347,7 @@ func (d *document) validateContent(content node) []annotation {
 				nested = append(nested, d.at(annotation{
 					class:   "warning",
 					message: "'Media Type Object' 'examples' only one example is supported, other examples have been ignored",
-				}, examples[1].key))
+				}, examples[1].Key))
 			}
 			return nested
 		})...)
@@ -357,23 +358,23 @@ func (d *document) validateContent(content node) []annotation {
 func (d *document) validateComponents(components node) []annotation {
 	return d.validateObject(components, specComponents, func(c node) []annotation {
 		var out []annotation
-		for _, schema := range c.get("schemas").entries() {
-			out = append(out, d.validateSchema(schema.value, specSchema)...)
+		for _, schema := range c.Get("schemas").Entries() {
+			out = append(out, d.validateSchema(schema.Value, specSchema)...)
 		}
-		for _, parameter := range c.get("parameters").entries() {
-			out = append(out, d.validateParameter(parameter.value)...)
+		for _, parameter := range c.Get("parameters").Entries() {
+			out = append(out, d.validateParameter(parameter.Value)...)
 		}
-		for _, body := range c.get("requestBodies").entries() {
-			out = append(out, d.validateRequestBody(body.value)...)
+		for _, body := range c.Get("requestBodies").Entries() {
+			out = append(out, d.validateRequestBody(body.Value)...)
 		}
-		for _, header := range c.get("headers").entries() {
-			out = append(out, d.validateObject(header.value, specHeader, nil)...)
+		for _, header := range c.Get("headers").Entries() {
+			out = append(out, d.validateObject(header.Value, specHeader, nil)...)
 		}
-		for _, example := range c.get("examples").entries() {
-			out = append(out, d.validateObject(example.value, specExample, nil)...)
+		for _, example := range c.Get("examples").Entries() {
+			out = append(out, d.validateObject(example.Value, specExample, nil)...)
 		}
-		for _, scheme := range c.get("securitySchemes").entries() {
-			out = append(out, d.validateObject(scheme.value, specSecurityScheme, nil)...)
+		for _, scheme := range c.Get("securitySchemes").Entries() {
+			out = append(out, d.validateObject(scheme.Value, specSecurityScheme, nil)...)
 		}
 		return out
 	})
@@ -381,14 +382,14 @@ func (d *document) validateComponents(components node) []annotation {
 
 // validateSchema checks a Schema Object and recurses through its subschemas.
 func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
-	if !schema.isMapping() {
+	if !schema.IsMapping() {
 		return nil
 	}
 	// A schema that is only a reference is a Reference Object, not a Schema
 	// Object, and is checked where it is defined rather than at every use.
 	// Inside a parameter the reference is not followed at all, so `$ref` is
 	// reported there as an unsupported key instead.
-	if schema.get("$ref").isScalar() && !spec.parameterVariant {
+	if schema.Get("$ref").IsScalar() && !spec.parameterVariant {
 		return nil
 	}
 
@@ -397,7 +398,7 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 	// A schema under additionalProperties describes what unlisted properties
 	// must look like. That is not acted on, and saying so is the difference
 	// between "checked and passed" and "never looked at".
-	if additional := schema.get("additionalProperties"); additional.isMapping() {
+	if additional := schema.Get("additionalProperties"); additional.IsMapping() {
 		out = append(out, d.at(annotation{
 			class:   "warning",
 			message: "'Schema Object' 'additionalProperties' containing a Schema Object is currently unsupported",
@@ -406,14 +407,14 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 
 	// Subschemas are always full Schema Objects, even when reached from a
 	// parameter, so the stricter parameter rules do not propagate downwards.
-	for _, property := range schema.get("properties").entries() {
-		out = append(out, d.validateSchema(property.value, specSchema)...)
+	for _, property := range schema.Get("properties").Entries() {
+		out = append(out, d.validateSchema(property.Value, specSchema)...)
 	}
-	if items := schema.get("items"); items.isMapping() {
+	if items := schema.Get("items"); items.IsMapping() {
 		out = append(out, d.validateSchema(items, specSchema)...)
 	}
 	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
-		for _, item := range schema.get(keyword).items() {
+		for _, item := range schema.Get(keyword).Items() {
 			out = append(out, d.validateSchema(item, specSchema)...)
 		}
 	}
@@ -422,7 +423,7 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 
 // validateObject checks an object's keys and then its children.
 func (d *document) validateObject(n node, spec objectSpec, children func(node) []annotation) []annotation {
-	if !n.isMapping() {
+	if !n.IsMapping() {
 		return nil
 	}
 	// An object that is a reference is a Reference Object, whatever position it
@@ -431,7 +432,7 @@ func (d *document) validateObject(n node, spec objectSpec, children func(node) [
 	//
 	// A Path Item is the exception: it lists `$ref` as unsupported, so the
 	// reference there is a diagnostic rather than something to follow.
-	if n.get("$ref").isScalar() && !contains(spec.unsupported, "$ref") {
+	if n.Get("$ref").IsScalar() && !contains(spec.unsupported, "$ref") {
 		return nil
 	}
 	out := d.validateKeys(n, spec)
@@ -449,24 +450,24 @@ func (d *document) validateKeys(n node, spec objectSpec) []annotation {
 	supported := toSet(spec.supported)
 	unsupported := toSet(spec.unsupported)
 
-	for _, member := range n.entries() {
-		key := member.key.str()
+	for _, member := range n.Entries() {
+		key := member.Key.Str()
 		switch {
 		case supported[key]:
 		case unsupported[key]:
 			out = append(out, d.at(annotation{
 				class:   "warning",
 				message: fmt.Sprintf("'%s' contains unsupported key '%s'", spec.name, key),
-			}, member.key))
+			}, member.Key))
 		case strings.HasPrefix(key, "x-") && !spec.noExtensions:
 			// Specification extensions are explicitly allowed to be anything.
 		default:
-			out = append(out, d.invalidKey(spec.name, member.key))
+			out = append(out, d.invalidKey(spec.name, member.Key))
 		}
 	}
 
 	for _, required := range spec.required {
-		if !n.get(required).valid() {
+		if !n.Get(required).Valid() {
 			out = append(out, d.at(annotation{
 				class:   "error",
 				message: fmt.Sprintf("'%s' is missing required property '%s'", spec.name, required),
@@ -480,16 +481,16 @@ func (d *document) validateKeys(n node, spec objectSpec) []annotation {
 func (d *document) invalidKey(objectName string, key node) annotation {
 	return d.at(annotation{
 		class:   "warning",
-		message: fmt.Sprintf("'%s' contains invalid key '%s'", objectName, key.str()),
+		message: fmt.Sprintf("'%s' contains invalid key '%s'", objectName, key.Str()),
 	}, key)
 }
 
 // at attaches the source range of the node a diagnostic is about.
 func (d *document) at(a annotation, n node) annotation {
-	if !n.valid() {
+	if !n.Valid() {
 		return a
 	}
-	a.line, a.column, a.endLine, a.endCol = d.span(n)
+	a.line, a.column, a.endLine, a.endCol = d.Span(n)
 	return a
 }
 

@@ -38,15 +38,15 @@ func Parse(source []byte) (*refract.Element, error) {
 
 	api := refract.Named("category")
 	api.AddClass("api")
-	if title := doc.root.get("info").get("title").str(); title != "" {
+	if title := doc.Root.Get("info").Get("title").Str(); title != "" {
 		api.SetTitle(title)
 	}
 
-	basePath := doc.root.get("basePath").str()
-	consumes := stringList(doc.root.get("consumes"))
-	produces := stringList(doc.root.get("produces"))
+	basePath := doc.Root.Get("basePath").Str()
+	consumes := stringList(doc.Root.Get("consumes"))
+	produces := stringList(doc.Root.Get("produces"))
 
-	for _, path := range doc.root.get("paths").entries() {
+	for _, path := range doc.Root.Get("paths").Entries() {
 		if resource := doc.parsePathItem(path, basePath, consumes, produces); resource != nil {
 			api.Append(resource)
 		}
@@ -64,20 +64,20 @@ var statusCodePattern = regexp.MustCompile(`^\d{3}$`)
 // The href carries the document's basePath, because Swagger states the path
 // relative to it and the request has to go to the whole thing.
 func (d *document) parsePathItem(path entry, basePath string, consumes, produces []string) *refract.Element {
-	pathItem := path.value
-	if !pathItem.isMapping() {
+	pathItem := path.Value
+	if !pathItem.IsMapping() {
 		return nil
 	}
 
-	href := joinPath(basePath, path.key.str())
+	href := joinPath(basePath, path.Key.Str())
 
 	resource := refract.Named("resource")
 	resource.SetAttr("href", refract.String(href))
 
-	pathParameters := d.parseParameters(pathItem.get("parameters"))
+	pathParameters := d.parseParameters(pathItem.Get("parameters"))
 
-	for _, member := range pathItem.entries() {
-		if !isHTTPMethod(member.key.str()) {
+	for _, member := range pathItem.Entries() {
+		if !isHTTPMethod(member.Key.Str()) {
 			continue
 		}
 		if transition := d.parseOperation(href, member, pathParameters, consumes, produces); transition != nil {
@@ -99,17 +99,17 @@ func (d *document) parsePathItem(path entry, basePath string, consumes, produces
 // parseOperation turns one HTTP method into a transition carrying its
 // transactions.
 func (d *document) parseOperation(href string, member entry, pathParameters *parameters, consumes, produces []string) *refract.Element {
-	operation := member.value
-	if !operation.isMapping() {
+	operation := member.Value
+	if !operation.IsMapping() {
 		return nil
 	}
 
 	transition := refract.Named("transition")
-	if summary := operation.get("summary").str(); summary != "" {
+	if summary := operation.Get("summary").Str(); summary != "" {
 		transition.SetTitle(summary)
 	}
 
-	params := pathParameters.merge(d.parseParameters(operation.get("parameters")))
+	params := pathParameters.merge(d.parseParameters(operation.Get("parameters")))
 
 	if query := params.queryNames(); len(query) > 0 {
 		transition.SetAttr("href", refract.String(href+"{?"+strings.Join(query, ",")+"}"))
@@ -122,17 +122,17 @@ func (d *document) parseOperation(href string, member entry, pathParameters *par
 	// them, so its own list replaces the global one entirely — including an
 	// empty list, which is how a document says "this operation produces
 	// nothing", and which is why presence is tested rather than length.
-	if own := operation.get("consumes"); own.valid() {
+	if own := operation.Get("consumes"); own.Valid() {
 		consumes = stringList(own)
 	}
-	if own := operation.get("produces"); own.valid() {
+	if own := operation.Get("produces"); own.Valid() {
 		produces = stringList(own)
 	}
 
 	requests := d.buildRequests(params, consumes)
-	responses := d.parseResponses(operation.get("responses"), produces)
+	responses := d.parseResponses(operation.Get("responses"), produces)
 
-	method := strings.ToUpper(member.key.str())
+	method := strings.ToUpper(member.Key.Str())
 	for _, transaction := range buildTransactions(method, requests, responses, params.headers()) {
 		transition.Append(transaction)
 	}
@@ -229,7 +229,7 @@ func multipartBody(params *parameters, boundary string) (string, bool) {
 // payload.
 func (d *document) requestBody(params *parameters) (string, bool) {
 	for _, param := range params.in("body") {
-		if !param.schema.valid() {
+		if !param.schema.Valid() {
 			continue
 		}
 		if value, ok := d.generateValue(param.schema, nil); ok {
@@ -250,32 +250,32 @@ func (d *document) requestBody(params *parameters) (string, bool) {
 // And `default` responses are ignored outright: a response with no status code
 // says nothing about what to assert.
 func (d *document) parseResponses(n node, produces []string) []message {
-	if !n.isMapping() {
+	if !n.IsMapping() {
 		return nil
 	}
 
 	contentType := jsonMediaType(produces)
 
 	var responses []message
-	for _, member := range n.entries() {
-		key := member.key.str()
+	for _, member := range n.Entries() {
+		key := member.Key.Str()
 		if !statusCodePattern.MatchString(key) {
 			continue
 		}
 
-		response := d.resolve(member.value)
-		if !response.isMapping() {
+		response := d.Resolve(member.Value)
+		if !response.IsMapping() {
 			continue
 		}
 
 		// A response's own content-type header replaces the produced type
 		// rather than joining it: the document is saying what THIS response
 		// returns, which is more specific than what the operation can produce.
-		headers, override := d.parseResponseHeaders(response.get("headers"))
+		headers, override := d.parseResponseHeaders(response.Get("headers"))
 
-		schema := response.get("schema")
+		schema := response.Get("schema")
 		converted := ""
-		if schema.valid() {
+		if schema.Valid() {
 			if encoded, ok := d.convertSchema(schema); ok {
 				converted = encoded
 			}
@@ -284,17 +284,17 @@ func (d *document) parseResponses(n node, produces []string) []message {
 		// Examples decide how many exchanges this response describes: one per
 		// media type demonstrated. Without them the response is described once,
 		// as the first thing the operation produces.
-		variants := responseVariants(response.get("examples"), contentType, override)
+		variants := responseVariants(response.Get("examples"), contentType, override)
 
 		for _, variant := range variants {
 			msg := message{accept: variant.accept, contentType: variant.contentType, headers: headers, schema: converted}
 			msg.statusCode = key
 
-			if variant.example.valid() {
+			if variant.example.Valid() {
 				if body, ok := renderBody(scalarValue(variant.example)); ok {
 					msg.body, msg.hasBody = body, true
 				}
-			} else if schema.valid() && isJSONMediaType(variant.contentType) {
+			} else if schema.Valid() && isJSONMediaType(variant.contentType) {
 				// Without a JSON media type there is nothing to render the
 				// generated value into, so the response carries its schema but
 				// no example body.
@@ -325,14 +325,14 @@ type variant struct {
 // responseVariants lists the exchanges a response describes.
 func responseVariants(examples node, produced, override string) []variant {
 	if override != "" {
-		return []variant{{accept: produced, contentType: override, example: examples.get(override)}}
+		return []variant{{accept: produced, contentType: override, example: examples.Get(override)}}
 	}
 
-	if entries := examples.entries(); len(entries) > 0 {
+	if entries := examples.Entries(); len(entries) > 0 {
 		out := make([]variant, 0, len(entries))
 		for _, member := range entries {
-			mediaType := member.key.str()
-			out = append(out, variant{accept: mediaType, contentType: mediaType, example: member.value})
+			mediaType := member.Key.Str()
+			out = append(out, variant{accept: mediaType, contentType: mediaType, example: member.Value})
 		}
 		return out
 	}
@@ -347,10 +347,10 @@ func (d *document) parseResponseHeaders(n node) ([]header, string) {
 	var headers []header
 	override := ""
 
-	for _, member := range n.entries() {
-		name := member.key.str()
+	for _, member := range n.Entries() {
+		name := member.Key.Str()
 		value := ""
-		if example, ok := schemaExample(member.value); ok {
+		if example, ok := schemaExample(member.Value); ok {
 			value = stringifyScalar(example)
 		}
 		if strings.EqualFold(name, "content-type") {
@@ -498,8 +498,8 @@ func isJSONMediaType(mediaType string) bool {
 // produces and schemes.
 func stringList(n node) []string {
 	var out []string
-	for _, item := range n.items() {
-		if value := item.str(); value != "" {
+	for _, item := range n.Items() {
+		if value := item.Str(); value != "" {
 			out = append(out, value)
 		}
 	}
