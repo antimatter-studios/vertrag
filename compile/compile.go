@@ -137,6 +137,10 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		Response: compileResponse(element.Child("httpResponse")),
 		Name:     name,
 		Origin:   origin,
+		// The identifier sits on the transition rather than the transaction,
+		// because one operation can describe several exchanges and they all
+		// share it.
+		OperationID: element.FindParent("transition").Attr("operationId").String(),
 	}, annotations
 }
 

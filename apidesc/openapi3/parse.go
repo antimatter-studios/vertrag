@@ -115,6 +115,14 @@ func (d *document) parseOperation(path string, member entry, pathParameters *par
 		transition.SetTitle(summary)
 	}
 
+	// The operation's identifier, which is how a Link Object names the
+	// operation it leads to. Dredd discards it, having nothing that refers to
+	// an operation by name; it is carried as a refract attribute and dropped
+	// from the compiled JSON, so the comparison against Dredd is unaffected.
+	if id := operation.Get("operationId").Str(); id != "" {
+		transition.SetAttr("operationId", refract.String(id))
+	}
+
 	// Operation parameters override path parameters of the same name and
 	// location, which is what the specification asks for.
 	params := pathParameters.merge(d.parseParameters(operation.Get("parameters")))

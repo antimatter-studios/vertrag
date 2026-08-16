@@ -129,6 +129,15 @@ type Transaction struct {
 	Response Response `json:"response"`
 	Name     string   `json:"name"`
 	Origin   Origin   `json:"origin"`
+
+	// OperationID is how the description names this transaction's operation,
+	// and is how an OpenAPI Link Object refers to the operation it leads to.
+	//
+	// Absent from the JSON for the same reason Request.Schema is: Dredd has
+	// nothing that refers to an operation by name, so it discards the key
+	// entirely, and emitting it would make every compiled transaction differ
+	// from the reference for no benefit to the comparison.
+	OperationID string `json:"-"`
 }
 
 // Annotation is a diagnostic about the API description itself — a parser error,
