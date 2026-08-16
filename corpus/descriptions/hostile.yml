@@ -1,0 +1,79 @@
+openapi: 3.0.0
+info:
+  title: Hostile
+  version: "1.0.0"
+  description: >
+    Content that survives the description but breaks a careless tester:
+    values needing escaping in a URL, a body, or a report; keys that
+    collide with JSON Pointer syntax; unicode outside the basic plane; and
+    structures nested deeply enough to find a recursion limit.
+
+paths:
+  /escapes/{segment}:
+    get:
+      summary: A path value needing encoding
+      parameters:
+        - name: segment
+          in: path
+          required: true
+          example: "a b&c=d"
+          schema: {type: string, minLength: 1}
+        - name: q
+          in: query
+          example: "100% & more?"
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pointerKeys, unicode, emptyish]
+                properties:
+                  pointerKeys:
+                    type: object
+                    required: ["a/b", "c~d"]
+                    properties:
+                      "a/b": {type: string, minLength: 1}
+                      "c~d": {type: string, minLength: 1}
+                  unicode: {type: string, minLength: 1, pattern: "^[\\u00e9\\u4e2d]+$"}
+                  emptyish:
+                    type: object
+                    required: [emptyObject, emptyArray, blank, zero, no]
+                    properties:
+                      emptyObject: {type: object}
+                      emptyArray: {type: array, items: {type: string}}
+                      blank: {type: string}
+                      zero: {type: integer}
+                      no: {type: boolean}
+
+  /deep:
+    get:
+      summary: Deeply nested
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [l1]
+                properties:
+                  l1:
+                    type: object
+                    required: [l2]
+                    properties:
+                      l2:
+                        type: object
+                        required: [l3]
+                        properties:
+                          l3:
+                            type: object
+                            required: [l4]
+                            properties:
+                              l4:
+                                type: object
+                                required: [l5]
+                                properties:
+                                  l5: {type: string, minLength: 1}

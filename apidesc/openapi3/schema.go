@@ -112,14 +112,20 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 
 	case "array":
 		items := schema.Get("items")
-		// An array of a bare primitive has no value: the document has said
-		// nothing about what would be in it, so there is no specimen to send.
-		if isValuelessPrimitiveSchema(items) {
-			return nil, false
-		}
+
 		value, ok := d.generateValue(items, seen)
-		if !ok {
-			return nil, false
+		if !ok || isValuelessPrimitiveSchema(items) {
+			// Dredd treats an array of a bare primitive as having no specimen,
+			// on the grounds that the document said nothing about what would be
+			// in it. Returning nothing was catastrophic rather than cautious:
+			// a required property propagates the failure upward, so a single
+			// `tags: [string]` field anywhere in a required chain destroyed the
+			// ENTIRE body, and the request went out empty.
+			//
+			// An empty array is a valid specimen for any array the document did
+			// not give a minItems, which is exactly the case in question, and
+			// it costs nothing to be right about the rest of the body.
+			return []any{}, true
 		}
 
 		// One item demonstrates the shape, which is all a document without a

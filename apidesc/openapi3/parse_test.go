@@ -142,11 +142,18 @@ func TestBodyGeneration(t *testing.T) {
 		{"nullable yields null", `{type: object, properties: {n: {type: string, nullable: true}}}`,
 			`{"n":null}`},
 
-		// An array of a bare primitive has no value, so the property vanishes
-		// and a top-level one produces no body.
-		{"array property of primitives is omitted", `{type: object, properties: {a: {type: array, items: {type: string}}}}`,
-			`{}`},
-		{"top-level array of primitives has no body", `{type: array, items: {type: string}}`, ""},
+		// Dredd gives an array of a bare primitive no value at all, so an
+		// optional property vanished and a top-level one produced no body. That
+		// was catastrophic rather than cautious once the property was REQUIRED:
+		// the failure propagates upward, so one `tags: [string]` field anywhere
+		// in a required chain destroyed the whole body and the request went out
+		// empty. An empty array is a valid specimen for any array the document
+		// gave no minItems, which is exactly this case.
+		{"an optional array of primitives is still demonstrated",
+			`{type: object, properties: {a: {type: array, items: {type: string}}}}`,
+			`{"a":[]}`},
+		{"a top-level array of primitives is an empty array",
+			`{type: array, items: {type: string}}`, `[]`},
 		{"array of objects yields one specimen", `{type: array, items: {type: object, properties: {a: {type: string}}}}`,
 			`[{"a":""}]`},
 
@@ -167,6 +174,18 @@ func TestBodyGeneration(t *testing.T) {
 		// response, and as a REQUEST body the omission means sending nothing to
 		// a server that requires one.
 		{"a bare string is demonstrated by the empty string", `{type: string}`, `""`},
+
+		// Dredd treats an array of a bare primitive as having no specimen at
+		// all, which was catastrophic rather than cautious: a required property
+		// propagates the failure upward, so one `tags: [string]` field anywhere
+		// in a required chain destroyed the ENTIRE body and the request went
+		// out empty. An empty array is a valid specimen for any array without a
+		// minItems, which is exactly this case.
+		{"an array of bare strings is demonstrated by an empty array",
+			`{type: array, items: {type: string}}`, `[]`},
+		{"a required array of bare strings does not take the body with it",
+			`{type: object, required: [tags], properties: {tags: {type: array, items: {type: string}}}}`,
+			`{"tags":[]}`},
 		{"an untyped schema permits everything, so the empty string will do",
 			`{properties: {a: {type: string}}}`, `""`},
 		{"a boolean is demonstrated by false", `{type: boolean}`, `false`},
