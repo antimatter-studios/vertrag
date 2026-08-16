@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -125,7 +126,7 @@ func runRun(args []string) error {
 		return fmt.Errorf("the API description could not be read; nothing was run")
 	}
 
-	transactions := filterTransactions(stripAPIName(result.Transactions), settings)
+	transactions := sortTransactions(filterTransactions(stripAPIName(result.Transactions), settings), settings.Sorted)
 	if len(transactions) == 0 {
 		fmt.Fprintln(os.Stdout, "No transactions to run.")
 		return nil
@@ -312,6 +313,51 @@ func stripAPIName(transactions []compile.Transaction) []compile.Transaction {
 		stripped = append(stripped, transaction)
 	}
 	return stripped
+}
+
+// methodOrder is the order `sorted` puts transactions in.
+//
+// It is Dredd's, verbatim from its own options.json, and the reasoning is in
+// the sentence that accompanies it there: requests are sorted "so that objects
+// are not modified before they are created". A description lists operations in
+// whatever order reads well, which is frequently GET before the POST that makes
+// the thing to get; running that order against a real server tests a resource
+// that does not exist yet.
+var methodOrder = []string{"CONNECT", "OPTIONS", "POST", "GET", "HEAD", "PUT",
+	"PATCH", "LINK", "UNLINK", "DELETE", "TRACE"}
+
+// sortTransactions groups a run by HTTP method when `sorted` is set.
+//
+// The sort is stable, so transactions sharing a method stay in document order —
+// two POSTs that must happen in a particular sequence still do. This is a
+// coarse instrument and Dredd is candid that it is: it cannot know that one
+// POST feeds another resource entirely. It is the ordering people have, though,
+// and vertrag accepted the option, stored it, and then ignored it, which is
+// worse than refusing it — a run configured to sort silently did not.
+func sortTransactions(transactions []compile.Transaction, sorted bool) []compile.Transaction {
+	if !sorted {
+		return transactions
+	}
+
+	rank := make(map[string]int, len(methodOrder))
+	for i, method := range methodOrder {
+		rank[method] = i
+	}
+	// A method the list does not name sorts after every one it does, rather
+	// than silently sharing a bucket with CONNECT.
+	rankOf := func(method string) int {
+		if r, known := rank[strings.ToUpper(method)]; known {
+			return r
+		}
+		return len(methodOrder)
+	}
+
+	out := make([]compile.Transaction, len(transactions))
+	copy(out, transactions)
+	sort.SliceStable(out, func(i, j int) bool {
+		return rankOf(out[i].Request.Method) < rankOf(out[j].Request.Method)
+	})
+	return out
 }
 
 // filterTransactions applies the options that narrow a run.

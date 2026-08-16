@@ -135,3 +135,59 @@ func TestAnUnknownReporterIsRefusedByName(t *testing.T) {
 		t.Errorf("the error should name what was asked for and what is available: %v", err)
 	}
 }
+
+// TestSortedGroupsByMethod pins the option that was accepted, stored and then
+// ignored.
+//
+// `sorted` existed in the config struct and was set by both the flag and the
+// YAML key, and nothing ever read it. A project that set it got document order
+// anyway — worse than an unsupported option, which at least says so.
+func TestSortedGroupsByMethod(t *testing.T) {
+	transactions := []compile.Transaction{
+		{Name: "delete", Request: compile.Request{Method: "DELETE"}},
+		{Name: "get", Request: compile.Request{Method: "GET"}},
+		{Name: "post", Request: compile.Request{Method: "POST"}},
+	}
+
+	unsorted := sortTransactions(transactions, false)
+	if unsorted[0].Name != "delete" {
+		t.Errorf("without the option the order should be untouched, got %s first", unsorted[0].Name)
+	}
+
+	// Dredd's order: POST before GET so the thing being fetched exists, and
+	// DELETE last so it does not remove what the others need.
+	sorted := sortTransactions(transactions, true)
+	for i, want := range []string{"post", "get", "delete"} {
+		if sorted[i].Name != want {
+			t.Errorf("sorted[%d] = %s, want %s", i, sorted[i].Name, want)
+		}
+	}
+}
+
+// TestSortedIsStable pins that transactions sharing a method keep document
+// order, so two POSTs that must run in sequence still do.
+func TestSortedIsStable(t *testing.T) {
+	transactions := []compile.Transaction{
+		{Name: "first", Request: compile.Request{Method: "POST"}},
+		{Name: "second", Request: compile.Request{Method: "POST"}},
+		{Name: "third", Request: compile.Request{Method: "POST"}},
+	}
+	for i, want := range []string{"first", "second", "third"} {
+		if got := sortTransactions(transactions, true)[i].Name; got != want {
+			t.Errorf("sorted[%d] = %s, want %s", i, got, want)
+		}
+	}
+}
+
+// TestSortedPutsUnknownMethodsLast pins that a method Dredd's list does not
+// name sorts after every one it does, rather than sharing a bucket with
+// CONNECT because both rank zero.
+func TestSortedPutsUnknownMethodsLast(t *testing.T) {
+	transactions := []compile.Transaction{
+		{Name: "odd", Request: compile.Request{Method: "PURGE"}},
+		{Name: "get", Request: compile.Request{Method: "GET"}},
+	}
+	if got := sortTransactions(transactions, true)[0].Name; got != "get" {
+		t.Errorf("sorted[0] = %s, want get", got)
+	}
+}
