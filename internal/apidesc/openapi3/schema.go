@@ -115,11 +115,23 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return []any{value}, true
 
 	case "object":
+		// A property the document requires but cannot demonstrate leaves the
+		// whole object with no value: any specimen built without it would be
+		// one the document itself says is invalid. An optional property in the
+		// same position is simply left out.
+		required := requiredProperties(schema)
+
 		out := newOrderedMap()
 		for _, property := range schema.get("properties").entries() {
-			if value, ok := d.generateValue(property.value, seen); ok {
-				out.Set(property.key.str(), value)
+			name := property.key.str()
+			value, ok := d.generateValue(property.value, seen)
+			if !ok {
+				if required[name] {
+					return nil, false
+				}
+				continue
 			}
+			out.Set(name, value)
 		}
 		return out, true
 
@@ -136,6 +148,17 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		// produce bodies Dredd never sends.
 		return "", true
 	}
+}
+
+// requiredProperties lists the property names a schema insists on.
+func requiredProperties(schema node) map[string]bool {
+	names := map[string]bool{}
+	for _, item := range schema.get("required").items() {
+		if name := item.str(); name != "" {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 // isValuelessPrimitiveSchema reports whether a schema describes a primitive and

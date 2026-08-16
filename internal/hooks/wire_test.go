@@ -144,6 +144,35 @@ func TestFullPathOverridesTheURL(t *testing.T) {
 	}
 }
 
+// TestFullPathSurvivesALaterHook pins the bug that made a request appear to go
+// somewhere it never went: fullPath was being recomputed from Request.URI on
+// every exchange, so a hook editing the URI after the request had been sent
+// rewrote the record of where it went.
+func TestFullPathSurvivesALaterHook(t *testing.T) {
+	transaction := prepared(t)
+	original := transaction.FullURL()
+
+	// A before hook edits the URI, as inpace's hooks do.
+	edited := toWire(transaction)
+	edited.Request.URI = "/things/edited"
+	applyWire(transaction, edited)
+
+	if transaction.FullURL() != original {
+		t.Fatalf("FullURL = %q after a URI edit, want %q", transaction.FullURL(), original)
+	}
+
+	// A later hook — beforeEachValidation — round-trips the transaction again.
+	again := toWire(transaction)
+	if again.FullPath != "/things" {
+		t.Errorf("fullPath = %q on the second exchange, want the original path", again.FullPath)
+	}
+	applyWire(transaction, again)
+
+	if transaction.FullURL() != original {
+		t.Errorf("FullURL = %q after a second exchange, want %q", transaction.FullURL(), original)
+	}
+}
+
 func TestFailMarker(t *testing.T) {
 	if got := failValue(""); got != false {
 		t.Errorf("an unfailed transaction should report fail=false, got %v", got)

@@ -90,7 +90,7 @@ func runRun(args []string) error {
 		return fmt.Errorf("the API description could not be read; nothing was run")
 	}
 
-	transactions := filterTransactions(result.Transactions, settings)
+	transactions := filterTransactions(stripAPIName(result.Transactions), settings)
 	if len(transactions) == 0 {
 		fmt.Fprintln(os.Stdout, "No transactions to run.")
 		return nil
@@ -175,6 +175,32 @@ func resolveConfig(path string, positional []string) (config.Config, error) {
 		settings.Endpoint = positional[1]
 	}
 	return settings, nil
+}
+
+// stripAPIName removes the API title from the front of each transaction name.
+//
+// The compiler builds the full name — "Title > /path > Operation > 200" — and
+// that is what `vertrag compile` reports, matching Dredd's compiler exactly.
+// But Dredd's RUNNER drops the title before anything sees it, whenever a single
+// description document is under test, and that shortened name is what hook
+// files address transactions by and what its reports print.
+//
+// So the strip belongs here rather than in the compiler: the compiler's output
+// is a faithful copy of Dredd's, and the runner reproduces the runner's.
+// Without it, every `hooks.before('/path > ...')` in an existing project
+// silently fails to match — which is exactly what it looked like when this was
+// missing.
+func stripAPIName(transactions []compile.Transaction) []compile.Transaction {
+	stripped := make([]compile.Transaction, 0, len(transactions))
+	for _, transaction := range transactions {
+		if prefix := transaction.Origin.APIName + " > "; transaction.Origin.APIName != "" {
+			// Only the first occurrence, as the reference's replace() does: a
+			// path that happens to repeat the title must keep its own copy.
+			transaction.Name = strings.Replace(transaction.Name, prefix, "", 1)
+		}
+		stripped = append(stripped, transaction)
+	}
+	return stripped
 }
 
 // filterTransactions applies the options that narrow a run.

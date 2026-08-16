@@ -230,6 +230,13 @@ type Transaction struct {
 	Expected validate.Message
 	Real     validate.Message
 
+	// FullPath is the path the request is actually sent to. It is derived once,
+	// when the transaction is prepared, and only a hook writing to it moves the
+	// request — editing Request.URI does not. Keeping it separate is what makes
+	// that true: recomputing it from Request.URI would let a late hook silently
+	// redirect a request that has already been sent.
+	FullPath string
+
 	// Skip removes the transaction from the run; Fail marks it failed without
 	// consulting the response. Both are set by hooks.
 	Skip bool
@@ -274,23 +281,40 @@ func newTransaction(source compile.Transaction, endpoint string, extraHeaders []
 			Body:       source.Response.Body,
 			BodySchema: schema,
 		},
+		FullPath: source.Request.URI,
 		endpoint: endpoint,
+		fullURL:  endpoint + source.Request.URI,
 	}
 }
 
 // FullURL is the address the request is sent to.
 //
-// A hook may set it directly, which is how a hook rewrites a URI the description
-// could not make concrete.
+// It is fixed when the transaction is prepared and does NOT track later edits to
+// Request.URI. That is Dredd's behaviour: it resolves the address before hooks
+// run, so a hook assigning `transaction.request.uri` changes what the hook and
+// the report see but not where the request goes. Following the edited URI here
+// would be more intuitive and would make the same hook file send different
+// requests under each tool.
+//
+// A hook that really means to redirect the request sets `fullPath`.
 func (t *Transaction) FullURL() string {
-	if t.fullURL != "" {
-		return t.fullURL
-	}
-	return t.endpoint + t.Request.URI
+	return t.fullURL
 }
 
 // SetFullURL overrides the address, as a hook does.
 func (t *Transaction) SetFullURL(url string) { t.fullURL = url }
+
+// sentRequest is the request as it actually went out.
+//
+// Request.URI is whatever the hooks last wrote there, which is not necessarily
+// where the request went — a hook may edit it without redirecting anything. The
+// report has to show the address that was really used, or a failing test points
+// the reader at a URL nobody requested.
+func (t *Transaction) sentRequest() Request {
+	sent := t.Request
+	sent.URI = t.FullPath
+	return sent
+}
 
 // Endpoint is the server the transaction is aimed at.
 func (t *Transaction) Endpoint() string { return t.endpoint }
@@ -301,7 +325,7 @@ func (t *Transaction) validated(elapsed time.Duration) Result {
 	result := Result{
 		Name:       t.Name,
 		Status:     StatusPass,
-		Request:    t.Request,
+		Request:    t.sentRequest(),
 		Expected:   t.Expected,
 		Actual:     t.Real,
 		Validation: validation,
@@ -322,14 +346,14 @@ func (t *Transaction) validated(elapsed time.Duration) Result {
 
 func (t *Transaction) failResult(errors []string, elapsed time.Duration) Result {
 	return Result{
-		Name: t.Name, Status: StatusFail, Request: t.Request,
+		Name: t.Name, Status: StatusFail, Request: t.sentRequest(),
 		Expected: t.Expected, Actual: t.Real, Errors: errors, Duration: elapsed,
 	}
 }
 
 func (t *Transaction) errorResult(message string, elapsed time.Duration) Result {
 	return Result{
-		Name: t.Name, Status: StatusError, Request: t.Request,
+		Name: t.Name, Status: StatusError, Request: t.sentRequest(),
 		Expected: t.Expected, Errors: []string{message}, Duration: elapsed,
 	}
 }

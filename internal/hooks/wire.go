@@ -52,7 +52,7 @@ func toWire(t *runner.Transaction) wireTransaction {
 		Host:     host,
 		Port:     port,
 		Protocol: protocol,
-		FullPath: t.Request.URI,
+		FullPath: t.FullPath,
 		Request: wireRequest{
 			Method:  t.Request.Method,
 			URI:     t.Request.URI,
@@ -94,7 +94,11 @@ func applyWire(t *runner.Transaction, w wireTransaction) {
 		BodySchema: w.Expected.BodySchema,
 	}
 
-	if w.FullPath != "" && w.FullPath != t.Request.URI {
+	// Only fullPath redirects the request. A hook that edited request.uri has
+	// changed what a later hook reads there, not where the request goes —
+	// matching Dredd.
+	if w.FullPath != "" {
+		t.FullPath = w.FullPath
 		t.SetFullURL(t.Endpoint() + w.FullPath)
 	}
 

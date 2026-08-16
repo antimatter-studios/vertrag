@@ -100,3 +100,55 @@ components:
       properties:
         id:
           type: string
+  /required-without-value:
+    get:
+      summary: A required property that cannot be demonstrated
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+  /optional-without-value:
+    get:
+      summary: The same property, optional
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+  /required-mixed:
+    get:
+      summary: One required property with a value, one without
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                  - data
+                properties:
+                  name:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: string

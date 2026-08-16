@@ -295,6 +295,66 @@ func TestHookCanRewriteTheRequest(t *testing.T) {
 	}
 }
 
+// TestEditingRequestURIDoesNotRedirect pins Dredd's behaviour: the address is
+// resolved before hooks run, so a hook writing to Request.URI changes what a
+// later hook reads there and nothing else. Following the edit would make the
+// same hook file send different requests under each tool.
+func TestEditingRequestURIDoesNotRedirect(t *testing.T) {
+	var seen string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	engine := New(server.URL)
+	engine.Hooks = &stubHooks{beforeFn: func(t *Transaction) {
+		t.Request.URI = "/rewritten"
+	}}
+
+	source := transaction("GET", "/original", "200", "", "")
+	source.Response.Headers = nil
+	results, err := engine.Run(context.Background(), []compile.Transaction{source})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if seen != "/original" {
+		t.Errorf("server saw %q, want /original: editing Request.URI must not redirect", seen)
+	}
+	// The report shows where the request went, not what a hook wrote.
+	if results[0].Request.URI != "/original" {
+		t.Errorf("reported URI = %q, want the address actually used", results[0].Request.URI)
+	}
+}
+
+// TestFullPathRedirects pins the field that DOES move a request.
+func TestFullPathRedirects(t *testing.T) {
+	var seen string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	engine := New(server.URL)
+	engine.Hooks = &stubHooks{beforeFn: func(t *Transaction) {
+		t.FullPath = "/redirected"
+		t.SetFullURL(t.Endpoint() + "/redirected")
+	}}
+
+	source := transaction("GET", "/original", "200", "", "")
+	source.Response.Headers = nil
+	results, _ := engine.Run(context.Background(), []compile.Transaction{source})
+
+	if seen != "/redirected" {
+		t.Errorf("server saw %q, want /redirected", seen)
+	}
+	if results[0].Request.URI != "/redirected" {
+		t.Errorf("reported URI = %q, want /redirected", results[0].Request.URI)
+	}
+}
+
 func TestFullURLOverride(t *testing.T) {
 	source := transaction("GET", "/original", "200", "", "")
 	prepared := newTransaction(source, "http://example.com", nil)

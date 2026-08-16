@@ -150,6 +150,17 @@ func TestBodyGeneration(t *testing.T) {
 		{"array of objects yields one specimen", `{type: array, items: {type: object, properties: {a: {type: string}}}}`,
 			`[{"a":""}]`},
 
+		// A required property the document cannot demonstrate leaves the whole
+		// object with no value: any specimen built without it would be one the
+		// document itself calls invalid. The same property, optional, is just
+		// left out.
+		{"required property without a value sinks the object",
+			`{type: object, required: [data], properties: {data: {type: array, items: {type: string}}}}`, ""},
+		{"optional property without a value is omitted",
+			`{type: object, properties: {data: {type: array, items: {type: string}}}}`, `{}`},
+		{"a required property that does have a value is kept",
+			`{type: object, required: [name], properties: {name: {type: string}}}`, `{"name":""}`},
+
 		// A falsy value is treated as nothing to send.
 		{"bare string has no body", `{type: string}`, ""},
 		{"untyped schema has no body", `{properties: {a: {type: string}}}`, ""},
