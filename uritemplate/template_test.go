@@ -138,14 +138,21 @@ func TestParseErrors(t *testing.T) {
 		want     string
 	}{
 		{
+			// A brace that never opens a varspec: the only things that could
+			// have followed are an operator or a name character, so the ':',
+			// '*', ',', '}' and '(' that may follow a NAME are not expected
+			// here and are not reported.
 			"/honey{",
-			`Expected "(", "*", ",", ":", "}", [\/;:.?&+#] or [a-zA-Z0-9_.%] but end of input found.`,
+			`Expected [/,;,.,?,&,+,#] or [a-z,A-Z,0-9,_,.,%] but end of input found.`,
 		},
 		{
-			// ':' is accepted by the grammar but has no expansion rule, so
-			// constructing the expression fails rather than the parse.
+			// uri-template 1.0.1 admitted ':' as an operator and then threw
+			// when building the expansion class, so a template using it failed
+			// in two stages with a message about an operator the grammar had
+			// just accepted. 2.0.0 dropped it from the operator set, making it
+			// an ordinary syntax error at the point it is read.
 			"{:v}",
-			`unsupported URI template operator ":"`,
+			`Expected [/,;,.,?,&,+,#] or [a-z,A-Z,0-9,_,.,%] but ":" found.`,
 		},
 	} {
 		_, err := Parse(test.template)
@@ -160,9 +167,27 @@ func TestParseErrors(t *testing.T) {
 }
 
 func TestParseAcceptsEmptyAndBareTemplates(t *testing.T) {
-	for _, template := range []string{"", "/no/expressions", "{}"} {
+	for _, template := range []string{"", "/no/expressions"} {
 		if _, err := Parse(template); err != nil {
 			t.Errorf("Parse(%q): unexpected error %v", template, err)
+		}
+	}
+}
+
+// TestNamelessVarspecIsRejected covers the expressions that have no variable to
+// expand.
+//
+// uri-template 1.0.1 matched zero or more name characters per varspec, so all
+// of these parsed: the first four expanded to nothing and `{a,,b}` silently
+// dropped the empty entry. A description carrying a typo like that got a URL
+// built from it rather than an error, so the request went somewhere other than
+// intended — failing for a reason that points nowhere near the typo, or passing
+// without having tested the path at all. 2.0.0 rejects them and so does this.
+func TestNamelessVarspecIsRejected(t *testing.T) {
+	for _, template := range []string{"{}", "{+}", "{#}", "{/}", "{?}", "{a,}", "{,a}", "{a,,b}"} {
+		if parsed, err := Parse(template); err == nil {
+			t.Errorf("Parse(%q) should fail, expanded to %q",
+				template, parsed.Expand(map[string]any{"a": 1, "b": 2}))
 		}
 	}
 }

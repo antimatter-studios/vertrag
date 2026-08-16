@@ -135,14 +135,18 @@ func (p *parser) parseExpression() (*Expression, error) {
 
 	// The operator is optional, so a miss is recorded but does not fail.
 	var op byte
-	if p.pos < len(p.input) && strings.IndexByte("/;:.?&+#", p.input[p.pos]) >= 0 {
+	if p.pos < len(p.input) && strings.IndexByte("/;.?&+#", p.input[p.pos]) >= 0 {
 		op = p.input[p.pos]
 		p.pos++
 	} else {
-		p.fail(`[\/;:.?&+#]`)
+		p.fail(`[/,;,.,?,&,+,#]`)
 	}
 
-	params := p.parseParamList()
+	params, ok := p.parseParamList()
+	if !ok {
+		p.pos = start
+		return nil, nil
+	}
 
 	if p.pos >= len(p.input) || p.input[p.pos] != '}' {
 		p.fail(`"}"`)
@@ -158,25 +162,47 @@ func (p *parser) parseExpression() (*Expression, error) {
 	return expr, nil
 }
 
-func (p *parser) parseParamList() []Param {
-	params := []Param{p.parseParam()}
+// parseParamList reads the comma-separated variable references of an
+// expression. It reports false when any of them is nameless, which is not a
+// valid expression: RFC 6570 requires at least one character per varspec.
+func (p *parser) parseParamList() ([]Param, bool) {
+	param, ok := p.parseParam()
+	if !ok {
+		return nil, false
+	}
+
+	params := []Param{param}
 	for p.pos < len(p.input) && p.input[p.pos] == ',' {
 		p.pos++
-		params = append(params, p.parseParam())
+		param, ok := p.parseParam()
+		if !ok {
+			return nil, false
+		}
+		params = append(params, param)
 	}
 	p.fail(`","`)
-	return params
+	return params, true
 }
 
-// parseParam reads one variable reference. The name may be empty: the
-// reference's rule matches zero or more name characters, so `{}` parses as a
-// single unnamed parameter rather than failing here.
-func (p *parser) parseParam() Param {
+// parseParam reads one variable reference, reporting false when it has no name.
+//
+// uri-template 1.0.1 matched zero or more name characters here, so `{}`, `{+}`,
+// `{a,}` and `{a,,b}` all parsed — the first three expanding to nothing and the
+// last silently dropping the empty entry. A description carrying a typo like
+// that got a URL built from it rather than an error, and the test then ran
+// against the wrong endpoint, which either fails for a reason that points
+// nowhere near the typo or passes without having tested the intended path.
+//
+// 2.0.0 rejects all of them, and so does this.
+func (p *parser) parseParam() (Param, bool) {
 	start := p.pos
 	for p.pos < len(p.input) && isParamNameByte(p.input[p.pos]) {
 		p.pos++
 	}
-	p.fail(`[a-zA-Z0-9_.%]`)
+	p.fail(`[a-z,A-Z,0-9,_,.,%]`)
+	if p.pos == start {
+		return Param{}, false
+	}
 	param := Param{Name: p.input[start:p.pos]}
 
 	// The reference tries the `:N` prefix before the `*` explode marker, and
@@ -215,7 +241,7 @@ func (p *parser) parseParam() Param {
 		p.fail(`"("`)
 	}
 
-	return param
+	return param, true
 }
 
 // syntaxError renders the failure the way the generated parser does: the
@@ -317,14 +343,10 @@ func newExpression(op byte, params []Param) (*Expression, error) {
 		e.first, e.sep, e.named, e.empty = "?", "&", true, "="
 	case '&':
 		e.first, e.sep, e.named, e.empty = "&", "&", true, "="
-	case ':':
-		// The reference's grammar accepts ':' as an operator but defines no
-		// expansion class for it, so constructing the expression throws. The
-		// error is reproduced rather than the character being treated as a
-		// simple operator, because callers surface it as a parse failure and
-		// skip the transaction entirely.
-		return nil, fmt.Errorf("unsupported URI template operator %q", string(op))
 	default:
+		// Unreachable while the operator set and this switch agree, and kept so
+		// that widening one without the other fails loudly instead of silently
+		// expanding as the simple operator.
 		return nil, fmt.Errorf("unsupported URI template operator %q", string(op))
 	}
 	return e, nil
