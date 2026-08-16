@@ -1,71 +1,72 @@
-# vertrag.yml — a superset of dredd.yml.
+# vertrag.yml — every setting, with the reasoning.
 #
-# Every key Dredd understands means the same thing here, so a project can
-# rename its dredd.yml and change nothing else. vertrag reads a dredd.yml when
-# no vertrag file is present, so adopting it needs no change at all.
+# Copy the parts you need. Nothing here is required except the description and
+# the endpoint, and both of those can come from the command line instead.
 
-# --- Dredd's keys, unchanged -------------------------------------------------
+# --- What to test ------------------------------------------------------------
 
-blueprint: ./openapi.json          # the API description to test against
+blueprint: ./openapi.json          # the API description: OpenAPI 2 or 3
 endpoint: http://localhost:4000    # the server under test
 
-hookfiles: ./dredd-hooks.js        # run unchanged; see the hooks section below
-language: nodejs
+# --- Which transactions ------------------------------------------------------
 
-# Narrowing a run.
-only: []                           # transaction names, as hooks address them
-method: []                         # GET, POST, …
-# `header` is Dredd's too, and vertrag adds a conditional form to it. Both are
-# demonstrated together further down rather than split across two places.
+# A transaction is one documented request/response pair, named
+# "<path> > <operation> > <status> > <content-type>". That name is how every
+# setting below addresses one.
+only: []                           # run only these, by name
+method: []                         # run only these methods: GET, POST, …
 
-color: true
-details: false                     # print passing exchanges too
-loglevel: warning
+# Transactions to leave out of the run. The reason is optional and worth
+# giving: it is printed with the skip, so a report says why forty transactions
+# did not run rather than only that they did not. A skip list is where a
+# suite's debt collects, and one that states its reasons is one somebody can
+# eventually work through.
+skip:
+  - name: '/api/v1/jobs/{id} > Get job > 200 > application/json'
+    reason: sends a literal "id" that fails integer parsing; covered by unit tests
+  - '/api/v1/unstable > Unstable > 200 > application/json'
 
-# The hooks worker.
-hooks-worker-handler-host: 127.0.0.1
-hooks-worker-handler-port: 61321
-hooks-worker-timeout: 5000
+# An entry matching no transaction is reported rather than ignored — it usually
+# means something was renamed, and the entry now protects nothing while still
+# reading like a decision somebody made.
 
-# Reporters pair with outputs by position. An empty output means stdout, so
-# this writes a readable log to the terminal AND a machine-readable file.
-# Available: cli, dot, markdown, html, junit.
-reporter: [cli, junit]
-output: ["", report.xml]
+# --- What to send ------------------------------------------------------------
 
-# --- vertrag's own -----------------------------------------------------------
+# Headers. A plain string goes on every request; an entry with `when` reaches
+# only the transactions it matches.
+header:
+  - 'X-Trace: on'
 
-# Checks Dredd does not make. On by default: a contract violation is worth
-# reporting even when the tool you came from would have missed it. Findings from
-# these are labelled in the report, so an upgrade is not mistaken for a
-# regression.
-checks:
-  server-error: true    # a 5xx means the server broke, not that it disagreed
-  content-type: true    # Dredd checks headers are present, never their values
+  # The case the conditional form is really for: telling a mock which failure to
+  # simulate, so the error responses the description promises can be reached at
+  # all. Which failure to ask for follows from which response is expected.
+  - name: X-Mock-Scenario
+    value: absent
+    when: {status: 404}
+  - name: X-Mock-Scenario
+    value: broken
+    when: {status: 500}
 
-  # The exception to "on by default". This validates a response header's value
-  # against the JSON Schema the description gave it, which nothing has ever
-  # enforced — so a description is quite likely to carry a header schema that
-  # was never true, and switching it on unasked would turn a working suite red
-  # on the day you adopt vertrag. Turn it on when you are ready to read what it
-  # finds; `--check-header-schema` does the same for one run.
-  header-schema: false
+# `when` also takes `method`. Nothing may look at the response: the conditions
+# are properties the description already fixed, decided before the request is
+# sent. A rule that needs to see what came back is a hook.
 
-# Authentication. Nearly every suite needs this and almost none of it is
-# specific to a project: log in once, keep what came back, send it on
-# everything afterwards. Doing that with a hook file costs a worker process and
-# a language runtime to run three steps that never vary.
+# Authentication: log in once, keep what came back, send it on everything
+# afterwards. Nearly every suite needs this and almost none of it is specific to
+# a project, which is why it is three lines of configuration and not a file of
+# code with a language runtime behind it.
 auth:
   login:
     path: /api/v1/auth/login    # method defaults to POST
     body: {username: admin, password: secret}
 
-  # How the credential comes back. Naming a cookie implies `carry: cookie`.
-  cookie: jwt_token             # keep this one out of Set-Cookie
+  # How the credential comes back. Naming a cookie implies `carry: cookie`, and
+  # names which one to keep when the server sets several.
+  cookie: jwt_token
 
-  # Or take it from the response body. The value is a runtime expression, the
-  # same language OpenAPI links use, so a token that is not at /token needs no
-  # new setting:
+  # Or take it from the response body. The value is a runtime expression — the
+  # same language OpenAPI links use — so a token somewhere other than /token
+  # needs no new setting:
   #   header: 'Authorization: Bearer {$response.body#/data/access_token}'
   # A static API key needs no `login` block at all:
   #   header: 'X-API-Key: abc123'
@@ -75,27 +76,49 @@ auth:
   except:
     - '/api/v1/auth/login > Login > 401 > application/json'
 
-# Headers. Dredd's plain form still works, and an entry may instead carry a
-# condition so it reaches only the transactions it is meant for.
-header:
-  - 'X-Trace: on'                # every transaction, as in Dredd
+# --- Hooks -------------------------------------------------------------------
 
-  # The case this is really for: telling a mock which failure to simulate, so
-  # the error responses the description promises can actually be reached. Which
-  # failure to ask for follows from which response is expected.
-  - name: X-Mock-Scenario
-    value: absent
-    when: {status: 404}
-  - name: X-Mock-Scenario
-    value: broken
-    when: {status: 500}
-  # `when` also takes `method`. Nothing may look at the response: a rule needing
-  # that is a hook.
+# For setup and teardown that genuinely varies by project — anything reacting to
+# a response, or deriving a value per transaction. Everything above exists so
+# that a hook file holds only what is actually specific to your API.
+hookfiles: ./hooks.js
+language: nodejs
 
-# Transactions to leave out of the run. The reason is optional and worth
-# giving — it is printed with the skip, so the report says why forty
-# transactions did not run rather than only that they did not.
-skip:
-  - name: '/api/v1/jobs/{id} > Get job > 200 > application/json'
-    reason: sends a literal "id" that fails integer parsing; covered by unit tests
-  - '/api/v1/unstable > Unstable > 200 > application/json'
+hooks-worker-handler-host: 127.0.0.1
+hooks-worker-handler-port: 61321
+hooks-worker-timeout: 5000
+
+# --- What to check -----------------------------------------------------------
+
+# These are on by default. Findings from them are labelled in the report, so
+# they can be told apart from ordinary contract failures at a glance.
+checks:
+  # A 5xx means the server broke, which is worth saying plainly rather than
+  # reporting as a status mismatch like any other.
+  server-error: true
+
+  # A response carrying a media type the description never promised. Checking a
+  # declared header is present says nothing about whether its value is right.
+  content-type: true
+
+  # The exception to "on by default". This validates a response header's value
+  # against the JSON Schema the description gave it — so an X-Rate-Limit
+  # documented as a non-negative integer fails when the server answers `banana`.
+  # Header schemas have never been enforced by anything, so a description is
+  # quite likely to carry one that was never true, and switching this on unasked
+  # would turn a working suite red for reasons that predate it. Turn it on when
+  # you are ready to read what it finds; `--check-header-schema` does the same
+  # for a single run.
+  header-schema: false
+
+# --- Output ------------------------------------------------------------------
+
+color: true
+details: false                     # print passing exchanges too, not just failures
+loglevel: warning
+
+# Reporters pair with outputs by position, and an empty output means stdout — so
+# this writes a readable log to the terminal AND a machine-readable file.
+# Available: cli, dot, markdown, html, junit.
+reporter: [cli, junit]
+output: ["", report.xml]
