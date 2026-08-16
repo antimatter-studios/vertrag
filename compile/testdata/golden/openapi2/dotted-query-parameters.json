@@ -1,0 +1,30 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/api/pets",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "test \u003e /api/pets \u003e GET \u003e 200",
+      "origin": {
+        "filename": "dotted-query-parameters.yml",
+        "apiName": "test",
+        "resourceGroupName": "",
+        "resourceName": "/api/pets",
+        "actionName": "GET",
+        "exampleName": "200"
+      }
+    }
+  ]
+}

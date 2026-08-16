@@ -1,0 +1,89 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/search",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Parameters \u003e /search \u003e Query parameters \u003e 200",
+      "origin": {
+        "filename": "parameters.yml",
+        "apiName": "Parameters",
+        "resourceGroupName": "",
+        "resourceName": "/search",
+        "actionName": "Query parameters",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/enums/alpha?mode=fast",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Parameters \u003e /enums/{kind} \u003e Enum parameters \u003e 200",
+      "origin": {
+        "filename": "parameters.yml",
+        "apiName": "Parameters",
+        "resourceGroupName": "",
+        "resourceName": "/enums/{kind}",
+        "actionName": "Enum parameters",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/headers",
+        "headers": [
+          {
+            "name": "X-Request-Id",
+            "value": ""
+          },
+          {
+            "name": "X-Empty",
+            "value": ""
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "X-Rate-Limit",
+            "value": ""
+          }
+        ]
+      },
+      "name": "Parameters \u003e /headers \u003e Header parameters \u003e 200",
+      "origin": {
+        "filename": "parameters.yml",
+        "apiName": "Parameters",
+        "resourceGroupName": "",
+        "resourceName": "/headers",
+        "actionName": "Header parameters",
+        "exampleName": "200"
+      }
+    }
+  ],
+  "annotations": [
+    "error: Required URI parameter 'id' has no example or default value.",
+    "error: Required URI parameter 'id' has no example or default value.",
+    "error: Required URI parameter 'missing' has no example or default value.",
+    "warning: Ambiguous URI parameter in template: /items/{id}\nNo example value for required parameter in API description document: id",
+    "warning: Ambiguous URI parameter in template: /items/{missing}\nNo example value for required parameter in API description document: missing",
+    "warning: Ambiguous URI parameter in template: /override/{id}\nNo example value for required parameter in API description document: id"
+  ]
+}

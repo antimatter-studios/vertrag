@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Runs the differential against Dredd, which no longer runs per-commit. See
+  # the `oracle` job for why.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -77,6 +80,16 @@ jobs:
 
   oracle:
     name: Differential test against Dredd
+    # On demand, not on every commit. Dredd was the oracle while vertrag was
+    # establishing that it read descriptions correctly, and it earned that place
+    # — but agreeing with Dredd is no longer the definition of being right, and a
+    # required job that says so shapes design decisions it should not.
+    #
+    # What it was protecting is now held by compile/testdata/golden, captured
+    # while this differential passed over every fixture, so the verification is
+    # carried forward rather than dropped. This stays runnable for when a second
+    # opinion is actually wanted: run it from the Actions tab, or `make oracle`.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

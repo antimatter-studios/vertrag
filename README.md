@@ -207,14 +207,31 @@ it with something subtly different. The reasons for a Go port are operational:
   whose only reason to carry a `package.json` is its API tests can drop it.
 - **Speed.** No interpreter start-up per run.
 
-## Dredd is the oracle
+## How correctness was established
 
-The hard requirement is not "a tool that tests APIs" — it is *the same
-behaviour*, because real projects already depend on the details. A hook file
-addresses a transaction by a name built from the description document; renaming
-anything silently disables the hook rather than failing loudly. So this is not a
-reimplementation from the documentation. It is a port whose agreement with Dredd
-is mechanically checked.
+vertrag was not reimplemented from Dredd's documentation. It was built as a port
+whose agreement with Dredd was mechanically checked, fixture by fixture, because
+the requirement at the time was *the same behaviour*: real projects already
+depend on the details, and a hook file addresses transactions by a name built
+from the description document, so renaming anything silently disables the hook
+rather than failing loudly.
+
+That has been achieved, and it is now history rather than a constraint. **The
+differential no longer runs on every commit.** Agreeing with Dredd is not what
+makes vertrag right, and a required job saying otherwise shapes design decisions
+it should not — vertrag already does things Dredd cannot, and each of those is a
+place where the comparison has nothing to say.
+
+What the oracle was protecting is held instead by
+[`compile/testdata/golden`](compile/testdata/golden): the transactions every
+fixture yields, recorded while the differential passed over all of them, so the
+verification is carried forward rather than discarded. Those recordings are the
+only thing that can catch a parser regression — the corpus below cannot, because
+its server is built from vertrag's own reading of a document, so a misparse
+produces a server and a tester wrong in exactly the same way.
+
+The differential is still there for when a second opinion is wanted: run the
+`CI` workflow manually, or `make oracle` locally.
 
 For every fixture, both implementations run over the same input and their output
 must match:
@@ -228,16 +245,17 @@ must match:
                   └────────────────────────────┘
 ```
 
-The reference is *executed*, not snapshotted. Its expected output is not checked
-into this repository, so bumping the pinned Dredd version turns any behaviour
-change into a failing diff instead of quietly redefining what "correct" means.
+The reference is *executed*, not snapshotted — its output is not checked into
+this repository — so when the differential is run, a behaviour change in either
+implementation shows up as a failing diff rather than quietly redefining what
+"correct" means.
 
 ```console
 $ make oracle
 ok  github.com/antimatter-studios/vertrag/internal/oracle
 ```
 
-Currently agreeing, field for field:
+Agreeing, field for field, as of the last full run:
 
 | Suite | Compared | Covers |
 | --- | --- | --- |
@@ -259,18 +277,29 @@ production OpenAPI 3 service, with its own `dredd.yml` and a 431-line hook file,
 against a live server. vertrag and Dredd reported the same 35 passing, 15
 failing, 90 skipped — the same fifteen failures, not merely the same count.
 
-### What faithfulness costs
+### What faithfulness cost, and what it no longer costs
 
-Faithfulness costs something, and the port pays it deliberately.
+Faithfulness was paid for deliberately while it was the goal. Dredd's URI
+template library is not RFC 6570 — it percent-encodes without zero-padding
+(`%A`, not `%0A`) and double-escapes an already-escaped sequence — and vertrag
+reproduced both, on the grounds that a "corrected" port would disagree with the
+tool people were already running against their servers.
 
-Validation error text is reproduced down to the JavaScript engine's own JSON
-parse messages, because a body that fails to parse is reported to the user with
-that wording. Dredd's URI template library is not RFC 6570 — it percent-encodes without zero-padding
-(`%A`, not `%0A`), and double-escapes an already-escaped sequence. Those are
-defects, and they are reproduced here on purpose, because they are visible in
-the URIs Dredd requests. A "corrected" port would disagree with the tool people
-are already running against their servers. Each such deviation is marked in the
-source with why it is kept.
+Both are fixed. Each sends the request to a *different URL* than the one the
+description names — `%2F` and `%252F` are different paths, and a server given
+the second does not have the resource — which makes the result meaningless
+rather than merely different, and no amount of compatibility justifies that.
+
+Neither was caught by the differential, and could not have been: Dredd's corpus
+contains no already-escaped parameter value and no control character, so the
+comparison had nothing to disagree about. An oracle can only difference
+behaviour the reference's own fixtures exercise, which is the clearest argument
+for not treating agreement as the definition of correct.
+
+Validation still follows Gavel closely, including its error wording, and that is
+not sentimentality: the text appears in reports people read and grep, and there
+is no better phrasing waiting to replace it. Where a deviation is still kept on
+purpose it is marked in the source with why.
 
 ## Architecture
 

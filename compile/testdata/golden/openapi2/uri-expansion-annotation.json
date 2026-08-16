@@ -1,0 +1,6 @@
+{
+  "transactions": [],
+  "annotations": [
+    "error: Failed to parse URI template: /api/pets/{\nError: SyntaxError: Expected [/,;,.,?,\u0026,+,#] or [a-z,A-Z,0-9,_,.,%] but end of input found."
+  ]
+}

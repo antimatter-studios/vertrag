@@ -1,0 +1,7 @@
+{
+  "transactions": [],
+  "annotations": [
+    "error: Required URI parameter 'id' has no example or default value.",
+    "warning: Ambiguous URI parameter in template: /api/pets/{id}\nNo example value for required parameter in API description document: id"
+  ]
+}

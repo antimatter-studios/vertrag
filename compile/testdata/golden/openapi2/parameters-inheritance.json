@@ -1,0 +1,25 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/honey?beekeeper=Honza\u0026amount=42",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Beehive API \u003e /honey{?beekeeper} \u003e GET \u003e 204",
+      "origin": {
+        "filename": "parameters-inheritance.yml",
+        "apiName": "Beehive API",
+        "resourceGroupName": "",
+        "resourceName": "/honey{?beekeeper}",
+        "actionName": "GET",
+        "exampleName": "204"
+      }
+    }
+  ]
+}

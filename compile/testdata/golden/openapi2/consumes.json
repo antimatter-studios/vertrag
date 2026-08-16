@@ -1,0 +1,85 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/honey",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [],
+        "schema": "{\"required\":[\"id\",\"name\"],\"properties\":{\"id\":{\"type\":\"integer\",\"format\":\"int64\"},\"name\":{\"type\":\"string\"},\"tag\":{\"type\":\"string\"}}}"
+      },
+      "name": "Beehive API \u003e /honey \u003e POST \u003e 200",
+      "origin": {
+        "filename": "consumes.yml",
+        "apiName": "Beehive API",
+        "resourceGroupName": "",
+        "resourceName": "/honey",
+        "actionName": "POST",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/honey",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/xml"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [],
+        "schema": "{\"required\":[\"id\",\"name\"],\"properties\":{\"id\":{\"type\":\"integer\",\"format\":\"int64\"},\"name\":{\"type\":\"string\"},\"tag\":{\"type\":\"string\"}}}"
+      },
+      "name": "Beehive API \u003e /honey \u003e POST \u003e 200",
+      "origin": {
+        "filename": "consumes.yml",
+        "apiName": "Beehive API",
+        "resourceGroupName": "",
+        "resourceName": "/honey",
+        "actionName": "POST",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/honey-with-override",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [],
+        "schema": "{\"required\":[\"id\",\"name\"],\"properties\":{\"id\":{\"type\":\"integer\",\"format\":\"int64\"},\"name\":{\"type\":\"string\"},\"tag\":{\"type\":\"string\"}}}"
+      },
+      "name": "Beehive API \u003e /honey-with-override \u003e POST \u003e 200",
+      "origin": {
+        "filename": "consumes.yml",
+        "apiName": "Beehive API",
+        "resourceGroupName": "",
+        "resourceName": "/honey-with-override",
+        "actionName": "POST",
+        "exampleName": "200"
+      }
+    }
+  ]
+}

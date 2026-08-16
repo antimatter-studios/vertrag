@@ -1,0 +1,337 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Read \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Read",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "PUT",
+        "uri": "/resource",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"value\":\"\"}"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Replace \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Replace",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/resource",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "201",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Create \u003e 201",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Create",
+        "exampleName": "201"
+      }
+    },
+    {
+      "request": {
+        "method": "DELETE",
+        "uri": "/resource",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Remove \u003e 204",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Remove",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "PATCH",
+        "uri": "/resource",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Amend \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Amend",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "HEAD",
+        "uri": "/resource",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Headers only \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Headers only",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "OPTIONS",
+        "uri": "/resource",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e A path item with a summary \u003e Capabilities \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "A path item with a summary",
+        "actionName": "Capabilities",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/shared-parameter/shared-id",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e /shared-parameter/{id} \u003e Parameter behind a reference \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/shared-parameter/{id}",
+        "actionName": "Parameter behind a reference",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/shared-header",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "X-Shared",
+            "value": ""
+          }
+        ]
+      },
+      "name": "Methods and References \u003e /shared-header \u003e Response header behind a reference \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/shared-header",
+        "actionName": "Response header behind a reference",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/shared-example",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"shared\":true}"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Methods and References \u003e /shared-example \u003e Example behind a reference \u003e 200",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/shared-example",
+        "actionName": "Example behind a reference",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/multi-status",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"ok\":false}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Methods and References \u003e /multi-status \u003e Several status codes \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/multi-status",
+        "actionName": "Several status codes",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/multi-status",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "400",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"error\":\"\"}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Methods and References \u003e /multi-status \u003e Several status codes \u003e 400 \u003e application/json",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/multi-status",
+        "actionName": "Several status codes",
+        "exampleName": "400 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/multi-status",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "404",
+        "headers": []
+      },
+      "name": "Methods and References \u003e /multi-status \u003e Several status codes \u003e 404",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/multi-status",
+        "actionName": "Several status codes",
+        "exampleName": "404"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/multi-status",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "500",
+        "headers": []
+      },
+      "name": "Methods and References \u003e /multi-status \u003e Several status codes \u003e 500",
+      "origin": {
+        "filename": "methods-and-refs.yml",
+        "apiName": "Methods and References",
+        "resourceGroupName": "",
+        "resourceName": "/multi-status",
+        "actionName": "Several status codes",
+        "exampleName": "500"
+      }
+    }
+  ]
+}

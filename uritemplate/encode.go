@@ -24,19 +24,24 @@ func encodeUnreserved(s string) string {
 	})
 }
 
-// encodeReserved is the reference's "U+R" encoder:
-// /[^\w.~:\/\?#\[\]@!\$&'()*+,;=%-]|%(?!\d\d)/g
+// encodeReserved is reserved expansion: reserved characters and pct-encoded
+// triplets pass through, everything else is escaped.
 //
-// Reserved characters pass through, and a percent sign is left alone only when
-// two DIGITS follow it. That test is `\d\d`, not a hex-digit test, so an
-// already-escaped sequence such as %2F is escaped a second time into %252F.
-// It is a defect in the reference, but it is observable in the URIs Dredd
-// requests, so it is reproduced here deliberately.
+// RFC 6570 §3.2.1 is explicit that an existing pct-encoded triplet is copied
+// unmodified, so the test is `%` followed by two HEXDIG.
+//
+// The reference tests `%(?!\d\d)` — two DIGITS, not hex digits — so it escapes
+// `%2F` a second time into `%252F`. vertrag reproduced that for as long as
+// matching the reference was the goal. It no longer is, and this is the same
+// class of defect as the unpadded escapes fixed before it: the request goes to
+// a different URL than the description names, which makes the result
+// meaningless rather than merely different. `%2F` and `%252F` are different
+// paths, and a server given the second one does not have the resource.
 func encodeReserved(s string) string {
 	return encodeUnits(s, func(units []uint16, i int) bool {
 		c := units[i]
 		if c == '%' {
-			return !(i+2 < len(units) && isDigitUnit(units[i+1]) && isDigitUnit(units[i+2]))
+			return !(i+2 < len(units) && isHexUnit(units[i+1]) && isHexUnit(units[i+2]))
 		}
 		return !isReservedUnit(c)
 	})
@@ -134,6 +139,15 @@ func isReservedUnit(c uint16) bool {
 }
 
 func isDigitUnit(c uint16) bool { return c >= '0' && c <= '9' }
+
+// isHexUnit reports whether a code unit is a HEXDIG, in either case. RFC 6570
+// writes pct-encoded as `"%" HEXDIG HEXDIG`, and RFC 3986 §6.2.2.1 treats the
+// two cases as equivalent, so `%2f` is as much an existing triplet as `%2F`.
+func isHexUnit(c uint16) bool {
+	return isDigitUnit(c) ||
+		(c >= 'a' && c <= 'f') ||
+		(c >= 'A' && c <= 'F')
+}
 
 // truncateUTF16 keeps the first n UTF-16 code units, as JavaScript's
 // String.prototype.substring does.

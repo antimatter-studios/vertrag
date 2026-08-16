@@ -1,0 +1,41 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/honey?beekeeper=Honza",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\n  \"id\": -100000000,\n  \"name\": \"\",\n  \"tag\": \"\"\n}",
+        "schema": "{\"required\":[\"id\",\"name\"],\"properties\":{\"id\":{\"type\":\"integer\",\"format\":\"int64\"},\"name\":{\"type\":\"string\"},\"tag\":{\"type\":\"string\"}}}"
+      },
+      "name": "Petstore \u003e /honey \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "enum-parameter-example.yml",
+        "apiName": "Petstore",
+        "resourceGroupName": "",
+        "resourceName": "/honey",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ]
+}

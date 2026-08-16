@@ -1,0 +1,151 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "HEAD",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test head \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test head",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "OPTIONS",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test options \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test options",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test get \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test get",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test post \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test post",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "PUT",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test put \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test put",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "PATCH",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test patch \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test patch",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "DELETE",
+        "uri": "/test",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Action \u003e /test \u003e Test delete \u003e 204",
+      "origin": {
+        "filename": "ordinary.yml",
+        "apiName": "Action",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "Test delete",
+        "exampleName": "204"
+      }
+    }
+  ]
+}

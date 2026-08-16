@@ -1,0 +1,45 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/honey",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "name": "X-Test",
+            "value": "Adam"
+          }
+        ],
+        "body": "{\n  \"id\": -100000000,\n  \"name\": \"\",\n  \"tag\": \"\"\n}",
+        "schema": "{\"required\":[\"id\",\"name\"],\"properties\":{\"id\":{\"type\":\"integer\",\"format\":\"int64\"},\"name\":{\"type\":\"string\"},\"tag\":{\"type\":\"string\"}}}"
+      },
+      "name": "Beehive API \u003e /honey \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "http-headers.yml",
+        "apiName": "Beehive API",
+        "resourceGroupName": "",
+        "resourceName": "/honey",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ]
+}

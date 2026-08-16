@@ -77,12 +77,29 @@ func TestEncodingQuirks(t *testing.T) {
 			template: "{v}", value: "🎉", want: "%F0%9F%8E%89",
 		},
 		{
-			// The reserved encoder leaves % alone only when two DIGITS follow,
-			// so an existing escape is escaped again.
-			name: "already-escaped sequence is double-escaped", template: "{+v}", value: "%2F", want: "%252F",
+			// RFC 6570 §3.2.1 copies an existing pct-encoded triplet unmodified.
+			// The reference leaves % alone only when two DIGITS follow, so it
+			// escapes this a second time into %252F and requests a path that is
+			// not the one the description names. vertrag reproduced that while
+			// matching the reference was the goal, and no longer does.
+			name: "already-escaped sequence is left alone", template: "{+v}", value: "%2F", want: "%2F",
+		},
+		{
+			// Lower case too: RFC 3986 §6.2.2.1 makes the two cases equivalent,
+			// and a hex test that accepted only upper case would double-escape
+			// half of the escapes in the wild.
+			name: "a lower-case escape is left alone", template: "{+v}", value: "%2f", want: "%2f",
 		},
 		{
 			name: "percent followed by digits is left alone", template: "{+v}", value: "%20", want: "%20",
+		},
+		{
+			// Still escaped: this is not a triplet, so it is a literal percent
+			// sign and must be encoded to survive the round trip.
+			name: "a bare percent is escaped", template: "{+v}", value: "100%", want: "100%25",
+		},
+		{
+			name: "percent followed by one hex digit is escaped", template: "{+v}", value: "%2", want: "%252",
 		},
 		{
 			name: "unreserved set is not escaped", template: "{v}", value: "aZ0_~.-", want: "aZ0_~.-",

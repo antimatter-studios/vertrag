@@ -1,0 +1,66 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource.json",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      },
+      "name": "Colors API \u003e /resource.json \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "no-body.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/resource.json",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource.csv",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/csv"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/csv"
+          }
+        ]
+      },
+      "name": "Colors API \u003e /resource.csv \u003e GET \u003e 200 \u003e text/csv",
+      "origin": {
+        "filename": "no-body.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/resource.csv",
+        "actionName": "GET",
+        "exampleName": "200 \u003e text/csv"
+      }
+    }
+  ]
+}

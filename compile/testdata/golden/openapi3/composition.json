@@ -1,0 +1,175 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/all-of",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"id\":\"\",\"extra\":\"\"}",
+        "schema": "{\"allOf\":[{\"$ref\":\"#/definitions/Base\"},{\"type\":\"object\",\"properties\":{\"extra\":{\"type\":\"string\"}}}],\"$schema\":\"http://json-schema.org/draft-04/schema#\",\"definitions\":{\"Base\":{\"type\":\"object\",\"required\":[\"id\"],\"properties\":{\"id\":{\"type\":\"string\"}}}}}"
+      },
+      "name": "Composition \u003e /all-of \u003e allOf composition \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "composition.yml",
+        "apiName": "Composition",
+        "resourceGroupName": "",
+        "resourceName": "/all-of",
+        "actionName": "allOf composition",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/one-of",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"kind\":\"\"}",
+        "schema": "{\"oneOf\":[{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\"}}},{\"type\":\"object\",\"properties\":{\"other\":{\"type\":\"integer\"}}}],\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Composition \u003e /one-of \u003e oneOf composition \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "composition.yml",
+        "apiName": "Composition",
+        "resourceGroupName": "",
+        "resourceName": "/one-of",
+        "actionName": "oneOf composition",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/any-of",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "\"\"",
+        "schema": "{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"integer\"}],\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Composition \u003e /any-of \u003e anyOf composition \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "composition.yml",
+        "apiName": "Composition",
+        "resourceGroupName": "",
+        "resourceName": "/any-of",
+        "actionName": "anyOf composition",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/constrained",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"name\":\"a\",\"count\":0,\"items\":[],\"extra\":{}}",
+        "schema": "{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":10,\"pattern\":\"^[a-z]+$\"},\"count\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100},\"items\":{\"type\":\"array\",\"minItems\":1,\"uniqueItems\":true,\"items\":{\"type\":\"string\"}},\"extra\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Composition \u003e /constrained \u003e Schema with validation keywords \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "composition.yml",
+        "apiName": "Composition",
+        "resourceGroupName": "",
+        "resourceName": "/constrained",
+        "actionName": "Schema with validation keywords",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/not",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "\"\"",
+        "schema": "{\"not\":{\"type\":\"string\"},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Composition \u003e /not \u003e not composition \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "composition.yml",
+        "apiName": "Composition",
+        "resourceGroupName": "",
+        "resourceName": "/not",
+        "actionName": "not composition",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ],
+  "annotations": [
+    "warning: 'Components Object' contains invalid key '/optional-without-value'",
+    "warning: 'Components Object' contains invalid key '/required-mixed'",
+    "warning: 'Components Object' contains invalid key '/required-without-value'",
+    "warning: 'Schema Object' 'additionalProperties' containing a Schema Object is currently unsupported"
+  ]
+}

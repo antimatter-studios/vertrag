@@ -1,0 +1,68 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\n  \"message\": \"Hello!\"\n}"
+      },
+      "name": "Produces Non-JSON Content-Type \u003e /test \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "produces-non-json-example.yml",
+        "apiName": "Produces Non-JSON Content-Type",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/plain"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": "Hello!"
+      },
+      "name": "Produces Non-JSON Content-Type \u003e /test \u003e GET \u003e 200 \u003e text/plain",
+      "origin": {
+        "filename": "produces-non-json-example.yml",
+        "apiName": "Produces Non-JSON Content-Type",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "GET",
+        "exampleName": "200 \u003e text/plain"
+      }
+    }
+  ]
+}
