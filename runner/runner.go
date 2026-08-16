@@ -78,6 +78,38 @@ type Runner struct {
 	// values from earlier responses. Nil means document order and no rewriting,
 	// which is what `vertrag run` does unless asked otherwise.
 	Plan Plan
+
+	// Auth is the credential obtained for this run, sent on every request but
+	// the ones that must go without.
+	Auth Credential
+}
+
+// Credential is a header carrying an obtained credential, and the transactions
+// it must be withheld from.
+type Credential struct {
+	// Header is a `Name: value` line, empty when the run is unauthenticated.
+	Header string
+
+	// Except names transactions to send without the credential. A login
+	// endpoint's own 401 case is untestable while holding a valid one.
+	Except map[string]bool
+}
+
+// headersFor returns the extra headers for one transaction: the run-wide ones,
+// plus the credential unless this transaction is one that must go without.
+func (r *Runner) headersFor(transaction compile.Transaction) []string {
+	if r.Auth.Header == "" || r.Auth.Except[transaction.Name] {
+		return r.ExtraHeaders
+	}
+	// Copied rather than appended to in place. `append(r.ExtraHeaders, …)` would
+	// write into ExtraHeaders' backing array whenever it has spare capacity, and
+	// that array is shared by every transaction. Nothing visible goes wrong
+	// today — every caller writes the same credential into the same slot — so
+	// this is not a bug being fixed but a dependence on the slice's capacity
+	// being removed, for the price of one allocation per transaction.
+	headers := make([]string, 0, len(r.ExtraHeaders)+1)
+	headers = append(headers, r.ExtraHeaders...)
+	return append(headers, r.Auth.Header)
 }
 
 // Hooks is the part of the hook system the runner needs.
@@ -119,7 +151,7 @@ func New(endpoint string) *Runner {
 // keeps the URL resolution, extra headers and redirect policy identical to a
 // normal run, so a finding is reproducible by `vertrag run`.
 func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate.Message, error) {
-	return r.send(ctx, newTransaction(source, r.Endpoint, r.ExtraHeaders))
+	return r.send(ctx, newTransaction(source, r.Endpoint, r.headersFor(source)))
 }
 
 // Run executes every transaction in order and returns the results.
@@ -129,7 +161,7 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([]Result, error) {
 	prepared := make([]*Transaction, 0, len(transactions))
 	for i := range transactions {
-		prepared = append(prepared, newTransaction(transactions[i], r.Endpoint, r.ExtraHeaders))
+		prepared = append(prepared, newTransaction(transactions[i], r.Endpoint, r.headersFor(transactions[i])))
 	}
 
 	if r.Hooks != nil {

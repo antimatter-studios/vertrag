@@ -66,6 +66,10 @@ type Config struct {
 	// from would have missed it.
 	Checks Checks
 
+	// Auth logs the run in once and carries the result on every request. It is
+	// read only from a vertrag file — see Discover.
+	Auth Auth
+
 	// Source is the file these settings came from, or "" for defaults.
 	Source string
 
@@ -73,6 +77,11 @@ type Config struct {
 	// acted on. The caller reports them, so a run never quietly ignores what
 	// the user asked for.
 	Unsupported []string
+
+	// Notes are messages about the configuration to print verbatim. Unsupported
+	// says "vertrag cannot do this yet", which is the wrong thing to say about
+	// a key that works perfectly well from the right file.
+	Notes []string
 }
 
 // Checks selects the checks beyond Dredd's.
@@ -92,11 +101,65 @@ type Checks struct {
 	HeaderSchema bool
 }
 
+// Auth describes how a run authenticates itself.
+//
+// This exists because authentication is the one thing very nearly every suite
+// needs and almost none of it is specific to the project: log in, keep the
+// credential, send it on everything afterwards. Expressing that as a hook file
+// costs a worker process and a language runtime to run three steps that do not
+// vary. What genuinely does vary — deriving a value per transaction, reacting to
+// a response — stays in hooks, which is why this block deliberately has no
+// conditionals in it.
+type Auth struct {
+	// Login is the request that obtains the credential. Zero value means the
+	// credential is static and Header carries it directly.
+	Login Login
+
+	// Carry is how the credential is sent back: "cookie" or "bearer".
+	Carry string
+
+	// Cookie names a single cookie to keep out of the login response, for a
+	// server that sets several and only one of them authenticates.
+	Cookie string
+
+	// Header sets a fixed header on every request, for an API key or a token
+	// that does not need logging in for. Written as "Name: value".
+	Header string
+
+	// Except names transactions that must go out unauthenticated. A login
+	// endpoint's own 401 case cannot be tested while holding a valid
+	// credential, so this is needed by any suite that documents one.
+	Except []string
+}
+
+// Login is the request that obtains a credential.
+type Login struct {
+	Method string
+	Path   string
+	Body   map[string]any
+}
+
+// Configured reports whether any authentication was asked for.
+func (a Auth) Configured() bool {
+	return a.Login.Path != "" || a.Header != ""
+}
+
 // Filenames are tried in order. A vertrag file wins over a Dredd one, so a
 // project can add its own settings without touching what it already has.
 var Filenames = []string{"vertrag.yml", "vertrag.yaml", "dredd.yml", "dredd.yaml"}
 
 // Discover finds a configuration file in the working directory.
+//
+// A vertrag file and a Dredd file are alternatives, not layers: the first found
+// is the whole configuration and the other is not read. Merging them would mean
+// a key's effect depended on a file it never mentions, and a setting silently
+// outranked from somewhere else is expensive to diagnose. A project running both
+// testers keeps a file per tester, each complete on its own.
+//
+// Reading dredd.yml is a migration convenience with an expected end, not a
+// second supported format. vertrag's own keys go only in a vertrag file, and as
+// the two formats diverge the fallback is expected to be removed — so anything
+// written here should be read as "still works for now".
 func Discover() string {
 	for _, name := range Filenames {
 		if _, err := os.Stat(name); err == nil {
@@ -153,6 +216,26 @@ type file struct {
 
 	// vertrag's own.
 	Checks *checksFile `yaml:"checks"`
+	Auth   *authFile   `yaml:"auth"`
+}
+
+// authFile is the `auth` section. Dredd has no equivalent: authenticating a
+// suite there means a hook file, a worker process and a language runtime to run
+// it in, to do what is nearly always the same three steps — log in once, keep
+// what came back, send it on everything after.
+type authFile struct {
+	Login  *loginFile `yaml:"login"`
+	Carry  *string    `yaml:"carry"`
+	Cookie *string    `yaml:"cookie"`
+	Header *string    `yaml:"header"`
+	Except []string   `yaml:"except"`
+}
+
+// loginFile is the request that obtains the credential.
+type loginFile struct {
+	Method *string        `yaml:"method"`
+	Path   *string        `yaml:"path"`
+	Body   map[string]any `yaml:"body"`
 }
 
 // checksFile is the `checks` section, which Dredd has no equivalent of.
@@ -193,8 +276,49 @@ func Load(path string) (Config, error) {
 	}
 
 	apply(&config, parsed)
+
+	// vertrag's own keys are honoured only from a vertrag file. Read out of a
+	// dredd.yml, `auth` would authenticate vertrag's run and not Dredd's — and
+	// Dredd ignores keys it does not recognise without a word — so a project
+	// running both would have the two quietly testing different things.
+	if parsed.Auth != nil {
+		if IsDreddFile(path) {
+			config.Notes = append(config.Notes, fmt.Sprintf(
+				"`auth` in %s is ignored: vertrag's own keys are read only from a "+
+					"vertrag.yml, because Dredd ignores keys it does not know without "+
+					"a word and the two testers would silently disagree. Move it to a "+
+					"vertrag.yml, which may hold everything %s does.", path, path))
+		} else {
+			applyAuth(&config.Auth, *parsed.Auth)
+		}
+	}
+
 	config.Source = path
 	return config, nil
+}
+
+func applyAuth(auth *Auth, parsed authFile) {
+	setString(&auth.Carry, parsed.Carry)
+	setString(&auth.Cookie, parsed.Cookie)
+	setString(&auth.Header, parsed.Header)
+	auth.Except = append(auth.Except, parsed.Except...)
+
+	if parsed.Login != nil {
+		setString(&auth.Login.Method, parsed.Login.Method)
+		setString(&auth.Login.Path, parsed.Login.Path)
+		auth.Login.Body = parsed.Login.Body
+		// A login is a POST unless it says otherwise; nothing else is common
+		// enough to be worth making every config state it.
+		if auth.Login.Method == "" && auth.Login.Path != "" {
+			auth.Login.Method = "POST"
+		}
+	}
+
+	// A login that captures a cookie is carrying a cookie. Making the config say
+	// so twice is a chance to say it inconsistently.
+	if auth.Carry == "" && auth.Cookie != "" {
+		auth.Carry = "cookie"
+	}
 }
 
 func apply(config *Config, parsed file) {

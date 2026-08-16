@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/antimatter-studios/vertrag/apidesc"
+	"github.com/antimatter-studios/vertrag/auth"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/hooks"
@@ -156,6 +157,9 @@ func runRun(args []string) error {
 	for _, key := range settings.Unsupported {
 		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
 	}
+	for _, note := range settings.Notes {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
 
 	source, err := os.ReadFile(settings.Blueprint)
 	if err != nil {
@@ -197,6 +201,25 @@ func runRun(args []string) error {
 
 	engine := runner.New(settings.Endpoint)
 	engine.ExtraHeaders = settings.Header
+
+	// Authenticating happens before hooks start, so a project keeping its own
+	// login hook is unaffected, and before the first transaction, so nothing is
+	// sent unauthenticated by accident.
+	if settings.Auth.Configured() {
+		credential, err := auth.Obtain(ctx, engine.Client, settings.Endpoint, settings.Auth)
+		if err != nil {
+			return err
+		}
+		except, unmatched := exceptedTransactions(settings.Auth.Except, transactions)
+		// An `except` entry that matches nothing is nearly always a typo, and its
+		// effect is to authenticate a transaction that was meant to go without —
+		// which fails later with a message about the API rather than the config.
+		for _, name := range unmatched {
+			fmt.Fprintf(os.Stderr,
+				"vertrag: auth.except has no transaction named %q; it will be sent authenticated\n", name)
+		}
+		engine.Auth = runner.Credential{Header: credential, Except: except}
+	}
 
 	// Sequencing is opt-in because it reorders a run, and a suite whose hooks
 	// were written against document order would notice. It is not exploratory —
@@ -442,6 +465,34 @@ func filterTransactions(transactions []compile.Transaction, settings config.Conf
 		filtered = append(filtered, transaction)
 	}
 	return filtered
+}
+
+// exceptedTransactions turns the configured exception names into a set, and
+// returns the names that matched no transaction.
+//
+// Names are matched exactly, the same way `only` matches them, so a name that
+// works in one works in the other. Two filters in one file that looked alike and
+// matched differently would be worse than either.
+func exceptedTransactions(names []string, transactions []compile.Transaction) (map[string]bool, []string) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	present := make(map[string]bool, len(transactions))
+	for _, transaction := range transactions {
+		present[transaction.Name] = true
+	}
+
+	except := make(map[string]bool, len(names))
+	var unmatched []string
+	for _, name := range names {
+		if !present[name] {
+			unmatched = append(unmatched, name)
+			continue
+		}
+		except[name] = true
+	}
+	return except, unmatched
 }
 
 func toSet(values []string) map[string]bool {
