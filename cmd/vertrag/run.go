@@ -20,64 +20,118 @@ import (
 	"github.com/antimatter-studios/vertrag/runner"
 )
 
+// runFlags is everything `vertrag run` accepts on the command line.
+//
+// Named rather than a row of locals so that reading the settings and applying
+// them are separate jobs — the merge below has one rule, and it is easier to
+// see that it is applied consistently when the inputs arrive as one value.
+type runFlags struct {
+	configPath        string
+	endpoint          string
+	dryRun            bool
+	details           bool
+	noColor           bool
+	sorted            bool
+	sequence          bool
+	checkHeaderSchema bool
+	reporterName      string
+	output            string
+
+	headers stringList
+	only    stringList
+	methods stringList
+
+	// positional are the arguments left after the flags: a description and an
+	// endpoint, either of which a config file may supply instead.
+	positional []string
+}
+
+func parseRunFlags(args []string) (runFlags, error) {
+	var f runFlags
+
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.StringVar(&f.configPath, "config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
+	fs.StringVar(&f.endpoint, "endpoint", "", "base URL of the server under test")
+	fs.BoolVar(&f.dryRun, "dry-run", false, "compile and report the transactions without sending them")
+	fs.BoolVar(&f.details, "details", false, "print the request and response of passing transactions too")
+	fs.BoolVar(&f.noColor, "no-color", false, "disable coloured output")
+	fs.BoolVar(&f.sorted, "sorted", false, "run transactions grouped by method rather than in document order")
+	fs.BoolVar(&f.sequence, "sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
+	fs.BoolVar(&f.checkHeaderSchema, "check-header-schema", false, "validate response header values against the schemas the description gives them")
+	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
+	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
+	fs.Var(&f.headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
+	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
+	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
+
+	if err := fs.Parse(args); err != nil {
+		return f, err
+	}
+	f.positional = fs.Args()
+	return f, nil
+}
+
+// settingsFor merges the config file with the command line.
+//
+// One rule throughout: the file records what a project normally does, the flags
+// what this run should do instead, so a flag that was given wins. The boolean
+// flags are one-way for the same reason — `--no-color` says "not this time" and
+// there is no spelling of a flag that means "go back to whatever the file said".
+func settingsFor(f runFlags) (config.Config, error) {
+	settings, err := resolveConfig(f.configPath, f.positional)
+	if err != nil {
+		return settings, err
+	}
+
+	if f.endpoint != "" {
+		settings.Endpoint = f.endpoint
+	}
+	if f.dryRun {
+		settings.DryRun = true
+	}
+	if f.details {
+		settings.Details = true
+	}
+	if f.noColor {
+		settings.Color = false
+	}
+	if f.sorted {
+		settings.Sorted = true
+	}
+	if f.checkHeaderSchema {
+		settings.Checks.HeaderSchema = true
+	}
+	settings.Header = append(settings.Header, f.headers...)
+	settings.Only = append(settings.Only, f.only...)
+	settings.Method = append(settings.Method, f.methods...)
+
+	// A reporter named on the command line replaces the file's list rather than
+	// adding to it: someone asking for one format wants that format, not it and
+	// whatever else was configured.
+	if f.reporterName != "" {
+		settings.Reporters = []string{f.reporterName}
+		settings.Outputs = nil
+	}
+	if f.output != "" {
+		settings.Outputs = []string{f.output}
+	}
+
+	if err := settings.Validate(); err != nil {
+		return settings, err
+	}
+	return settings, nil
+}
+
 // runRun is `vertrag run`: read a description, derive the transactions, send
 // them at a server, and report what came back.
 func runRun(args []string) error {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	configPath := fs.String("config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
-	endpoint := fs.String("endpoint", "", "base URL of the server under test")
-	dryRun := fs.Bool("dry-run", false, "compile and report the transactions without sending them")
-	details := fs.Bool("details", false, "print the request and response of passing transactions too")
-	noColor := fs.Bool("no-color", false, "disable coloured output")
-	sorted := fs.Bool("sorted", false, "run transactions grouped by method rather than in document order")
-	var headers stringList
-	fs.Var(&headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
-	var only stringList
-	fs.Var(&only, "only", "run only the named transaction (repeatable)")
-	var methods stringList
-	fs.Var(&methods, "method", "run only transactions using this method (repeatable)")
-	sequence := fs.Bool("sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
-	checkHeaderSchema := fs.Bool("check-header-schema", false, "validate response header values against the schemas the description gives them")
-	reporterName := fs.String("reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
-	output := fs.String("output", "", "write the report to a file instead of stdout")
-
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	settings, err := resolveConfig(*configPath, fs.Args())
+	flags, err := parseRunFlags(args)
 	if err != nil {
 		return err
 	}
 
-	// Command-line options win over the file: the file records what a project
-	// normally does, the flags what this run should do instead.
-	if *endpoint != "" {
-		settings.Endpoint = *endpoint
-	}
-	if *dryRun {
-		settings.DryRun = true
-	}
-	if *details {
-		settings.Details = true
-	}
-	if *noColor {
-		settings.Color = false
-	}
-	if *sorted {
-		settings.Sorted = true
-	}
-	// Only ever turned on from the command line: the flag says "check this too",
-	// and there is no reading of it that means "stop checking what the config
-	// asked for".
-	if *checkHeaderSchema {
-		settings.Checks.HeaderSchema = true
-	}
-	settings.Header = append(settings.Header, headers...)
-	settings.Only = append(settings.Only, only...)
-	settings.Method = append(settings.Method, methods...)
-
-	if err := settings.Validate(); err != nil {
+	settings, err := settingsFor(flags)
+	if err != nil {
 		return err
 	}
 
@@ -89,15 +143,6 @@ func runRun(args []string) error {
 			settings.Source)
 	}
 
-	// Command-line reporter and output override whatever the file said.
-	if *reporterName != "" {
-		settings.Reporters = []string{*reporterName}
-		settings.Outputs = nil
-	}
-	if *output != "" {
-		settings.Outputs = []string{*output}
-	}
-
 	report, closeReport, err := newReporter(settings)
 	if err != nil {
 		return err
@@ -106,7 +151,7 @@ func runRun(args []string) error {
 
 	// Diagnostics about the description go to the terminal whatever the report
 	// format is: they are about the document, not the run.
-	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color && *output == ""}
+	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color && flags.output == ""}
 
 	for _, key := range settings.Unsupported {
 		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
@@ -158,7 +203,7 @@ func runRun(args []string) error {
 	// the plan is fixed by the description, so the same document always
 	// produces the same order — which is why it belongs on `run` rather than
 	// in a mode of its own.
-	if *sequence {
+	if flags.sequence {
 		sequencer := link.NewSequencer(transactions)
 		for _, note := range sequencer.Notes() {
 			fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)

@@ -267,17 +267,7 @@ func probeAll(
 }
 
 func printFinding(transaction compile.Transaction, target target, finding fuzz.Finding, color bool) {
-	const (
-		red   = "\033[31m"
-		dim   = "\033[2m"
-		reset = "\033[0m"
-	)
-	paint := func(code, text string) string {
-		if !color {
-			return text
-		}
-		return code + text + reset
-	}
+	paint := func(code, text string) string { return reporter.Paint(color, code, text) }
 
 	// The request shown is the one that produced the finding, not the compiled
 	// one: for a path or query parameter they differ, and the whole value of
@@ -287,11 +277,11 @@ func printFinding(transaction compile.Transaction, target target, finding fuzz.F
 		request = sent
 	}
 
-	fmt.Printf("\n%s %s\n", paint(red, "finding:"), transaction.Name)
+	fmt.Printf("\n%s %s\n", paint(reporter.Red, "finding:"), transaction.Name)
 	fmt.Printf("  %s\n", finding.Message)
-	fmt.Printf("  %s %s %s\n", paint(dim, "request:"), request.Method, request.URI)
-	fmt.Printf("  %s %s\n", paint(dim, finding.Subject.Describe()+":"), finding.Value)
-	fmt.Printf("  %s %s\n", paint(dim, "status: "), finding.Status)
+	fmt.Printf("  %s %s %s\n", paint(reporter.Dim, "request:"), request.Method, request.URI)
+	fmt.Printf("  %s %s\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
+	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
 }
 
 // partitionBySchema separates the operations generation can work on from those

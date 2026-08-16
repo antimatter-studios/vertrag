@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/runner"
 )
@@ -29,11 +30,23 @@ const (
 	yellow = "\033[33m"
 	cyan   = "\033[36m"
 	dim    = "\033[2m"
+
+	// Exported so the fuzz command can colour its findings the same way rather
+	// than declaring its own copies. Two sets of escape codes for one tool
+	// drift the first time anyone changes a colour, and the result is a report
+	// that looks like it came from two programs.
+	Red = red
+	Dim = dim
 )
 
 // paint colours text when the destination is a terminal the user asked to
 // colour. Every reporter that colours anything goes through here, so a failure
 // is the same red whichever format a reader is looking at.
+// Paint wraps text in a colour when colour is wanted, and returns it untouched
+// when it is not — which is what `--no-color` and a redirected stream both
+// need.
+func Paint(enabled bool, code, text string) string { return paint(enabled, code, text) }
+
 func paint(enabled bool, code, text string) string {
 	if !enabled {
 		return text
@@ -78,7 +91,7 @@ func (r CLI) line(result runner.Result) {
 	}
 
 	fmt.Fprintf(r.Out, "%s: %s %s (%s)\n",
-		label, result.Request.Method, result.Name, result.Duration.Round(1e6))
+		label, result.Request.Method, result.Name, result.Duration.Round(time.Millisecond))
 
 	// A skip says why on the same line. It is the one outcome a reader cannot
 	// interpret without one — a transaction excluded on purpose and a step
@@ -148,10 +161,7 @@ func (r CLI) body(indent, body string) {
 	if body == "" {
 		return
 	}
-	const limit = 2000
-	if len(body) > limit {
-		body = body[:limit] + fmt.Sprintf("… (%d bytes truncated)", len(body)-limit)
-	}
+	body = truncate(body)
 	for _, line := range strings.Split(body, "\n") {
 		// A carriage return ending a line is the other half of a CRLF, which is
 		// how a CSV body is meant to be written; dropping it here is what keeps

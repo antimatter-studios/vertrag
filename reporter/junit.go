@@ -173,12 +173,22 @@ func detail(result runner.Result) string {
 }
 
 // truncate keeps a report readable when a payload is enormous.
+// maxReportedBodyBytes is how much of a payload a report shows before saying
+// how much it left out.
+//
+// Long enough for a body whose difference is somewhere in the middle, short
+// enough that one megabyte of JSON does not bury every other finding in the
+// run. It lives here rather than beside each use because two reports of the
+// same failure truncating at different points cannot be compared, and a
+// constant declared twice drifts the first time anyone tunes it.
+const maxReportedBodyBytes = 2000
+
 func truncate(body string) string {
-	const limit = 2000
-	if len(body) <= limit {
+	if len(body) <= maxReportedBodyBytes {
 		return body
 	}
-	return body[:limit] + fmt.Sprintf("… (%d bytes truncated)", len(body)-limit)
+	return body[:maxReportedBodyBytes] +
+		fmt.Sprintf("… (%d bytes truncated)", len(body)-maxReportedBodyBytes)
 }
 
 func seconds(d time.Duration) string {
