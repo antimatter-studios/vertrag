@@ -82,12 +82,35 @@ func TestReferencedSchemaReportsTheUnderlyingFailure(t *testing.T) {
 }
 
 // TestDraftSelection pins that a schema declaring a modern dialect is read
-// under it, which is what OpenAPI 3.1 will need.
+// under it, which is what OpenAPI 3.1 needs.
 func TestDraftSelection(t *testing.T) {
 	// `const` is 2019-09 onwards; under draft-4 it would simply be ignored.
 	schema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"c":{"const":"x"}}}`
 	if result := check(t, schema, `{"c":"y"}`); result.Valid {
 		t.Error("const should be enforced under 2020-12")
+	}
+}
+
+// TestNumericExclusiveMinimum is the keyword that makes the declared dialect
+// load-bearing rather than cosmetic.
+//
+// draft-4 spells exclusiveMinimum as a boolean modifying `minimum`; 2019-09
+// onwards spells it as the bound itself. The same document therefore means two
+// different things depending on which dialect is claimed, and a validator told
+// the wrong one does not under-check quietly — Gavel rejects the schema
+// outright with "Provided JSON Schema is not a valid JSON Schema draftV4",
+// because a number is not a legal value for the keyword it thinks it is
+// reading. Dredd stamps draft-04 on every schema it emits, including those it
+// took from an OpenAPI 3.1 document, so this is a document it cannot test.
+func TestNumericExclusiveMinimum(t *testing.T) {
+	schema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",` +
+		`"properties":{"n":{"type":"integer","exclusiveMinimum":5}}}`
+
+	if result := check(t, schema, `{"n":1}`); result.Valid {
+		t.Error("n=1 should violate exclusiveMinimum 5")
+	}
+	if result := check(t, schema, `{"n":6}`); !result.Valid {
+		t.Errorf("n=6 should satisfy exclusiveMinimum 5: %v", result.Errors)
 	}
 }
 
