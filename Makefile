@@ -49,3 +49,11 @@ fmt:
 
 clean:
 	rm -rf dist
+
+# Property tests at the default hundred draws find the obvious cases. The
+# interesting ones need thousands: the maximum-breaks-multipleOf bug passed a
+# hundred draws and failed at two thousand. Too slow for every commit, so it is
+# a target rather than part of `test`.
+.PHONY: property
+property:
+	go test ./generate/ ./link/ ./fuzz/ -count=1 -rapid.checks=20000
