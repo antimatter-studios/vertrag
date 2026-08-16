@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -155,18 +156,14 @@ func detail(result runner.Result) string {
 	}
 
 	fmt.Fprintf(&b, "\nrequest: %s %s\n", result.Request.Method, result.Request.URI)
-	for name, value := range result.Request.Headers {
-		fmt.Fprintf(&b, "  %s: %s\n", name, value)
-	}
+	writeIndentedHeaders(&b, result.Request.Headers)
 	if result.Request.Body != "" {
 		fmt.Fprintf(&b, "\n%s\n", truncate(result.Request.Body))
 	}
 
 	if result.Actual.StatusCode != "" {
 		fmt.Fprintf(&b, "\nresponse: %s\n", result.Actual.StatusCode)
-		for name, value := range result.Actual.Headers {
-			fmt.Fprintf(&b, "  %s: %s\n", name, value)
-		}
+		writeIndentedHeaders(&b, result.Actual.Headers)
 		if result.Actual.Body != "" {
 			fmt.Fprintf(&b, "\n%s\n", truncate(result.Actual.Body))
 		}
@@ -197,4 +194,25 @@ func skipReason(result runner.Result) string {
 		return strings.Join(result.Errors, "; ")
 	}
 	return "skipped without a reason given"
+}
+
+// writeIndentedHeaders renders headers in a fixed order, indented for the body
+// of a failure element.
+//
+// The document reporters already sorted theirs; this one walked the map
+// directly, so the same results produced a different report every time. Nothing
+// about a single run shows it, and the cost lands on the reader: a CI job
+// diffing this report against the previous one sees change where nothing
+// changed, and a failure cannot be confirmed identical to the one somebody else
+// saw.
+func writeIndentedHeaders(b *strings.Builder, headers map[string]string) {
+	names := make([]string, 0, len(headers))
+	for name := range headers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		fmt.Fprintf(b, "  %s: %s\n", name, headers[name])
+	}
 }
