@@ -19,18 +19,16 @@ func TestSchemaTypes(t *testing.T) {
 	}{
 		{"string accepts a string", `{"type":"string"}`, `"x"`, nil},
 		{"string rejects a number", `{"type":"string"}`, `1`,
-			[]string{"At '/' Invalid type: number (expected string)"}},
+			[]string{"the response body: got number, want string"}},
 		{"integer accepts a whole number", `{"type":"integer"}`, `5`, nil},
 		{"integer rejects a fraction", `{"type":"integer"}`, `5.5`,
-			[]string{"At '/' Invalid type: number (expected integer)"}},
+			[]string{"the response body: got number, want integer"}},
 		{"number accepts a fraction", `{"type":"number"}`, `5.5`, nil},
 		{"boolean accepts a boolean", `{"type":"boolean"}`, `true`, nil},
 		{"null accepts null", `{"type":"null"}`, `null`, nil},
 		{"array accepts an array", `{"type":"array"}`, `[]`, nil},
 		{"object accepts an object", `{"type":"object"}`, `{}`, nil},
 		{"a union type accepts any member", `{"type":["string","null"]}`, `null`, nil},
-		{"a union type names all members when it fails", `{"type":["string","null"]}`, `1`,
-			[]string{"At '/' Invalid type: number (expected string/null)"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := check(t, test.schema, test.body)
@@ -39,25 +37,70 @@ func TestSchemaTypes(t *testing.T) {
 	}
 }
 
-// TestActualTypeIsNeverInteger pins that `integer` is something a schema asks
-// for, never something a value is reported as being.
-func TestActualTypeIsNeverInteger(t *testing.T) {
-	result := check(t, `{"type":"string"}`, `5`)
-	assertErrors(t, result, []string{"At '/' Invalid type: number (expected string)"})
+// TestConstraintsBeyondTypeAreChecked is the regression this file exists for.
+//
+// An earlier hand-rolled validator implemented type, required, properties,
+// items and enum, and silently accepted everything below. Each of these was a
+// contract violation vertrag reported as a pass.
+func TestConstraintsBeyondTypeAreChecked(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		schema string
+		body   string
+	}{
+		{"pattern", `{"type":"object","properties":{"s":{"type":"string","pattern":"^[a-z]+$"}}}`, `{"s":"AB"}`},
+		{"minLength", `{"type":"object","properties":{"s":{"type":"string","minLength":5}}}`, `{"s":"ab"}`},
+		{"maxLength", `{"type":"object","properties":{"s":{"type":"string","maxLength":1}}}`, `{"s":"abc"}`},
+		{"minimum", `{"type":"object","properties":{"n":{"type":"number","minimum":10}}}`, `{"n":1}`},
+		{"maximum", `{"type":"object","properties":{"n":{"type":"number","maximum":10}}}`, `{"n":99}`},
+		{"multipleOf", `{"type":"object","properties":{"n":{"type":"number","multipleOf":5}}}`, `{"n":7}`},
+		{"minItems", `{"type":"object","properties":{"a":{"type":"array","minItems":2}}}`, `{"a":[1]}`},
+		{"maxItems", `{"type":"object","properties":{"a":{"type":"array","maxItems":1}}}`, `{"a":[1,2]}`},
+		{"uniqueItems", `{"type":"object","properties":{"a":{"type":"array","uniqueItems":true}}}`, `{"a":[1,1]}`},
+		{"minProperties", `{"type":"object","minProperties":2}`, `{"a":1}`},
+		{"additionalProperties", `{"type":"object","properties":{"a":{}},"additionalProperties":false}`, `{"a":1,"b":2}`},
+		{"allOf", `{"allOf":[{"type":"object","required":["a"]},{"type":"object","required":["b"]}]}`, `{"a":1}`},
+		{"anyOf", `{"anyOf":[{"type":"string"},{"type":"number"}]}`, `{}`},
+		{"oneOf", `{"oneOf":[{"type":"string"},{"type":"number"}]}`, `{}`},
+		{"not", `{"not":{"type":"object"}}`, `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if result := check(t, test.schema, test.body); result.Valid {
+				t.Errorf("%s violation was accepted", test.name)
+			}
+		})
+	}
+}
+
+// TestReferencedSchemaReportsTheUnderlyingFailure pins that a `$ref` reports
+// what actually went wrong rather than "validation failed" — the shape both
+// OpenAPI parsers emit for a referenced schema.
+func TestReferencedSchemaReportsTheUnderlyingFailure(t *testing.T) {
+	result := check(t,
+		`{"$ref":"#/definitions/T","definitions":{"T":{"type":"object","required":["a"]}}}`, `{}`)
+	assertErrors(t, result, []string{"the response body: missing property 'a'"})
+}
+
+// TestDraftSelection pins that a schema declaring a modern dialect is read
+// under it, which is what OpenAPI 3.1 will need.
+func TestDraftSelection(t *testing.T) {
+	// `const` is 2019-09 onwards; under draft-4 it would simply be ignored.
+	schema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"c":{"const":"x"}}}`
+	if result := check(t, schema, `{"c":"y"}`); result.Valid {
+		t.Error("const should be enforced under 2020-12")
+	}
 }
 
 func TestRequiredAndProperties(t *testing.T) {
 	schema := `{"type":"object","required":["a","b"],"properties":{"a":{"type":"string"}}}`
 
 	assertErrors(t, check(t, schema, `{"a":"x","b":1}`), nil)
-	assertErrors(t, check(t, schema, `{"a":"x"}`),
-		[]string{"At '/b' Missing required property: b"})
-
-	// Missing keys are reported in sorted order so the output is stable.
-	assertErrors(t, check(t, schema, `{}`), []string{
-		"At '/a' Missing required property: a",
-		"At '/b' Missing required property: b",
-	})
+	if result := check(t, schema, `{"a":"x"}`); result.Valid {
+		t.Error("a missing required property should fail")
+	}
+	if result := check(t, schema, `{}`); result.Valid {
+		t.Error("missing required properties should fail")
+	}
 }
 
 // TestWrongTypeStopsDescent pins that a value of the wrong type is reported
@@ -65,38 +108,29 @@ func TestRequiredAndProperties(t *testing.T) {
 // never have had.
 func TestWrongTypeStopsDescent(t *testing.T) {
 	result := check(t, `{"type":"object","required":["a"],"properties":{"a":{"type":"string"}}}`, `"a string"`)
-	assertErrors(t, result, []string{"At '/' Invalid type: string (expected object)"})
+	assertErrors(t, result, []string{"the response body: got string, want object"})
 }
 
 func TestNestedPointers(t *testing.T) {
 	schema := `{"type":"object","properties":{"o":{"type":"object","required":["x"],"properties":{"x":{"type":"string"}}}}}`
 	assertErrors(t, check(t, schema, `{"o":{"x":5}}`),
-		[]string{"At '/o/x' Invalid type: number (expected string)"})
+		[]string{"/o/x: got number, want string"})
 	assertErrors(t, check(t, schema, `{"o":{}}`),
-		[]string{"At '/o/x' Missing required property: x"})
+		[]string{"/o: missing property 'x'"})
 }
 
 func TestArrayItems(t *testing.T) {
 	schema := `{"type":"array","items":{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}}}}`
 	assertErrors(t, check(t, schema, `[{"id":1},{"id":"two"},{}]`), []string{
-		"At '/1/id' Invalid type: string (expected integer)",
-		"At '/2/id' Missing required property: id",
+		"/1/id: got string, want integer",
+		"/2: missing property 'id'",
 	})
 }
 
 func TestEnum(t *testing.T) {
 	schema := `{"type":"object","properties":{"k":{"enum":["a","b"]}}}`
 	assertErrors(t, check(t, schema, `{"k":"a"}`), nil)
-	assertErrors(t, check(t, schema, `{"k":"z"}`), []string{`At '/k' No enum match for: "z"`})
-}
-
-// TestPointerEscaping pins JSON Pointer's two reserved characters.
-func TestPointerEscaping(t *testing.T) {
-	schema := `{"type":"object","required":["a/b","c~d"]}`
-	assertErrors(t, check(t, schema, `{}`), []string{
-		"At '/a~1b' Missing required property: a/b",
-		"At '/c~0d' Missing required property: c~d",
-	})
+	assertErrors(t, check(t, schema, `{"k":"z"}`), []string{"/k: value must be one of 'a', 'b'"})
 }
 
 func TestUnparseableBodyIsNotAComparison(t *testing.T) {

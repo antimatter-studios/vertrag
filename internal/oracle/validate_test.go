@@ -28,9 +28,14 @@ type messageJSON struct {
 // TestValidateMatchesReference checks vertrag's pass/fail verdicts against
 // Gavel's.
 //
-// The error text is compared, not just the verdict. A failing run prints these
-// messages, so a user reading vertrag's output should see what Dredd would have
-// shown them; matching only on valid/invalid would let the wording drift.
+// Verdicts are compared, and which fields failed — not the wording. vertrag's
+// messages are deliberately its own: Gavel inherits its text from two different
+// validators and describes the same class of problem two ways depending on the
+// keyword, and there is nothing to gain by reproducing that. What must not
+// diverge is the answer — a response Gavel rejects has to be rejected here, or
+// vertrag would pass a body that violates its contract.
+//
+// The wording is pinned separately, by the validate package's own tests.
 func TestValidateMatchesReference(t *testing.T) {
 	root := repoRoot(t)
 	requireReference(t, root)
@@ -58,15 +63,58 @@ func TestValidateMatchesReference(t *testing.T) {
 				t.Fatalf("decoding case: %v", err)
 			}
 
-			got := roundTripValue(t, validate.Validate(
-				toMessage(testCase.Expected), toMessage(testCase.Real)))
+			got := validate.Validate(toMessage(testCase.Expected), toMessage(testCase.Real))
 			want := runReferenceValidate(t, root, path)
 
-			for _, diff := range diffValues("", want, got) {
-				t.Errorf("%s", diff)
-			}
+			compareVerdicts(t, want, got)
 		})
 	}
+}
+
+// compareVerdicts checks the answer rather than the prose.
+func compareVerdicts(t *testing.T, want any, got validate.Result) {
+	t.Helper()
+
+	reference, ok := want.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected reference shape %T", want)
+	}
+
+	if valid, _ := reference["valid"].(bool); valid != got.Valid {
+		t.Errorf("valid = %v, Gavel says %v (errors: %v)", got.Valid, valid, allErrors(got))
+	}
+
+	fields, _ := reference["fields"].(map[string]any)
+	for name, raw := range fields {
+		field, _ := raw.(map[string]any)
+		referenceValid, _ := field["valid"].(bool)
+
+		ours, present := got.Fields[name]
+		if !present {
+			// A field Gavel judged and vertrag did not is a gap in coverage,
+			// whichever way the verdict went.
+			t.Errorf("Gavel reports on %q and vertrag does not", name)
+			continue
+		}
+		if ours.Valid != referenceValid {
+			t.Errorf("%s: valid = %v, Gavel says %v (errors: %v)",
+				name, ours.Valid, referenceValid, ours.Errors)
+		}
+	}
+
+	for name := range got.Fields {
+		if _, present := fields[name]; !present {
+			t.Errorf("vertrag reports on %q and Gavel does not", name)
+		}
+	}
+}
+
+func allErrors(result validate.Result) []string {
+	var out []string
+	for _, field := range result.Fields {
+		out = append(out, field.Errors...)
+	}
+	return out
 }
 
 func toMessage(m messageJSON) validate.Message {

@@ -100,7 +100,7 @@ func TestBodyWithSchemaIsCheckedProperly(t *testing.T) {
 	if result.Valid {
 		t.Fatal("a body contradicting the schema should fail")
 	}
-	if got, want := result.Fields["body"].Errors[0], "At '/a' Invalid type: string (expected number)"; got != want {
+	if got, want := result.Fields["body"].Errors[0], "/a: got string, want number"; got != want {
 		t.Errorf("error = %q, want %q", got, want)
 	}
 }
@@ -150,26 +150,7 @@ func TestUnparseableJSONBody(t *testing.T) {
 	if field.Kind != nil {
 		t.Errorf("kind = %q, want null: nothing was compared", *field.Kind)
 	}
-	if !strings.Contains(field.Errors[0], "is not a parseable JSON") {
+	if !strings.Contains(field.Errors[0], "does not parse") {
 		t.Errorf("error = %q, want it to name the parse failure", field.Errors[0])
-	}
-	if !strings.Contains(field.Errors[0], `Unexpected token 'o', "not json" is not valid JSON`) {
-		t.Errorf("error = %q, want the JavaScript engine's own wording", field.Errors[0])
-	}
-}
-
-func TestJavaScriptJSONError(t *testing.T) {
-	for _, test := range []struct {
-		body string
-		want string
-	}{
-		{"", "Unexpected end of JSON input"},
-		{"   ", "Unexpected end of JSON input"},
-		{"not json", `Unexpected token 'o', "not json" is not valid JSON`},
-		{"{oops}", `Unexpected token '{', "{oops}" is not valid JSON`},
-	} {
-		if got := javaScriptJSONError(test.body); got != test.want {
-			t.Errorf("javaScriptJSONError(%q) = %q, want %q", test.body, got, test.want)
-		}
 	}
 }

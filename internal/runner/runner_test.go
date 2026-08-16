@@ -158,7 +158,7 @@ func TestResponseSchemaIsEnforced(t *testing.T) {
 	if results[0].Status != StatusFail {
 		t.Fatalf("status = %q, want fail", results[0].Status)
 	}
-	if !strings.Contains(results[0].Errors[0], "Invalid type: number (expected string)") {
+	if !strings.Contains(results[0].Errors[0], "got number, want string") {
 		t.Errorf("errors = %v", results[0].Errors)
 	}
 }
