@@ -113,6 +113,16 @@ func (c Constraints) Number(start float64) float64 {
 	if c.ExclusiveMaximum != nil && value >= *c.ExclusiveMaximum {
 		value = *c.ExclusiveMaximum - 1
 	}
+
+	// The upper bound may have just broken the step. Rounding up to a multiple
+	// happens before the maximum is known to bite, so `maximum: -1,
+	// multipleOf: 2` produced 0, was clamped to -1, and -1 is not a multiple of
+	// 2 — a value forbidden by the very schema it came from. Coming down to the
+	// largest multiple at or below the bound is the only direction that can fix
+	// it without breaking the bound again.
+	if c.MultipleOf != nil && *c.MultipleOf > 0 {
+		value = snapDownToMultiple(value, *c.MultipleOf)
+	}
 	return value
 }
 
@@ -193,3 +203,25 @@ func decimalPlaces(step float64) int {
 // A float64 carries about fifteen to seventeen significant decimal digits, so
 // past this the digits being rounded are the representation error itself.
 const maxRoundablePlaces = 15
+
+// snapDownToMultiple lowers a value to the largest multiple of a step at or
+// below it, leaving it alone when it is already one.
+//
+// The mirror of snapToMultiple and protected from binary floating point the
+// same way: `-1 / 2` is exact but `0.3 / 0.1` is not, and a quotient a hair
+// under a whole number would floor to the multiple below the one meant.
+func snapDownToMultiple(value, step float64) float64 {
+	quotient := value / step
+
+	multiple := math.Floor(quotient)
+	if math.Abs(quotient-math.Round(quotient)) < quotientTolerance {
+		multiple = math.Round(quotient)
+	}
+
+	product := multiple * step
+	if places := decimalPlaces(step); places >= 0 {
+		scale := math.Pow(10, float64(places))
+		product = math.Round(product*scale) / scale
+	}
+	return product
+}

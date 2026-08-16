@@ -1,0 +1,20 @@
+# 2026/08/16 12:41:39.070108 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] [rapid] draw low: -4
+# 2026/08/16 12:41:39.070122 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] [rapid] draw span: 3
+# 2026/08/16 12:41:39.070123 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] [rapid] draw has-minimum: false
+# 2026/08/16 12:41:39.070124 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] [rapid] draw has-maximum: true
+# 2026/08/16 12:41:39.070124 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] [rapid] draw has-multiple-of: true
+# 2026/08/16 12:41:39.070125 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] [rapid] draw step: 2
+# 2026/08/16 12:41:39.070144 [TestASpecimenAlwaysSatisfiesItsOwnConstraints] schema {"maximum":-1,"multipleOf":2,"type":"number"} produced -1, which it forbids: [the response body: multipleOf: got -1, want 2]
+# 
+v0.4.8#6466412195451353470
+0x10000000000000
+0x38e38e38e38e4
+0x3
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x1
+0x1
+0x0
+0x1
