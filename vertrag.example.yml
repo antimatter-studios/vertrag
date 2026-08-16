@@ -41,3 +41,11 @@ output: ["", report.xml]
 checks:
   server-error: true    # a 5xx means the server broke, not that it disagreed
   content-type: true    # Dredd checks headers are present, never their values
+
+  # The exception to "on by default". This validates a response header's value
+  # against the JSON Schema the description gave it, which nothing has ever
+  # enforced — so a description is quite likely to carry a header schema that
+  # was never true, and switching it on unasked would turn a working suite red
+  # on the day you adopt vertrag. Turn it on when you are ready to read what it
+  # finds; `--check-header-schema` does the same for one run.
+  header-schema: false

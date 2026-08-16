@@ -79,7 +79,16 @@ output: ["", report.xml]
 checks:                            # vertrag's own
   server-error: true
   content-type: true
+  header-schema: false             # off by default; see below
 ```
+
+`header-schema` validates a response header's value against the JSON Schema the
+description gave it — so a `X-Rate-Limit` documented as a non-negative integer
+fails when the server answers `banana`. Dredd only checks that a declared header
+is *present*, so no description has ever had this enforced and yours may well
+contain a header schema that was never true. It is therefore the one check that
+starts off; turn it on here or with `--check-header-schema` when you are ready
+to read what it finds.
 
 ## Why
 

@@ -34,6 +34,10 @@ type Message struct {
 	// when it had one. It turns body checking from key presence into real
 	// validation.
 	BodySchema json.RawMessage
+	// HeaderSchemas are the JSON Schemas the description attached to individual
+	// response headers, by name. Ordinary validation ignores them, as Gavel
+	// does; the header-schema check is what reads them.
+	HeaderSchemas map[string]json.RawMessage
 }
 
 // FieldResult is the verdict on one part of the response.

@@ -111,8 +111,13 @@ var (
 	}
 	specHeader = objectSpec{
 		name: "Header Object",
+		// `schema` is read: the value a server sends is decoded to the type the
+		// schema declares and validated against it, which is a check neither
+		// Dredd nor Gavel makes. Warning that it is ignored would tell people
+		// the constraint does nothing while it is the thing being enforced.
+		supported: []string{"schema"},
 		unsupported: []string{"description", "required", "deprecated", "allowEmptyValue",
-			"style", "explode", "allowReserved", "schema", "content", "example", "examples"},
+			"style", "explode", "allowReserved", "content", "example", "examples"},
 	}
 	specExample = objectSpec{
 		name:        "Example Object",

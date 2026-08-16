@@ -230,6 +230,33 @@ func TestMultipartBodyGetsCRLFLineEndings(t *testing.T) {
 	}
 }
 
+// TestAnUnreadableHeaderSchemaAssetCarriesNothing pins that a payload only
+// vertrag could have written badly never becomes a verdict about the server.
+//
+// The asset is produced by vertrag's own parsers, so a malformed one is a bug in
+// this repository. Reporting it as a failure would send the reader hunting
+// through their API for a problem that is not there.
+func TestAnUnreadableHeaderSchemaAssetCarriesNothing(t *testing.T) {
+	for _, payload := range []string{`{not json`, `{}`, `[]`} {
+		schemas := refract.Text("asset", payload)
+		schemas.AddClass("messageHeadersSchema")
+
+		request := refract.Named("httpRequest")
+		request.SetAttr("method", refract.String("GET"))
+
+		response := refract.Named("httpResponse", schemas)
+		response.SetAttr("statusCode", refract.String("200"))
+
+		root := buildAPI(resource("/things", "", transition("List",
+			refract.Named("httpTransaction", request, response))))
+
+		result := Compile("application/vnd.oai.openapi", root, "")
+		if got := result.Transactions[0].Response.HeaderSchemas; got != nil {
+			t.Errorf("payload %q yielded %v, want no schemas", payload, got)
+		}
+	}
+}
+
 // TestParserAnnotationsComeFirst pins the ordering the reporters rely on.
 func TestParserAnnotationsComeFirst(t *testing.T) {
 	parserAnnotation := refract.Text("annotation", "something about the document")

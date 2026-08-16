@@ -217,6 +217,33 @@ checks:
 	}
 }
 
+// TestHeaderSchemaCheckIsOffUntilAskedFor pins the one check that does not
+// default on, and the config key that turns it on.
+//
+// Nothing has ever enforced a response header's schema, so a description is
+// quite likely to carry one that was never true. A suite that goes red the day
+// it adopts vertrag teaches people to distrust the tool rather than read the
+// finding, and this check is worth more switched on deliberately than switched
+// off in irritation.
+func TestHeaderSchemaCheckIsOffUntilAskedFor(t *testing.T) {
+	if Default().Checks.HeaderSchema {
+		t.Error("the header-schema check should be off by default")
+	}
+
+	config, err := Load(write(t, `
+blueprint: api.yml
+endpoint: http://localhost
+checks:
+  header-schema: true
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !config.Checks.HeaderSchema {
+		t.Error("`checks: header-schema: true` should turn the check on")
+	}
+}
+
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	previous, err := os.Getwd()

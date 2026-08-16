@@ -11,6 +11,8 @@
 // is part of the contract, not a formatting preference.
 package compile
 
+import "encoding/json"
+
 // Header is one HTTP header. API Elements permits repeats, so this is a list
 // rather than a map.
 type Header struct {
@@ -50,6 +52,15 @@ type Response struct {
 	Headers []Header `json:"headers"`
 	Body    string   `json:"body,omitempty"`
 	Schema  string   `json:"schema,omitempty"`
+
+	// HeaderSchemas are the JSON Schemas the description gave individual
+	// response headers, keyed by header name.
+	//
+	// Absent from the JSON for the same reason as Request.Schema: Dredd has no
+	// equivalent — it checks that a declared header is present and never looks
+	// at its value — so emitting it would make every compiled transaction
+	// differ from the reference for nothing. The header-schema check reads it.
+	HeaderSchemas map[string]json.RawMessage `json:"-"`
 }
 
 // Origin records where in the API description a transaction came from. Its

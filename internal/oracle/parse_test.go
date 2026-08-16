@@ -102,14 +102,32 @@ var divergences = []divergence{
 		path:    "annotations",
 		reason:  constraintsAreSupported,
 	},
+
+	{
+		fixture: "methods-and-refs",
+		path:    "annotations",
+		reason:  headerSchemasAreSupported,
+	},
+	{
+		fixture: "parameters",
+		path:    "annotations",
+		reason:  headerSchemasAreSupported,
+	},
 	{
 		fixture: "proof-of-concept",
-		path:    "annotations[1].message",
-		reason: constraintsAreSupported + " Here the wording differs rather than " +
-			"the count, because the remaining `format` warnings come from " +
-			"parameter schemas and no longer number enough to be collapsed.",
+		path:    "annotations",
+		reason: headerSchemasAreSupported + " " + constraintsAreSupported +
+			" Both apply to this fixture, so the difference shows as a count " +
+			"rather than as any single message.",
 	},
 }
+
+// headerSchemasAreSupported explains the Header Object annotations vertrag does
+// not emit.
+const headerSchemasAreSupported = "Dredd reports `schema` in a Header Object " +
+	"as an unsupported key. vertrag decodes the header value to the type the " +
+	"schema declares and validates it, which is a check neither Dredd nor " +
+	"Gavel makes at all, so warning that the key does nothing would be false."
 
 // constraintsAreSupported explains the annotations vertrag does not emit.
 const constraintsAreSupported = "Dredd reports every JSON Schema constraint " +

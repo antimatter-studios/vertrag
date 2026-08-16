@@ -83,6 +83,13 @@ type Checks struct {
 	// ContentType reports a response carrying a media type the description
 	// never promised. Dredd compares header presence only.
 	ContentType bool
+	// HeaderSchema validates a response header's value against the schema the
+	// description gave it. Alone among these it is off by default: header
+	// schemas have never been enforced by anything, so a description is quite
+	// likely to carry one that was never true, and a suite that goes red on the
+	// day it adopts vertrag teaches people to distrust the tool rather than the
+	// description.
+	HeaderSchema bool
 }
 
 // Filenames are tried in order. A vertrag file wins over a Dredd one, so a
@@ -150,8 +157,9 @@ type file struct {
 
 // checksFile is the `checks` section, which Dredd has no equivalent of.
 type checksFile struct {
-	ServerError *bool `yaml:"server-error"`
-	ContentType *bool `yaml:"content-type"`
+	ServerError  *bool `yaml:"server-error"`
+	ContentType  *bool `yaml:"content-type"`
+	HeaderSchema *bool `yaml:"header-schema"`
 }
 
 // Default returns the settings a run starts from.
@@ -233,6 +241,7 @@ func apply(config *Config, parsed file) {
 	if parsed.Checks != nil {
 		setBool(&config.Checks.ServerError, parsed.Checks.ServerError)
 		setBool(&config.Checks.ContentType, parsed.Checks.ContentType)
+		setBool(&config.Checks.HeaderSchema, parsed.Checks.HeaderSchema)
 	}
 
 	for key, value := range map[string]any{

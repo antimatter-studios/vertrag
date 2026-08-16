@@ -64,20 +64,29 @@ func AgainstSchema(schema json.RawMessage, body string) FieldResult {
 }
 
 func validateAgainstSchema(schema json.RawMessage, body string) FieldResult {
-	field := FieldResult{Valid: true, Kind: kind("json"), Errors: []string{}}
-
 	var document any
 	if err := json.Unmarshal([]byte(body), &document); err != nil {
 		// A body that claims to be JSON but will not parse is its own kind of
 		// failure, reported with no kind at all: there was no structure to
 		// compare, so calling it a JSON comparison would misdescribe what
 		// happened.
-		field.Valid = false
-		field.Kind = nil
-		field.Errors = append(field.Errors,
-			fmt.Sprintf("the response declares JSON but the body does not parse: %s", err))
-		return field
+		return FieldResult{
+			Kind: nil,
+			Errors: []string{
+				fmt.Sprintf("the response declares JSON but the body does not parse: %s", err)},
+		}
 	}
+	return validateValue(schema, document, "the response body")
+}
+
+// validateValue checks an already-decoded value against a schema.
+//
+// `root` names what the value is, for the failures that occur at its very top
+// rather than at some path inside it. A body says "the response body"; a header
+// passes "" because the caller has already named the header and repeating it
+// would only make the finding harder to read.
+func validateValue(schema json.RawMessage, document any, root string) FieldResult {
+	field := FieldResult{Valid: true, Kind: kind("json"), Errors: []string{}}
 
 	compiled, err := compileSchema(schema)
 	if err != nil {
@@ -88,7 +97,7 @@ func validateAgainstSchema(schema json.RawMessage, body string) FieldResult {
 
 	if err := compiled.Validate(document); err != nil {
 		field.Valid = false
-		field.Errors = append(field.Errors, describe(err)...)
+		field.Errors = append(field.Errors, describe(err, root)...)
 	}
 	return field
 }
@@ -118,13 +127,13 @@ func compileSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 // The library reports a tree — a failing `anyOf` carries the failure of every
 // branch beneath it. The leaves are what a reader can act on, so those are what
 // is reported, each prefixed with where in the body it occurred.
-func describe(err error) []string {
+func describe(err error, root string) []string {
 	failure, ok := err.(*jsonschema.ValidationError)
 	if !ok {
 		return []string{err.Error()}
 	}
 
-	messages := leaves(failure)
+	messages := leaves(failure, root)
 	if len(messages) == 0 {
 		messages = append(messages, failure.Error())
 	}
@@ -137,11 +146,11 @@ func describe(err error) []string {
 // reports "validation failed" and a `properties` node reports nothing a reader
 // can act on. Descending to the leaves is what turns that into "missing
 // property 'a'", which is the part worth printing.
-func leaves(failure *jsonschema.ValidationError) []string {
+func leaves(failure *jsonschema.ValidationError, root string) []string {
 	if len(failure.Causes) > 0 {
 		var messages []string
 		for _, cause := range failure.Causes {
-			messages = append(messages, leaves(cause)...)
+			messages = append(messages, leaves(cause, root)...)
 		}
 		if len(messages) > 0 {
 			return messages
@@ -155,7 +164,12 @@ func leaves(failure *jsonschema.ValidationError) []string {
 	if reason == "" {
 		return nil
 	}
-	return []string{fmt.Sprintf("%s: %s", location(pointerOf(failure.InstanceLocation)), reason)}
+
+	where := location(pointerOf(failure.InstanceLocation), root)
+	if where == "" {
+		return []string{reason}
+	}
+	return []string{fmt.Sprintf("%s: %s", where, reason)}
 }
 
 // pointerOf renders the library's path segments as a JSON Pointer.
@@ -172,11 +186,12 @@ func pointerOf(segments []string) string {
 	return b.String()
 }
 
-// location renders where in the body a failure occurred, in a form a reader can
-// follow back into the payload.
-func location(pointer string) string {
+// location renders where in the value a failure occurred, in a form a reader can
+// follow back into it. A failure at the very top has no pointer to give, so the
+// caller's name for the whole value stands in.
+func location(pointer, root string) string {
 	if pointer == "" || pointer == "/" {
-		return "the response body"
+		return root
 	}
 	return pointer
 }

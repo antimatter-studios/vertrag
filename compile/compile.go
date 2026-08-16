@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -183,7 +184,25 @@ func compileResponse(element *refract.Element) Response {
 	if schema := element.ChildWithClass("asset", "messageBodySchema"); schema != nil {
 		response.Schema = schema.String()
 	}
+	if schemas := element.ChildWithClass("asset", "messageHeadersSchema"); schemas != nil {
+		response.HeaderSchemas = compileHeaderSchemas(schemas.String())
+	}
 	return response
+}
+
+// compileHeaderSchemas reads the asset holding one JSON Schema per response
+// header.
+//
+// A payload that will not parse yields no schemas rather than an error. The
+// asset is vertrag's own doing, so a malformed one is a bug here, not a fault of
+// the server under test — and failing a server over it would send the reader
+// looking in entirely the wrong place.
+func compileHeaderSchemas(payload string) map[string]json.RawMessage {
+	var schemas map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(payload), &schemas); err != nil || len(schemas) == 0 {
+		return nil
+	}
+	return schemas
 }
 
 func compileHeaders(element *refract.Element) []Header {

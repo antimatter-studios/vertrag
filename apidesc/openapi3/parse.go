@@ -1,6 +1,7 @@
 package openapi3
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/refract"
@@ -158,6 +159,12 @@ type message struct {
 type header struct {
 	name  string
 	value string
+
+	// schema is the JSON Schema the document gave this header's value, empty
+	// when it gave none or gave one vertrag will not act on. Only a response
+	// header carries it: a request header's value is vertrag's own doing, so
+	// there is nothing to check it against.
+	schema string
 }
 
 // buildTransactions pairs each request with the responses it belongs with.
@@ -187,10 +194,10 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			// Accept advertises what the response promises, so the server is
 			// asked for the representation the document is being tested against.
 			if response.contentType != "" {
-				headers = append(headers, header{"Accept", response.contentType})
+				headers = append(headers, header{name: "Accept", value: response.contentType})
 			}
 			if request.contentType != "" {
-				headers = append(headers, header{"Content-Type", request.contentType})
+				headers = append(headers, header{name: "Content-Type", value: request.contentType})
 			}
 			// A parameter must not displace a header the message already
 			// carries; the message's own is the more specific statement.
@@ -213,7 +220,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			responseHeaders := make([]header, 0, len(response.headers)+1)
 			if response.contentType != "" {
-				responseHeaders = append(responseHeaders, header{"Content-Type", response.contentType})
+				responseHeaders = append(responseHeaders, header{name: "Content-Type", value: response.contentType})
 			}
 			responseHeaders = append(responseHeaders, response.headers...)
 			setHeaders(httpResponse, responseHeaders)
@@ -222,6 +229,9 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			if response.schema != "" {
 				httpResponse.Append(schemaAsset(response.schema))
+			}
+			if asset := headerSchemasAsset(responseHeaders); asset != nil {
+				httpResponse.Append(asset)
 			}
 
 			transactions = append(transactions,
@@ -282,5 +292,34 @@ func schemaAsset(schema string) *refract.Element {
 	asset := refract.Text("asset", schema)
 	asset.AddClass("messageBodySchema")
 	asset.SetAttr("contentType", refract.String("application/schema+json"))
+	return asset
+}
+
+// headerSchemasAsset carries the schemas a Response Object gave its headers.
+//
+// One asset holding an object of header name to schema rather than one asset per
+// header, because an element holds a single asset of any given class and the
+// compiler finds assets by class. Nothing in Dredd reads it; it exists so the
+// header-schema check has something to check against.
+func headerSchemasAsset(headers []header) *refract.Element {
+	schemas := newOrderedMap()
+	for _, h := range headers {
+		if h.schema != "" {
+			schemas.Set(h.name, json.RawMessage(h.schema))
+		}
+	}
+	if schemas.Len() == 0 {
+		return nil
+	}
+	encoded, ok := encodeToString(schemas)
+	if !ok {
+		return nil
+	}
+
+	asset := refract.Text("asset", encoded)
+	asset.AddClass("messageHeadersSchema")
+	// A map of schemas is not itself a schema, so it is described as the JSON
+	// object it is rather than borrowing the body schema's media type.
+	asset.SetAttr("contentType", refract.String("application/json"))
 	return asset
 }
