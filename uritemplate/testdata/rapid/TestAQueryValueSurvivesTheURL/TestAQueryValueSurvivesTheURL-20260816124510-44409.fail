@@ -1,0 +1,6 @@
+# 2026/08/16 12:45:10.515992 [TestAQueryValueSurvivesTheURL] [rapid] draw value: "🎉"
+# 2026/08/16 12:45:10.515995 [TestAQueryValueSurvivesTheURL] value "🎉" came back as "\xed\xa0\xbc\xed\xbe\x89" from "/search?q=%ED%A0%BC%ED%BE%89"
+# 
+v0.4.8#14096452225464316450
+0xc05c654ab866b
+0x10

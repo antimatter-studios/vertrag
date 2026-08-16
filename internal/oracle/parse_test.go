@@ -170,6 +170,19 @@ var divergences = []divergence{
 			"rather than as any single message.",
 	},
 	{
+		fixture: "awkward-encoding",
+		path:    "transactions[0].request.uri",
+		reason: "Two encoder defects that corrupt data, both reproduced until " +
+			"now. Dredd walks UTF-16 code units and escapes each surrogate half " +
+			"separately, so 🎉 becomes %ED%A0%BC%ED%BE%89 — CESU-8, which a " +
+			"server decodes to two lone surrogates that are neither valid UTF-8 " +
+			"nor the character anyone sent. And it writes each byte without zero " +
+			"padding, so a newline becomes %A rather than %0A: `a\nb` goes out " +
+			"as `a%Ab`, which parses as the single byte 0xAB and swallows the " +
+			"`b`, so the value received is neither what was sent nor the same " +
+			"length. vertrag emits proper UTF-8 and two hex digits.",
+	},
+	{
 		fixture: "modern-dialect",
 		path:    "transactions[0].response.body",
 		reason: "Dredd VALIDATES the 2020-12 keywords now, its fork having moved " +

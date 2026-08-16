@@ -59,10 +59,22 @@ func TestEncodingQuirks(t *testing.T) {
 		want     string
 	}{
 		{
-			// The escape is built without zero padding, so a byte below 0x10
-			// yields a single hex digit. This is wrong, and it is what Dredd
-			// emits.
-			name: "unpadded escape below 0x10", template: "{v}", value: "a\nb", want: "a%Ab",
+			// Dredd builds each byte without zero padding, so a byte below 0x10
+			// yields a single hex digit and `a\nb` becomes `a%Ab`. That is not
+			// untidy, it is malformed: a server parses %Ab as the single byte
+			// 0xAB, swallowing the `b`, so the value received is neither what
+			// was sent nor the same length. Padded here.
+			name:     "a control character is padded to two hex digits",
+			template: "{v}", value: "a\nb", want: "a%0Ab",
+		},
+		{
+			// Dredd walks UTF-16 code units and escapes each surrogate half
+			// separately, which produces CESU-8: 🎉 becomes
+			// %ED%A0%BC%ED%BE%89. A server decoding that gets two lone
+			// surrogates — not valid UTF-8 and not the character anyone sent.
+			// An API taking emoji in a search term receives mojibake.
+			name:     "a character outside the BMP is proper UTF-8",
+			template: "{v}", value: "🎉", want: "%F0%9F%8E%89",
 		},
 		{
 			// The reserved encoder leaves % alone only when two DIGITS follow,

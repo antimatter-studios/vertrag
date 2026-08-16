@@ -1,0 +1,24 @@
+openapi: 3.0.0
+info:
+  title: Awkward encoding
+  version: "1.0.0"
+paths:
+  /search:
+    get:
+      summary: Values that break an encoder
+      parameters:
+        - name: emoji
+          in: query
+          example: "🎉"
+          schema: {type: string}
+        - name: control
+          in: query
+          example: "a\nb"
+          schema: {type: string}
+        - name: bmp
+          in: query
+          example: "café"
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK

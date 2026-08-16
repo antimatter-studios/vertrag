@@ -43,14 +43,29 @@ func encodeReserved(s string) string {
 }
 
 // encodeUnits walks the string as UTF-16 code units, matching JavaScript's
-// string model. Characters outside the Basic Multilingual Plane are therefore
-// encoded as their surrogate halves.
+// string model, because whether a character is reserved is decided unit by unit
+// and the reference does the same.
+//
+// A surrogate PAIR is rejoined before being encoded. Dredd escapes each half
+// separately, which produces CESU-8 — `🎉` becomes %ED%A0%BC%ED%BE%89 rather
+// than %F0%9F%8E%89 — and a server decoding that gets two lone surrogates,
+// which is not valid UTF-8 and not the character anybody sent. An API taking
+// emoji in a search term or a name receives mojibake.
 func encodeUnits(s string, shouldEncode func(units []uint16, i int) bool) string {
 	units := utf16.Encode([]rune(s))
 	var b strings.Builder
+
 	for i := 0; i < len(units); i++ {
 		if !shouldEncode(units, i) {
 			b.WriteRune(rune(units[i]))
+			continue
+		}
+
+		// A high surrogate followed by a low one is a single character split
+		// across two units. Encoding them apart is what produces CESU-8.
+		if isHighSurrogate(units[i]) && i+1 < len(units) && isLowSurrogate(units[i+1]) {
+			writeUTF8(&b, utf16.DecodeRune(rune(units[i]), rune(units[i+1])))
+			i++
 			continue
 		}
 		writePercentEncoded(&b, units[i])
@@ -58,12 +73,24 @@ func encodeUnits(s string, shouldEncode func(units []uint16, i int) bool) string
 	return b.String()
 }
 
-// writePercentEncoded emits one code unit as UTF-8-ish percent escapes.
+func isHighSurrogate(c uint16) bool { return c >= 0xD800 && c <= 0xDBFF }
+func isLowSurrogate(c uint16) bool  { return c >= 0xDC00 && c <= 0xDFFF }
+
+// writeUTF8 percent-encodes a rune as the bytes UTF-8 actually uses.
+func writeUTF8(b *strings.Builder, r rune) {
+	for _, octet := range []byte(string(r)) {
+		writeOctet(b, octet)
+	}
+}
+
+// writePercentEncoded emits one code unit as percent escapes.
 //
-// The hex is NOT zero-padded, because the reference builds each byte with
-// `c.toString(16).toUpperCase()` and no padding. A code unit that encodes to a
-// byte below 0x10 therefore yields a one-digit escape such as %A rather than
-// %0A. Padding it would be more correct and would disagree with Dredd.
+// Dredd builds each byte with `c.toString(16).toUpperCase()` and no padding, so
+// a byte below 0x10 yields a one-digit escape: a newline becomes %A rather than
+// %0A. That is not merely untidy, it is malformed, and it corrupts the
+// surrounding text — `a\nb` becomes `a%Ab`, which a server parses as the single
+// byte 0xAB, swallowing the `b` entirely. The value the server receives is
+// neither what was sent nor the same length.
 func writePercentEncoded(b *strings.Builder, c uint16) {
 	var bytes []int
 	switch {
@@ -75,9 +102,18 @@ func writePercentEncoded(b *strings.Builder, c uint16) {
 		bytes = []int{int(c>>12) | 224, int((c>>6)&63) | 128, int(c&63) | 128}
 	}
 	for _, v := range bytes {
-		b.WriteByte('%')
-		b.WriteString(strings.ToUpper(strconv.FormatInt(int64(v), 16)))
+		writeOctet(b, byte(v))
 	}
+}
+
+// writeOctet emits one byte as a percent escape, always two hex digits.
+func writeOctet(b *strings.Builder, octet byte) {
+	b.WriteByte('%')
+	hex := strings.ToUpper(strconv.FormatInt(int64(octet), 16))
+	if len(hex) == 1 {
+		b.WriteByte('0')
+	}
+	b.WriteString(hex)
 }
 
 func isUnreservedUnit(c uint16) bool {

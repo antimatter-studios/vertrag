@@ -1,0 +1,6 @@
+# 2026/08/16 12:45:10.514157 [TestAnExpandedValueSurvivesTheURL] [rapid] draw value: "with/slash"
+# 2026/08/16 12:45:10.514172 [TestAnExpandedValueSurvivesTheURL] value "with/slash" expanded to "/resource/with%2Fslash/sub", which has 4 path segments rather than 3 — the request would reach a different route
+# 
+v0.4.8#561066792660697137
+0x9867f1f40f739
+0xa
