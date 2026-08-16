@@ -385,6 +385,14 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 	if !schema.IsMapping() {
 		return nil
 	}
+
+	// In 3.1 a Schema Object is JSON Schema 2020-12, which acts on far more
+	// keywords than 3.0's subset and permits unrecognised ones outright as
+	// annotations. Applying 3.0's list would warn about `exclusiveMinimum`,
+	// `const` and `prefixItems` — all of them valid, all of them acted on.
+	if d.modernSchemas {
+		return nil
+	}
 	// A schema that is only a reference is a Reference Object, not a Schema
 	// Object, and is checked where it is defined rather than at every use.
 	// Inside a parameter the reference is not followed at all, so `$ref` is

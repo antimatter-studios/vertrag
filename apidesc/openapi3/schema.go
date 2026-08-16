@@ -41,6 +41,10 @@ func schemaExample(schema node) (any, bool) {
 	if !schema.Valid() {
 		return nil, false
 	}
+	// A const fixes the value outright — there is nothing else it could be.
+	if fixed := schema.Get("const"); fixed.Valid() {
+		return scalarValue(fixed), true
+	}
 	if example := schema.Get("example"); example.Valid() {
 		return scalarValue(example), true
 	}
@@ -88,12 +92,14 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return value, true
 	}
 
-	// A nullable schema with nothing else to say demonstrates the null.
-	if schema.Get("nullable").Bool() {
+	// A nullable schema with nothing else to say demonstrates the null. In 3.0
+	// that is the `nullable` keyword; in 3.1 it is "null" among the types, and
+	// both mean the same thing to a reader.
+	if schema.Get("nullable").Bool() || allowsNull(schema) {
 		return nil, true
 	}
 
-	switch schema.Get("type").Str() {
+	switch declaredType(schema) {
 	case "string":
 		return "", true
 	case "integer", "number":
@@ -161,6 +167,38 @@ func requiredProperties(schema node) map[string]bool {
 	return names
 }
 
+// declaredType reads a schema's type, which OpenAPI 3.1 allows to be a list.
+//
+// The first type that is not "null" is used: a schema saying a value may be a
+// string or absent is describing a string, and the null case is handled before
+// this is reached.
+func declaredType(schema node) string {
+	declared := schema.Get("type")
+	if !declared.IsSequence() {
+		return declared.Str()
+	}
+	for _, item := range declared.Items() {
+		if name := item.Str(); name != "" && name != "null" {
+			return name
+		}
+	}
+	return "null"
+}
+
+// allowsNull reports whether a 3.1 type list includes "null".
+func allowsNull(schema node) bool {
+	declared := schema.Get("type")
+	if !declared.IsSequence() {
+		return false
+	}
+	for _, item := range declared.Items() {
+		if item.Str() == "null" {
+			return true
+		}
+	}
+	return false
+}
+
 // isValuelessPrimitiveSchema reports whether a schema describes a primitive and
 // offers no specimen value for it.
 func isValuelessPrimitiveSchema(schema node) bool {
@@ -173,7 +211,7 @@ func isValuelessPrimitiveSchema(schema node) bool {
 	if _, ok := schemaExample(schema); ok {
 		return false
 	}
-	switch schema.Get("type").Str() {
+	switch declaredType(schema) {
 	case "string", "integer", "number", "boolean":
 		return true
 	default:
@@ -249,7 +287,7 @@ func (d *document) convertSchema(schema node) (string, bool) {
 		return "", false
 	}
 
-	result.Set("$schema", jsonSchemaDraft)
+	result.Set("$schema", d.jsonSchemaDialect())
 
 	if len(references) > 0 {
 		definitions := newOrderedMap()
@@ -379,7 +417,13 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 			out.Set(key, scalarValue(member.Value))
 
 		case "nullable":
-			// Handled after the loop, where the type it has to widen is known.
+			// A 3.0 keyword, handled after the loop where the type it widens is
+			// known. In 3.1 it does not exist, and a document using it is
+			// saying something the dialect does not define.
+			if d.modernSchemas {
+				out.Set(key, scalarValue(member.Value))
+				continue
+			}
 			continue
 
 		case "type":
@@ -400,10 +444,14 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 	}
 
 	if example := schema.Get("example"); example.Valid() {
-		out.Set("examples", []any{scalarValue(example)})
+		// 2020-12 has an `examples` array of its own, so a 3.1 document's
+		// example needs no translation and must not be duplicated into one.
+		if !d.modernSchemas {
+			out.Set("examples", []any{scalarValue(example)})
+		}
 	}
 
-	if schema.Get("nullable").Bool() {
+	if !d.modernSchemas && schema.Get("nullable").Bool() {
 		applyNullable(out)
 	}
 

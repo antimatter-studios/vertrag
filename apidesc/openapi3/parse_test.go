@@ -582,6 +582,100 @@ func TestCorpusDocumentsParse(t *testing.T) {
 	}
 }
 
+// TestOpenAPI31 pins the differences that make 3.1 a different dialect rather
+// than a newer version of the same one.
+//
+// Before this, a 3.1 document parsed silently and wrongly: `type` lists were
+// read as no type at all, `const` was ignored, and the emitted schema claimed
+// to be draft-04 — under which a 3.1 document's numeric `exclusiveMinimum` and
+// its `const` mean something else or nothing.
+func TestOpenAPI31(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.1.0"
+info: {title: Modern, version: "1.0.0"}
+paths:
+  /p:
+    get:
+      summary: S
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maybe: {type: [string, "null"]}
+                  exact: {const: fixed}
+                  bounded: {type: integer, exclusiveMinimum: 0}
+`)
+
+	if len(result.Transactions) != 1 {
+		t.Fatalf("transactions = %d", len(result.Transactions))
+	}
+
+	// A type list including "null" means the same as 3.0's `nullable`, and a
+	// const has exactly one value it could be.
+	if got, want := result.Transactions[0].Response.Body, `{"maybe":null,"exact":"fixed","bounded":0}`; got != want {
+		t.Errorf("body = %s, want %s", got, want)
+	}
+
+	// The schema has to declare the dialect it was written in, or a validator
+	// reads 2020-12 keywords under draft-04 rules.
+	schema := result.Transactions[0].Response.Schema
+	if !strings.Contains(schema, "2020-12") {
+		t.Errorf("schema should declare 2020-12, got %s", schema)
+	}
+	// 2020-12 keywords are acted on, so warning that they are unsupported
+	// would be wrong.
+	for _, annotation := range result.Annotations {
+		if strings.Contains(annotation.Message, "exclusiveMinimum") {
+			t.Errorf("unexpected warning about a valid 2020-12 keyword: %s", annotation.Message)
+		}
+	}
+}
+
+// TestOpenAPI30KeepsItsOwnRules pins that 3.0 is unaffected: `nullable` still
+// means nullable, and its schemas still declare draft-04.
+func TestOpenAPI30KeepsItsOwnRules(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: Classic, version: "1.0.0"}
+paths:
+  /p:
+    get:
+      summary: S
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maybe: {type: string, nullable: true}
+`)
+	if got := result.Transactions[0].Response.Body; got != `{"maybe":null}` {
+		t.Errorf("body = %s", got)
+	}
+	if schema := result.Transactions[0].Response.Schema; !strings.Contains(schema, "draft-04") {
+		t.Errorf("a 3.0 schema should declare draft-04, got %s", schema)
+	}
+}
+
+func TestVersionDetection(t *testing.T) {
+	for _, test := range []struct {
+		version string
+		modern  bool
+	}{
+		{"3.0.0", false}, {"3.0.3", false}, {"3.1.0", true}, {"3.1.1", true}, {"3.2.0", true}, {"", false},
+	} {
+		if got := isModernVersion(test.version); got != test.modern {
+			t.Errorf("isModernVersion(%q) = %v, want %v", test.version, got, test.modern)
+		}
+	}
+}
+
 func TestParseRejectsMalformedYAML(t *testing.T) {
 	if _, err := Parse([]byte("openapi: \"3.0.0\"\n\tbad")); err == nil {
 		t.Error("unparseable YAML should be an error")
