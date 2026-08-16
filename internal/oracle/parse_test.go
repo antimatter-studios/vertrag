@@ -169,6 +169,24 @@ var divergences = []divergence{
 			" Both apply to this fixture, so the difference shows as a count " +
 			"rather than as any single message.",
 	},
+	{
+		fixture: "modern-dialect",
+		path:    "transactions[0].response.body",
+		reason: "Dredd VALIDATES the 2020-12 keywords now, its fork having moved " +
+			"to ajv 8, but still generates specimens as though it did not: " +
+			"exclusiveMinimum leaves the value at 0 where the document permits " +
+			"nothing below 11, and prefixItems yields an empty array where the " +
+			"document describes each position. vertrag honours both, so a " +
+			"specimen satisfies the schema it came from.",
+	},
+	{
+		fixture: "modern-dialect",
+		path:    "annotations",
+		reason: "Dredd reports const, prefixItems and dependentRequired as " +
+			"unsupported keys. It enforces all three now, and vertrag generates " +
+			"from them as well, so neither of us should be warning that they do " +
+			"nothing.",
+	},
 }
 
 // headerSchemasAreSupported explains the Header Object annotations vertrag does

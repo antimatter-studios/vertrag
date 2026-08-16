@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 
-const gavel = require('gavel');
+const gavel = require('@antimatter-studios/gavel');
 
 function main() {
   const [path] = process.argv.slice(2);

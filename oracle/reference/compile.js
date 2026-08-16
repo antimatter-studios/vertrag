@@ -21,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const fury = require('@apielements/core');
+const fury = require('@antimatter-studios/core');
 const transactions = require('@antimatter-studios/dredd-transactions');
 
 // The package is published transpiled, so a module's real export may sit behind

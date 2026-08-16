@@ -1,0 +1,31 @@
+openapi: 3.1.0
+info:
+  title: Modern dialect
+  version: "1.0.0"
+paths:
+  /modern:
+    get:
+      summary: Keywords 3.0 does not have
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maybe: {type: [string, "null"]}
+                  exact: {const: fixed}
+                  above: {type: integer, exclusiveMinimum: 10}
+                  tuple:
+                    type: array
+                    prefixItems:
+                      - {type: string}
+                      - {type: integer}
+                  needsBoth:
+                    type: object
+                    properties:
+                      a: {type: string}
+                      b: {type: string}
+                    dependentRequired:
+                      a: [b]
