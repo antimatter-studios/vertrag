@@ -451,7 +451,23 @@ func (t *Transaction) sentRequest() Request {
 func (t *Transaction) Endpoint() string { return t.endpoint }
 
 func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
-	validation := validate.Validate(t.Expected, t.Real)
+	expected := t.Expected
+
+	// A response that cannot carry a body is not checked for one, however the
+	// description describes it.
+	//
+	// A HEAD response never has a body — that is the method's whole definition
+	// — and a description that gives one a schema is describing what a GET to
+	// the same resource returns and what headers HEAD will send. Validating
+	// against it reported "the body does not parse" for every HEAD endpoint in
+	// existence, blaming a server for obeying the protocol. The same holds for
+	// 204 and 304, which RFC 9110 forbids a body on.
+	if bodiless(t.Request.Method, t.Real.StatusCode) {
+		expected.Body = ""
+		expected.BodySchema = nil
+	}
+
+	validation := validate.Validate(expected, t.Real)
 
 	result := Result{
 		Name:       t.Name,
@@ -462,7 +478,7 @@ func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
 		Validation: validation,
 		Duration:   elapsed,
 	}
-	result.Beyond = checks.run(t.Expected, t.Real)
+	result.Beyond = checks.run(expected, t.Real)
 	if len(result.Beyond) > 0 {
 		result.Status = StatusFail
 	}
@@ -507,4 +523,22 @@ func (t *Transaction) errorResult(message string, elapsed time.Duration) Result 
 		Name: t.Name, Status: StatusError, Request: t.sentRequest(),
 		Expected: t.Expected, Errors: []string{message}, Duration: elapsed,
 	}
+}
+
+// bodiless reports whether the protocol forbids this response a body,
+// whatever its description says.
+//
+// RFC 9110: a HEAD response carries none by definition, and neither does a 204
+// or a 304. A description may still give them a content type and a schema —
+// that is how a HEAD documents what its headers describe — and checking a body
+// against it blames the server for obeying the protocol.
+func bodiless(method, status string) bool {
+	if strings.EqualFold(strings.TrimSpace(method), "HEAD") {
+		return true
+	}
+	switch strings.TrimSpace(status) {
+	case "204", "304":
+		return true
+	}
+	return false
 }

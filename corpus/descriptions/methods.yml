@@ -1,0 +1,54 @@
+openapi: 3.0.0
+info:
+  title: Methods
+  version: "1.0.0"
+  description: >
+    Methods and statuses with protocol rules of their own. HEAD carries no
+    body however its response is described, a 204 and a 304 must not carry
+    one either, and a 3xx describes the redirect rather than where it
+    points.
+
+paths:
+  /resource:
+    head:
+      summary: HEAD, which never has a body
+      responses:
+        "200":
+          description: Headers only
+          content:
+            application/json:
+              schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
+    options:
+      summary: OPTIONS
+      responses:
+        "204":
+          description: No content
+    patch:
+      summary: PATCH
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, properties: {name: {type: string, minLength: 1}}}
+      responses:
+        "200":
+          description: Patched
+          content:
+            application/json:
+              schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
+
+  /moved:
+    get:
+      summary: A redirect, described rather than followed
+      responses:
+        "301":
+          description: Moved
+          headers:
+            Location:
+              schema: {type: string, minLength: 1}
+
+  /gone:
+    get:
+      summary: A 304, which must not carry a body
+      responses:
+        "304":
+          description: Not modified

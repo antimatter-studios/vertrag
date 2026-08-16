@@ -208,3 +208,35 @@ func TestADocumentedServerErrorIsNotAFinding(t *testing.T) {
 		t.Errorf("a 500 where a 503 was promised should be reported, got %v", other)
 	}
 }
+
+// TestABodilessResponseIsNotCheckedForABody pins that the protocol wins over
+// the description.
+//
+// A HEAD response never carries a body — that is the method's definition — and
+// a description giving one a schema is describing what a GET to the same
+// resource returns and what headers HEAD will send. Checking a body against it
+// reported "the response declares JSON but the body does not parse" for every
+// HEAD endpoint in existence, blaming a server for obeying the protocol. RFC
+// 9110 says the same of 204 and 304.
+func TestABodilessResponseIsNotCheckedForABody(t *testing.T) {
+	for _, test := range []struct {
+		method string
+		status string
+		want   bool
+	}{
+		{"HEAD", "200", true},
+		{"head", "200", true},
+		{"GET", "204", true},
+		{"GET", "304", true},
+		{"GET", "200", false},
+		{"POST", "201", false},
+		// A 205 does forbid content, but only in the sense that the server
+		// should send none; it is not in RFC 9110's list of responses that
+		// cannot have one, so it is left alone rather than guessed at.
+		{"GET", "205", false},
+	} {
+		if got := bodiless(test.method, test.status); got != test.want {
+			t.Errorf("bodiless(%q, %q) = %v, want %v", test.method, test.status, got, test.want)
+		}
+	}
+}
