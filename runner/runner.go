@@ -105,6 +105,17 @@ func New(endpoint string) *Runner {
 	}
 }
 
+// Send performs one transaction's request and returns what came back, without
+// validating it, running hooks, or recording a result.
+//
+// It exists for generation, which sends many bodies through one operation and
+// judges them by status alone. Reusing this rather than a fresh HTTP client
+// keeps the URL resolution, extra headers and redirect policy identical to a
+// normal run, so a finding is reproducible by `vertrag run`.
+func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate.Message, error) {
+	return r.send(ctx, newTransaction(source, r.Endpoint, r.ExtraHeaders))
+}
+
 // Run executes every transaction in order and returns the results.
 //
 // Order is the document's order, which is what makes a description that creates

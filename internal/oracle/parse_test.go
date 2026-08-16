@@ -92,7 +92,32 @@ var divergences = []divergence{
 		reason: "Dredd warns that it ignored the examples after the first. " +
 			"vertrag sends them, so it has nothing to warn about.",
 	},
+	{
+		fixture: "media-types",
+		path:    "annotations",
+		reason:  constraintsAreSupported,
+	},
+	{
+		fixture: "composition",
+		path:    "annotations",
+		reason:  constraintsAreSupported,
+	},
+	{
+		fixture: "proof-of-concept",
+		path:    "annotations[1].message",
+		reason: constraintsAreSupported + " Here the wording differs rather than " +
+			"the count, because the remaining `format` warnings come from " +
+			"parameter schemas and no longer number enough to be collapsed.",
+	},
 }
+
+// constraintsAreSupported explains the annotations vertrag does not emit.
+const constraintsAreSupported = "Dredd reports every JSON Schema constraint " +
+	"beyond type and enum as an unsupported key, because its parser does not " +
+	"act on them. vertrag passes them into the emitted schema, where they are " +
+	"enforced against the response and drawn from during generation, so " +
+	"warning that they do nothing would be false — and would invite deleting " +
+	"the very constraint being checked."
 
 // expectedDivergence finds a recorded entry for a difference.
 func expectedDivergence(fixture, difference string) (divergence, bool) {

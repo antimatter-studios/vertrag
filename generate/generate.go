@@ -259,22 +259,46 @@ func drawObject(t *rapid.T, schema Schema, mode Mode, depth int) any {
 		}
 	}
 
-	// The invalid case a server is most likely to mishandle is a missing
-	// required property. Which one is drawn rather than fixed, because a
-	// handler often checks the first and forgets the rest.
-	if mode == Invalid && len(required) > 0 {
-		names := sortedKeys(required)
-		omit := rapid.SampledFrom(names).Draw(t, "omit")
+	// An object can be invalid two ways, and a server may enforce one and not
+	// the other: a required property can be missing, or a property that IS
+	// present can break its own constraints. Checking only the first would pass
+	// any handler that verifies presence and never looks at the value, which is
+	// the more common of the two mistakes.
+	if mode == Invalid {
+		names := sortedNames(properties)
 
-		out := map[string]any{}
-		for _, name := range sortedNames(properties) {
-			if name == omit {
-				continue
+		if len(required) > 0 && (len(names) == 0 || rapid.Bool().Draw(t, "omit-required")) {
+			// Which property is dropped is drawn rather than fixed, because a
+			// handler often checks the first and forgets the rest.
+			omit := rapid.SampledFrom(sortedKeys(required)).Draw(t, "omit")
+
+			out := map[string]any{}
+			for _, name := range names {
+				if name == omit {
+					continue
+				}
+				nested, _ := properties[name].(map[string]any)
+				out[name] = draw(t, Schema(nested), Valid, depth+1)
 			}
-			nested, _ := properties[name].(map[string]any)
-			out[name] = draw(t, Schema(nested), Valid, depth+1)
+			return out
 		}
-		return out
+
+		if len(names) > 0 {
+			// Everything present and one property wrong, so a handler that
+			// checks presence but not values has something to fail on.
+			broken := rapid.SampledFrom(names).Draw(t, "break")
+
+			out := map[string]any{}
+			for _, name := range names {
+				nested, _ := properties[name].(map[string]any)
+				valueMode := Valid
+				if name == broken {
+					valueMode = Invalid
+				}
+				out[name] = draw(t, Schema(nested), valueMode, depth+1)
+			}
+			return out
+		}
 	}
 
 	out := map[string]any{}

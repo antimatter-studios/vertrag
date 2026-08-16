@@ -52,6 +52,17 @@ func draftFor(schema map[string]any) *jsonschema.Draft {
 	}
 }
 
+// AgainstSchema reports whether a body satisfies a JSON Schema.
+//
+// Exported for generation, which has to know whether the value it just drew is
+// really valid or really invalid before it can judge what the server did with
+// it. Without that check a generator bug reads as a server bug: a body meant to
+// be invalid that is in fact valid, accepted with a 201, looks exactly like a
+// server ignoring its own constraints.
+func AgainstSchema(schema json.RawMessage, body string) FieldResult {
+	return validateAgainstSchema(schema, body)
+}
+
 func validateAgainstSchema(schema json.RawMessage, body string) FieldResult {
 	field := FieldResult{Valid: true, Kind: kind("json"), Errors: []string{}}
 

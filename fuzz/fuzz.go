@@ -98,6 +98,15 @@ func Probe(ctx context.Context, schema generate.Schema, mode generate.Mode, send
 		opts.Cases = 20
 	}
 
+	// The judge compares what the server did against what the body was MEANT to
+	// be, so a body that is not what generation intended produces a finding
+	// about vertrag rather than the server. Marshalling the schema once here
+	// lets every drawn value be checked before it is sent.
+	rawSchema, err := json.Marshal(map[string]any(schema))
+	if err != nil {
+		return Finding{}, false
+	}
+
 	enableOutsideTests()
 
 	probeMu.Lock()
@@ -110,6 +119,7 @@ func Probe(ctx context.Context, schema generate.Schema, mode generate.Mode, send
 
 	collector := &collector{}
 	var found Finding
+	usable := 0
 
 	rapid.Check(collector, func(t *rapid.T) {
 		value := generate.Value(schema, mode).Draw(t, "body")
@@ -120,6 +130,18 @@ func Probe(ctx context.Context, schema generate.Schema, mode generate.Mode, send
 			// server one, and blaming the server for it would be wrong.
 			t.Skipf("generated value does not encode: %v", err)
 		}
+
+		// Confirm the value really has the validity it was drawn for, using the
+		// same validator that judges the response. Generation cannot always
+		// produce a violation — a schema whose only constraint is `const` read
+		// under draft-4 forbids nothing, because the keyword did not exist yet
+		// — and sending one of those would report a validation bypass that is
+		// really a generator limitation. The case is abandoned instead.
+		result := validate.AgainstSchema(rawSchema, string(encoded))
+		if result.Valid != (mode == generate.Valid) {
+			return
+		}
+		usable++
 
 		reply, err := send(ctx, string(encoded))
 		if err != nil {
@@ -138,9 +160,26 @@ func Probe(ctx context.Context, schema generate.Schema, mode generate.Mode, send
 	})
 
 	if !collector.failed {
+		if usable == 0 {
+			// Every drawn body was the opposite of what was asked for, so
+			// nothing was actually sent. Reporting this as a clean result would
+			// claim the operation was probed when it was not.
+			return Finding{
+				Mode: mode,
+				Message: "nothing could be generated that the schema " +
+					verb(mode) + ", so this operation was not probed",
+			}, true
+		}
 		return Finding{}, false
 	}
 	return found, true
+}
+
+func verb(mode generate.Mode) string {
+	if mode == generate.Valid {
+		return "permits"
+	}
+	return "forbids"
 }
 
 // judge decides whether a status is the right answer to the body that produced

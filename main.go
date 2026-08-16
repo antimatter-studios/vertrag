@@ -48,6 +48,8 @@ func run(args []string) error {
 		return runCompile(args[1:])
 	case "run":
 		return runRun(args[1:])
+	case "fuzz":
+		return runFuzz(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q; run `vertrag help`", args[0])
 	}
@@ -61,6 +63,9 @@ Contract-test an HTTP API against its description document.
 Usage:
   vertrag run [flags] [description] [endpoint]
                                    Test a running API against its description
+  vertrag fuzz [flags] [description] [endpoint]
+                                   Probe operations with bodies drawn from
+                                   their schema, rather than the one example
   vertrag compile [flags] <file>   Show the transactions a description yields
   vertrag version                  Print the version
 

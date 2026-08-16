@@ -166,3 +166,61 @@ func TestTransportFailureIsReported(t *testing.T) {
 		t.Error("a transport failure should be reported rather than passing silently")
 	}
 }
+
+// TestUnviolatableSchemaIsNotReportedAsABypass pins the guard against vertrag
+// blaming a server for a limitation of its own generator.
+//
+// `const` arrived in 2019-09. A schema that declares no dialect is read as
+// draft-4, where the keyword does not exist and every value satisfies it — so
+// nothing generation draws can violate this schema. Without the guard, the
+// "not permitted" value would be sent, the server would accept it (correctly),
+// and the run would report a validation bypass that is not one.
+func TestUnviolatableSchemaIsNotReportedAsABypass(t *testing.T) {
+	constUnderDraft4 := generate.Schema{"const": "widget"}
+
+	sent := 0
+	accepts := func(ctx context.Context, body string) (validate.Message, error) {
+		sent++
+		return validate.Message{StatusCode: "201"}, nil
+	}
+
+	finding, found := Probe(context.Background(), constUnderDraft4, generate.Invalid,
+		accepts, Options{Cases: 30})
+
+	if sent != 0 {
+		t.Errorf("%d request(s) sent for a schema nothing can violate; want none", sent)
+	}
+	if !found {
+		t.Fatal("an operation that could not be probed should say so, not pass quietly")
+	}
+	if !strings.Contains(finding.Message, "was not probed") {
+		t.Errorf("message = %q, want it to say the operation was not probed", finding.Message)
+	}
+}
+
+// TestDialectDeclaredMakesTheSameSchemaProbeable is the control: the only
+// difference is the declared dialect, and with it the constraint is real.
+func TestDialectDeclaredMakesTheSameSchemaProbeable(t *testing.T) {
+	constUnder2020 := generate.Schema{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"const":   "widget",
+	}
+
+	sent := 0
+	accepts := func(ctx context.Context, body string) (validate.Message, error) {
+		sent++
+		return validate.Message{StatusCode: "201"}, nil
+	}
+
+	finding, found := Probe(context.Background(), constUnder2020, generate.Invalid,
+		accepts, Options{Cases: 30})
+	if !found {
+		t.Fatal("a server accepting a value its const forbids should be found")
+	}
+	if sent == 0 {
+		t.Error("no request was sent, so nothing was tested")
+	}
+	if !strings.Contains(finding.Message, "not enforced") {
+		t.Errorf("message = %q, want the validation-bypass finding", finding.Message)
+	}
+}

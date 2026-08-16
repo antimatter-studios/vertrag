@@ -143,13 +143,22 @@ var (
 		// JSON Schema has its own extension rules and does not defer to
 		// OpenAPI's.
 		noExtensions: true,
+		// Dredd reports every constraint below as unsupported, because its own
+		// parser does not act on them. vertrag passes them into the emitted
+		// JSON Schema, where they are enforced against the response and drawn
+		// from during generation — so repeating the warning would tell people a
+		// constraint does nothing when it is the very thing being checked, and
+		// the natural response to that is to delete it. Each was measured
+		// against the validator rather than assumed.
 		supported: []string{"type", "enum", "const", "properties", "items", "required",
-			"nullable", "oneOf", "additionalProperties", "default", "title",
-			"description", "example"},
-		unsupported: []string{"allOf", "anyOf", "not", "multipleOf", "maximum",
-			"exclusiveMaximum", "minimum", "exclusiveMinimum", "maxLength", "minLength",
-			"pattern", "format", "maxItems", "minItems", "uniqueItems", "maxProperties",
-			"minProperties", "discriminator", "readOnly", "writeOnly", "xml",
+			"nullable", "oneOf", "allOf", "anyOf", "not", "additionalProperties",
+			"default", "title", "description", "example",
+			"multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum",
+			"maxLength", "minLength", "pattern", "format",
+			"maxItems", "minItems", "uniqueItems", "maxProperties", "minProperties"},
+		// These genuinely are not acted on: they describe presentation, lineage
+		// or intent rather than what a valid body looks like.
+		unsupported: []string{"discriminator", "readOnly", "writeOnly", "xml",
 			"externalDocs", "deprecated"},
 	}
 	specParameterSchema = objectSpec{

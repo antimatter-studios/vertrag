@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/antimatter-studios/vertrag/validate"
 	"pgregory.net/rapid"
 )
 
@@ -110,52 +111,84 @@ func TestValidValuesSatisfyTheirSchema(t *testing.T) {
 	}
 }
 
-// TestInvalidValuesViolateTheirSchema is the other half. A value that happens
-// to be valid would make the negative test assert nothing — the server would
-// accept it, correctly, and vertrag would call that a validation bypass.
+// TestInvalidValuesViolateTheirSchema is the other half, and it is checked
+// against the real validator rather than a hand-written predicate.
+//
+// The property that matters is "this value is one the schema forbids", not
+// "this value is missing a property" or any other particular shape of wrongness
+// — Invalid has several strategies and gains more over time. An earlier version
+// asserted the shape, and broke the moment object generation learned to send a
+// present-but-wrong property instead of omitting a required one: the value was
+// genuinely invalid, and the test said otherwise.
+//
+// Getting this wrong in the other direction is what actually costs something. A
+// value meant to be invalid that is in fact valid makes the negative test
+// assert nothing worse than nothing: the server accepts it, correctly, and the
+// run reports a validation bypass that is really a generator bug.
 func TestInvalidValuesViolateTheirSchema(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		schema  string
-		violate func(any) bool
-	}{
-		{
-			"below minLength", `{"type":"string","minLength":5}`,
-			func(v any) bool { s, ok := v.(string); return ok && len(s) < 5 },
-		},
-		{
-			"above maxLength", `{"type":"string","maxLength":3}`,
-			func(v any) bool { s, ok := v.(string); return ok && len(s) > 3 },
-		},
-		{
-			"below minimum", `{"type":"integer","minimum":10}`,
-			func(v any) bool { n, ok := v.(int64); return ok && n < 10 },
-		},
-		{
-			"outside the enum", `{"enum":["a","b"]}`,
-			func(v any) bool { return v != "a" && v != "b" },
-		},
-		{
-			"missing a required property",
-			`{"type":"object","required":["a"],"properties":{"a":{"type":"string"}}}`,
-			func(v any) bool {
-				object, ok := v.(map[string]any)
-				if !ok {
-					return false
-				}
-				_, present := object["a"]
-				return !present
-			},
-		},
+	for _, schema := range []string{
+		`{"type":"string","minLength":5}`,
+		`{"type":"string","maxLength":3}`,
+		`{"type":"integer","minimum":10}`,
+		`{"type":"integer","maximum":10}`,
+		`{"enum":["a","b"]}`,
+		// const is 2019-09 onwards. Without the dialect declared this schema
+		// is read as draft-4, where the keyword does not exist and every value
+		// satisfies it — which is a real hazard, not a test artefact, and is
+		// guarded in the fuzz package rather than here.
+		`{"$schema":"https://json-schema.org/draft/2020-12/schema","const":"widget"}`,
+		`{"type":"array","items":{"type":"string"},"minItems":2}`,
+		`{"type":"object","required":["a"],"properties":{"a":{"type":"string"}}}`,
+		`{"type":"object","required":["a","b"],"properties":{"a":{"type":"string","minLength":3},"b":{"type":"integer","minimum":18}}}`,
 	} {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(schema, func(t *testing.T) {
 			var decoded Schema
-			json.Unmarshal([]byte(test.schema), &decoded)
+			if err := json.Unmarshal([]byte(schema), &decoded); err != nil {
+				t.Fatalf("schema: %v", err)
+			}
 
 			rapid.Check(t, func(rt *rapid.T) {
 				value := Value(decoded, Invalid).Draw(rt, "value")
-				if !test.violate(value) {
-					rt.Fatalf("%#v does not violate the schema, so it tests nothing", value)
+
+				encoded, err := json.Marshal(value)
+				if err != nil {
+					rt.Fatalf("generated value does not encode: %v", err)
+				}
+				if result := validate.AgainstSchema(json.RawMessage(schema), string(encoded)); result.Valid {
+					rt.Fatalf("%s satisfies the schema, so it tests nothing", encoded)
+				}
+			})
+		})
+	}
+}
+
+// TestValidValuesAreAcceptedByTheValidator is the same check the other way
+// round, and closes the loop the fuzz package depends on: a body sent as valid
+// really is valid, so a 4xx is the server's disagreement and not vertrag's.
+func TestValidValuesAreAcceptedByTheValidator(t *testing.T) {
+	for _, schema := range []string{
+		`{"type":"string","minLength":3,"maxLength":5}`,
+		`{"type":"integer","minimum":10,"maximum":20}`,
+		`{"enum":["a","b","c"]}`,
+		`{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":3}`,
+		`{"type":"object","required":["a","b"],"properties":{"a":{"type":"string","minLength":3},"b":{"type":"integer","minimum":18,"maximum":120}}}`,
+	} {
+		t.Run(schema, func(t *testing.T) {
+			var decoded Schema
+			if err := json.Unmarshal([]byte(schema), &decoded); err != nil {
+				t.Fatalf("schema: %v", err)
+			}
+
+			rapid.Check(t, func(rt *rapid.T) {
+				value := Value(decoded, Valid).Draw(rt, "value")
+
+				encoded, err := json.Marshal(value)
+				if err != nil {
+					rt.Fatalf("generated value does not encode: %v", err)
+				}
+				result := validate.AgainstSchema(json.RawMessage(schema), string(encoded))
+				if !result.Valid {
+					rt.Fatalf("%s violates its own schema: %v", encoded, result.Errors)
 				}
 			})
 		})
