@@ -42,7 +42,7 @@ func (c Checks) run(expected, actual validate.Message) []string {
 	var findings []string
 
 	if c.ServerError {
-		if finding, found := checkServerError(actual); found {
+		if finding, found := checkServerError(expected, actual); found {
 			findings = append(findings, finding)
 		}
 	}
@@ -75,9 +75,16 @@ func (c Checks) run(expected, actual validate.Message) []string {
 // other mismatch. It is not: a 5xx means the server broke rather than
 // disagreed, and it is worth naming as its own kind of failure — it is the
 // single most common thing an API test finds.
-func checkServerError(actual validate.Message) (string, bool) {
+func checkServerError(expected, actual validate.Message) (string, bool) {
 	status, err := strconv.Atoi(strings.TrimSpace(actual.StatusCode))
 	if err != nil || status < 500 || status > 599 {
+		return "", false
+	}
+
+	// A 5xx the description documents is not a failure, it is the documented
+	// outcome. Some APIs publish an error contract and a test that reports
+	// conformance to it as a fault is reporting the description for existing.
+	if statusMatches(expected, actual) {
 		return "", false
 	}
 	return "the server returned " + actual.StatusCode +

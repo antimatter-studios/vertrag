@@ -172,3 +172,39 @@ func TestAViolatingHeaderFailsAWholeRun(t *testing.T) {
 		t.Errorf("status = %s, want pass: %v", results[0].Status, results[0].Errors)
 	}
 }
+
+// TestADocumentedServerErrorIsNotAFinding pins that a 5xx the description
+// promises is conformance rather than a fault.
+//
+// The check fired on any 5xx whatever was expected, so an API publishing an
+// error contract — a documented 500 for an internal failure — was reported for
+// obeying it. That is the check reporting the description for existing.
+func TestADocumentedServerErrorIsNotAFinding(t *testing.T) {
+	documented := Checks{ServerError: true}.run(
+		validate.Message{StatusCode: "500"},
+		validate.Message{StatusCode: "500"},
+	)
+	if len(documented) != 0 {
+		t.Errorf("a documented 500 should not be a finding, got %v", documented)
+	}
+
+	// An undocumented one still is: there the server failed where something
+	// else was promised, which is the whole point of the check.
+	unexpected := Checks{ServerError: true}.run(
+		validate.Message{StatusCode: "200"},
+		validate.Message{StatusCode: "500"},
+	)
+	if len(unexpected) != 1 {
+		t.Errorf("an undocumented 500 should be reported, got %v", unexpected)
+	}
+
+	// And a DIFFERENT 5xx from the one promised is still a finding: a
+	// description documenting a 503 says nothing about a 500.
+	other := Checks{ServerError: true}.run(
+		validate.Message{StatusCode: "503"},
+		validate.Message{StatusCode: "500"},
+	)
+	if len(other) != 1 {
+		t.Errorf("a 500 where a 503 was promised should be reported, got %v", other)
+	}
+}

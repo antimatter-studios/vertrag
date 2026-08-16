@@ -1,0 +1,41 @@
+openapi: 3.0.0
+info:
+  title: Multiple representations
+  version: "1.0.0"
+  description: >
+    One operation offering several representations, and a response with no
+    schema at all. Each is a place a tester can pick the wrong exchange, or
+    check a body it was never given anything to check against.
+
+paths:
+  /widget:
+    get:
+      summary: Two representations of one resource
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: {type: integer, minimum: 1}
+            text/csv:
+              schema: {type: string}
+
+  /opaque:
+    get:
+      summary: A response the description says nothing about
+      responses:
+        "200":
+          description: Something comes back and the document does not say what
+
+  /described:
+    get:
+      summary: A described status with no content key
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: The server broke

@@ -177,7 +177,8 @@ func TestFaultsNotExercisedByARunAreListed(t *testing.T) {
 		corpus.FaultRejectsValidInput:    true,
 	}
 	// Reachable only by sending input the description forbids, which is
-	// generation's job.
+	// generation's job — and is asserted there, in
+	// TestGenerationFindsTheFaultsARunCannot, rather than merely claimed here.
 	reachedByGeneration := map[corpus.Fault]bool{
 		corpus.FaultAcceptsAnyParameter: true,
 		corpus.FaultAcceptsAnyBody:      true,
