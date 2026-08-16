@@ -155,3 +155,83 @@ func TestABrokenDocumentNeverPanicsOrHangs(t *testing.T) {
 		}
 	}
 }
+
+// TestAnUnsendableHeaderValueIsTheDocumentsFault pins where the blame goes.
+//
+// A header value carrying a line break cannot be sent — net/http refuses it,
+// and rightly, since splitting a value across lines is how a request is forged.
+// Without this the refusal arrived from the transport as
+// `net/http: invalid header field value`, which reads as the server or the
+// network breaking, and sends the reader to look at a server that was never
+// asked anything.
+func TestAnUnsendableHeaderValueIsTheDocumentsFault(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: T, version: "1.0"}
+paths:
+  /h:
+    get:
+      parameters:
+        - name: X-Forged
+          in: header
+          example: "value\nX-Injected: evil"
+          schema: {type: string}
+      responses:
+        "200": {description: OK}
+`)
+
+	var said string
+	for _, annotation := range result.Annotations {
+		if strings.Contains(annotation.Message, "line break") {
+			said = annotation.Message
+			if annotation.Type != "error" {
+				t.Errorf("reported as %q; a request that cannot be sent is not a warning", annotation.Type)
+			}
+		}
+	}
+	if said == "" {
+		t.Fatalf("nothing said about a header value that cannot be sent: %v", result.Annotations)
+	}
+	if !strings.Contains(said, "X-Forged") {
+		t.Errorf("the message does not name the parameter: %s", said)
+	}
+}
+
+// TestNonASCIIHeaderValuesAreStillSent pins the other side of that rule.
+//
+// Bytes above ASCII are outside what the header grammar strictly permits and
+// are sent by every client in practice. Refusing them would fail documents that
+// work perfectly well.
+func TestNonASCIIHeaderValuesAreStillSent(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: T, version: "1.0"}
+paths:
+  /h:
+    get:
+      parameters:
+        - name: X-Unicode
+          in: header
+          example: "café-中文-🎉"
+          schema: {type: string}
+      responses:
+        "200": {description: OK}
+`)
+
+	for _, annotation := range result.Annotations {
+		t.Errorf("unexpected diagnostic for a non-ASCII header: %s", annotation.Message)
+	}
+	if len(result.Transactions) != 1 {
+		t.Fatalf("transactions = %d, want 1", len(result.Transactions))
+	}
+
+	var sent string
+	for _, header := range result.Transactions[0].Request.Headers {
+		if header.Name == "X-Unicode" {
+			sent = header.Value
+		}
+	}
+	if sent != "café-中文-🎉" {
+		t.Errorf("header value = %q, want it carried through intact", sent)
+	}
+}

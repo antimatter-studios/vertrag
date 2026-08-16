@@ -405,8 +405,37 @@ func (d *document) validateParameter(parameter node) []annotation {
 			}, in))
 		}
 
+		// A header value carrying a carriage return or a line feed cannot be
+		// sent at all: net/http refuses it, and rightly, since splitting a
+		// header value across lines is how a request is forged. Caught here
+		// because the failure otherwise arrives from the transport, reading as
+		// though the server or the network broke — so the reader goes looking
+		// at their server when the fault is in their document.
+		if p.Get("in").Str() == "header" {
+			if example, ok := schemaExample(p); ok {
+				if text, isText := example.(string); isText && !sendableHeaderValue(text) {
+					out = append(out, d.at(annotation{
+						class: "error",
+						message: fmt.Sprintf(
+							"'Parameter Object' %q gives a header value containing a line break, "+
+								"which cannot be sent",
+							p.Get("name").Str()),
+					}, p.Get("name")))
+				}
+			}
+		}
+
 		return append(out, d.validateSchema(p.Get("schema"), specParameterSchema)...)
 	})
+}
+
+// sendableHeaderValue reports whether a value can travel as a header.
+//
+// Only the line breaks are refused. Bytes above ASCII are technically outside
+// what the grammar permits and are sent by every client in practice, so
+// rejecting them would fail documents that work.
+func sendableHeaderValue(value string) bool {
+	return !strings.ContainsAny(value, "\r\n")
 }
 
 func (d *document) validateRequestBody(body node) []annotation {
