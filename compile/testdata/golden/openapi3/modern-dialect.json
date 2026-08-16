@@ -1,0 +1,37 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/modern",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"maybe\":null,\"exact\":\"fixed\",\"above\":11,\"tuple\":[\"\",0],\"needsBoth\":{\"a\":\"\",\"b\":\"\"}}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"maybe\":{\"type\":[\"string\",\"null\"]},\"exact\":{\"const\":\"fixed\"},\"above\":{\"type\":\"integer\",\"exclusiveMinimum\":10},\"tuple\":{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]},\"needsBoth\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"b\":{\"type\":\"string\"}},\"dependentRequired\":{\"a\":[\"b\"]}}},\"$schema\":\"https://json-schema.org/draft/2020-12/schema\"}"
+      },
+      "name": "Modern dialect \u003e /modern \u003e Keywords 3.0 does not have \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "modern-dialect.yml",
+        "apiName": "Modern dialect",
+        "resourceGroupName": "",
+        "resourceName": "/modern",
+        "actionName": "Keywords 3.0 does not have",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ]
+}

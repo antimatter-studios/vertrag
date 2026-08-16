@@ -1,0 +1,294 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/form",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": "field="
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Media Types \u003e /form \u003e URL-encoded form body \u003e 204",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/form",
+        "actionName": "URL-encoded form body",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/multipart",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "multipart/form-data; boundary=vertrag-boundary"
+          }
+        ],
+        "body": "--vertrag-boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"file\"\r\n\r\nvertrag placeholder\r\n--vertrag-boundary--\r\n"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Media Types \u003e /multipart \u003e Multipart form body \u003e 200",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/multipart",
+        "actionName": "Multipart form body",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/binary",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/octet-stream"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/octet-stream"
+          }
+        ]
+      },
+      "name": "Media Types \u003e /binary \u003e Binary response \u003e 200 \u003e application/octet-stream",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/binary",
+        "actionName": "Binary response",
+        "exampleName": "200 \u003e application/octet-stream"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/text",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/plain"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": "a line of text"
+      },
+      "name": "Media Types \u003e /text \u003e Plain text response \u003e 200 \u003e text/plain",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/text",
+        "actionName": "Plain text response",
+        "exampleName": "200 \u003e text/plain"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/xml",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/xml"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/xml"
+          }
+        ]
+      },
+      "name": "Media Types \u003e /xml \u003e XML response \u003e 200 \u003e application/xml",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/xml",
+        "actionName": "XML response",
+        "exampleName": "200 \u003e application/xml"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/suffixed-json",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/vnd.example+json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/vnd.example+json"
+          }
+        ],
+        "body": "{\"ok\":false}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Media Types \u003e /suffixed-json \u003e A +json suffixed media type \u003e 200 \u003e application/vnd.example+json",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/suffixed-json",
+        "actionName": "A +json suffixed media type",
+        "exampleName": "200 \u003e application/vnd.example+json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/charset",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json; charset=utf-8"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json; charset=utf-8"
+          }
+        ],
+        "body": "{\"ok\":false}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Media Types \u003e /charset \u003e Media type carrying a charset parameter \u003e 200 \u003e application/json; charset=utf-8",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/charset",
+        "actionName": "Media type carrying a charset parameter",
+        "exampleName": "200 \u003e application/json; charset=utf-8"
+      }
+    },
+    {
+      "request": {
+        "method": "DELETE",
+        "uri": "/no-content",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": []
+      },
+      "name": "Media Types \u003e /no-content \u003e Response with no content at all \u003e 204",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/no-content",
+        "actionName": "Response with no content at all",
+        "exampleName": "204"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/status-range",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Media Types \u003e /status-range \u003e Status code range \u003e 200",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/status-range",
+        "actionName": "Status code range",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/default-only",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"message\":\"\"}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Media Types \u003e /default-only \u003e Only a default response \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "media-types.yml",
+        "apiName": "Media Types",
+        "resourceGroupName": "",
+        "resourceName": "/default-only",
+        "actionName": "Only a default response",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ],
+  "annotations": [
+    "warning: 'Responses Object' response status code ranges are unsupported"
+  ]
+}

@@ -64,11 +64,39 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
 	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return f, err
 	}
-	f.positional = fs.Args()
+	f.positional = positional
 	return f, nil
+}
+
+// parseInterspersed parses flags that appear before, after or between the
+// positional arguments, and returns the positional ones.
+//
+// Go's flag package stops at the first argument that is not a flag, so
+// `vertrag run api.yml http://host --details` puts `--details` in the
+// positional list and silently ignores it. Dredd accepts flags anywhere, its
+// own documentation writes them last, and a flag that is quietly dropped is
+// indistinguishable from one that had no effect.
+//
+// The loop is the standard idiom: parse, take the first leftover as positional,
+// parse again from what follows. Flag values are still consumed by Parse, so
+// `--only NAME` keeps its argument rather than NAME becoming positional.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return positional, nil
+		}
+		positional = append(positional, args[0])
+		args = args[1:]
+	}
 }
 
 // settingsFor merges the config file with the command line.
@@ -84,6 +112,7 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 
 	if f.endpoint != "" {
+		noteOverride(&settings, "the endpoint", f.endpoint, settings.Endpoint)
 		settings.Endpoint = f.endpoint
 	}
 	if f.dryRun {
@@ -156,17 +185,20 @@ func runRun(args []string) error {
 	for _, key := range settings.Unsupported {
 		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
 	}
+	for _, note := range settings.Notes {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
 
-	source, err := os.ReadFile(settings.Blueprint)
+	source, err := os.ReadFile(settings.Spec)
 	if err != nil {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
 
-	parsed, err := apidesc.Parse(source, settings.Blueprint)
+	parsed, err := apidesc.Parse(source, settings.Spec)
 	if err != nil {
-		return fmt.Errorf("parsing %s: %w", settings.Blueprint, err)
+		return fmt.Errorf("parsing %s: %w", settings.Spec, err)
 	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Blueprint)
+	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
 
 	annotations.Annotations(toAnnotations(result.Annotations))
 	if hasErrors(result.Annotations) {
@@ -197,6 +229,10 @@ func runRun(args []string) error {
 
 	engine := runner.New(settings.Endpoint)
 	engine.ExtraHeaders = settings.Header
+
+	if err := applyConfiguredRules(ctx, engine, settings, transactions); err != nil {
+		return err
+	}
 
 	// Sequencing is opt-in because it reorders a run, and a suite whose hooks
 	// were written against document order would notice. It is not exploratory —
@@ -343,13 +379,33 @@ func resolveConfig(path string, positional []string) (config.Config, error) {
 
 	// Positional arguments are Dredd's own calling convention:
 	//   vertrag run <description> <endpoint>
+	//
+	// They win over the file. Dredd resolves this the other way — a dredd.yml
+	// silently outranks what you typed — and an afternoon has been lost to
+	// running `dredd ./api.json http://localhost:4001` in a directory whose
+	// dredd.yml named a different endpoint, and reading a hundred connection
+	// errors against the port that was not asked for. So where the two disagree,
+	// say which one is being used rather than leaving it to be deduced.
 	if len(positional) > 0 {
-		settings.Blueprint = positional[0]
+		noteOverride(&settings, "the description", positional[0], settings.Spec)
+		settings.Spec = positional[0]
 	}
 	if len(positional) > 1 {
+		noteOverride(&settings, "the endpoint", positional[1], settings.Endpoint)
 		settings.Endpoint = positional[1]
 	}
 	return settings, nil
+}
+
+// noteOverride records that an argument displaced a different value from the
+// configuration file. Agreement is silent: only a disagreement is surprising.
+func noteOverride(settings *config.Config, what, argument, configured string) {
+	if settings.Source == "" || configured == "" || configured == argument {
+		return
+	}
+	settings.Notes = append(settings.Notes, fmt.Sprintf(
+		"using %s %s from the command line; %s says %s",
+		what, argument, settings.Source, configured))
 }
 
 // stripAPIName removes the API title from the front of each transaction name.

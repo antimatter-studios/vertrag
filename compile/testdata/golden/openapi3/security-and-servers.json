@@ -1,0 +1,149 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/secured",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Security and Servers \u003e /secured \u003e Operation with its own security \u003e 200",
+      "origin": {
+        "filename": "security-and-servers.yml",
+        "apiName": "Security and Servers",
+        "resourceGroupName": "",
+        "resourceName": "/secured",
+        "actionName": "Operation with its own security",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/unsecured",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Security and Servers \u003e /unsecured \u003e Operation opting out of security \u003e 200",
+      "origin": {
+        "filename": "security-and-servers.yml",
+        "apiName": "Security and Servers",
+        "resourceGroupName": "",
+        "resourceName": "/unsecured",
+        "actionName": "Operation opting out of security",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/with-servers",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Security and Servers \u003e /with-servers \u003e Operation overriding the server \u003e 200",
+      "origin": {
+        "filename": "security-and-servers.yml",
+        "apiName": "Security and Servers",
+        "resourceGroupName": "",
+        "resourceName": "/with-servers",
+        "actionName": "Operation overriding the server",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/cookie-param",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Security and Servers \u003e /cookie-param \u003e Cookie parameter \u003e 200",
+      "origin": {
+        "filename": "security-and-servers.yml",
+        "apiName": "Security and Servers",
+        "resourceGroupName": "",
+        "resourceName": "/cookie-param",
+        "actionName": "Cookie parameter",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/deprecated",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Security and Servers \u003e /deprecated \u003e Deprecated operation with an external doc \u003e 200",
+      "origin": {
+        "filename": "security-and-servers.yml",
+        "apiName": "Security and Servers",
+        "resourceGroupName": "",
+        "resourceName": "/deprecated",
+        "actionName": "Deprecated operation with an external doc",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/extensions",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"ok\":false}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Security and Servers \u003e /extensions \u003e Specification extensions are allowed anywhere \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "security-and-servers.yml",
+        "apiName": "Security and Servers",
+        "resourceGroupName": "",
+        "resourceName": "/extensions",
+        "actionName": "Specification extensions are allowed anywhere",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ],
+  "annotations": [
+    "warning: 'Operation Object' contains unsupported key 'deprecated'",
+    "warning: 'Operation Object' contains unsupported key 'externalDocs'",
+    "warning: 'Parameter Object' 'in' 'cookie' is unsupported",
+    "warning: 'Schema Object' contains invalid key 'x-custom-schema-key'",
+    "warning: 'Security Scheme Object' contains unsupported key 'bearerFormat'"
+  ]
+}

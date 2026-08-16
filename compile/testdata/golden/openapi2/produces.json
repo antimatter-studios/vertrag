@@ -1,0 +1,66 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      },
+      "name": "Produces Header \u003e /test \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "produces.yml",
+        "apiName": "Produces Header",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test-with-override",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ]
+      },
+      "name": "Produces Header \u003e /test-with-override \u003e GET \u003e 200 \u003e text/plain",
+      "origin": {
+        "filename": "produces.yml",
+        "apiName": "Produces Header",
+        "resourceGroupName": "",
+        "resourceName": "/test-with-override",
+        "actionName": "GET",
+        "exampleName": "200 \u003e text/plain"
+      }
+    }
+  ]
+}

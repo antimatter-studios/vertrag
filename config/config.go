@@ -23,10 +23,14 @@ import (
 
 // Config is a test run's settings.
 type Config struct {
-	// Blueprint is the API description document to test against. Dredd calls it
-	// a blueprint whatever the format, and the key is kept for compatibility.
-	Blueprint string
-	Endpoint  string
+	// Spec is the API description document to test against, from the `spec` key.
+	//
+	// It was `blueprint`, which is still read and no longer documented: the key
+	// was named after API Blueprint, and that is the one format vertrag does not
+	// support. A primary setting named after the thing it cannot do is worse
+	// than a rename.
+	Spec     string
+	Endpoint string
 
 	// Hookfiles are loaded by a language-specific worker, except for Go, which
 	// has no hooks yet.
@@ -66,6 +70,17 @@ type Config struct {
 	// from would have missed it.
 	Checks Checks
 
+	// Auth logs the run in once and carries the result on every request. It is
+	// read only from a vertrag file — see Discover.
+	Auth Auth
+
+	// Skip takes transactions out of the run. Read only from a vertrag file.
+	Skip []SkipRule
+
+	// ConditionalHeaders are the `header` entries written in vertrag's
+	// conditional form. Read only from a vertrag file.
+	ConditionalHeaders []HeaderRule
+
 	// Source is the file these settings came from, or "" for defaults.
 	Source string
 
@@ -73,6 +88,11 @@ type Config struct {
 	// acted on. The caller reports them, so a run never quietly ignores what
 	// the user asked for.
 	Unsupported []string
+
+	// Notes are messages about the configuration to print verbatim. Unsupported
+	// says "vertrag cannot do this yet", which is the wrong thing to say about
+	// a key that works perfectly well from the right file.
+	Notes []string
 }
 
 // Checks selects the checks beyond Dredd's.
@@ -92,11 +112,91 @@ type Checks struct {
 	HeaderSchema bool
 }
 
+// Auth describes how a run authenticates itself.
+//
+// This exists because authentication is the one thing very nearly every suite
+// needs and almost none of it is specific to the project: log in, keep the
+// credential, send it on everything afterwards. Expressing that as a hook file
+// costs a worker process and a language runtime to run three steps that do not
+// vary. What genuinely does vary — deriving a value per transaction, reacting to
+// a response — stays in hooks, which is why this block deliberately has no
+// conditionals in it.
+type Auth struct {
+	// Login is the request that obtains the credential. Zero value means the
+	// credential is static and Header carries it directly.
+	Login Login
+
+	// Carry is how the credential is sent back: "cookie" or "bearer".
+	Carry string
+
+	// Cookie names a single cookie to keep out of the login response, for a
+	// server that sets several and only one of them authenticates.
+	Cookie string
+
+	// Header sets a fixed header on every request, for an API key or a token
+	// that does not need logging in for. Written as "Name: value".
+	Header string
+
+	// Except names transactions that must go out unauthenticated. A login
+	// endpoint's own 401 case cannot be tested while holding a valid
+	// credential, so this is needed by any suite that documents one.
+	Except []string
+}
+
+// HeaderRule adds a header to the transactions it matches.
+//
+// It shares the `header` key with Dredd's plain `Name: value` strings rather
+// than taking a `headers:` of its own, because two keys a letter apart that did
+// different things would be read wrong at a glance and mistyped forever.
+type HeaderRule struct {
+	Name  string
+	Value string
+
+	// Status and Method are the conditions, both optional. Empty matches every
+	// transaction, which is the same as writing a plain string entry.
+	Status string
+	Method string
+}
+
+// SkipRule takes one transaction out of the run.
+//
+// The reason is optional but strongly worth giving: it is printed with the skip,
+// so a report says why 40 transactions did not run instead of only that they
+// did not. A skip list is where a suite's unexamined debt collects, and one that
+// states its reasons is one somebody can eventually work through.
+type SkipRule struct {
+	Name   string
+	Reason string
+}
+
+// Login is the request that obtains a credential.
+type Login struct {
+	Method string
+	Path   string
+	Body   map[string]any
+}
+
+// Configured reports whether any authentication was asked for.
+func (a Auth) Configured() bool {
+	return a.Login.Path != "" || a.Header != ""
+}
+
 // Filenames are tried in order. A vertrag file wins over a Dredd one, so a
 // project can add its own settings without touching what it already has.
 var Filenames = []string{"vertrag.yml", "vertrag.yaml", "dredd.yml", "dredd.yaml"}
 
 // Discover finds a configuration file in the working directory.
+//
+// A vertrag file and a Dredd file are alternatives, not layers: the first found
+// is the whole configuration and the other is not read. Merging them would mean
+// a key's effect depended on a file it never mentions, and a setting silently
+// outranked from somewhere else is expensive to diagnose. A project running both
+// testers keeps a file per tester, each complete on its own.
+//
+// Reading dredd.yml is a migration convenience with an expected end, not a
+// second supported format. vertrag's own keys go only in a vertrag file, and as
+// the two formats diverge the fallback is expected to be removed — so anything
+// written here should be read as "still works for now".
 func Discover() string {
 	for _, name := range Filenames {
 		if _, err := os.Stat(name); err == nil {
@@ -117,6 +217,9 @@ func IsDreddFile(path string) bool {
 // be told from one explicitly set to a zero value — `color: false` means
 // something different from no `color` key at all.
 type file struct {
+	Spec *string `yaml:"spec"`
+	// Blueprint is the former spelling of `spec`. Still read so no existing
+	// config breaks, deliberately absent from the documentation.
 	Blueprint  *string  `yaml:"blueprint"`
 	Endpoint   *string  `yaml:"endpoint"`
 	Hookfiles  any      `yaml:"hookfiles"`
@@ -124,9 +227,11 @@ type file struct {
 	Server     *string  `yaml:"server"`
 	ServerWait *float64 `yaml:"server-wait"`
 
-	Method       []string `yaml:"method"`
-	Only         []string `yaml:"only"`
-	Header       []string `yaml:"header"`
+	Method []string `yaml:"method"`
+	Only   []string `yaml:"only"`
+	// Header is `any` because an entry may be Dredd's `Name: value` string or
+	// vertrag's conditional form — see toHeaderRules.
+	Header       []any    `yaml:"header"`
 	Path         []string `yaml:"path"`
 	Sorted       *bool    `yaml:"sorted"`
 	DryRun       *bool    `yaml:"dry-run"`
@@ -153,6 +258,28 @@ type file struct {
 
 	// vertrag's own.
 	Checks *checksFile `yaml:"checks"`
+	Auth   *authFile   `yaml:"auth"`
+	// Skip is `any` because an entry may be written either way — see toSkipRules.
+	Skip []any `yaml:"skip"`
+}
+
+// authFile is the `auth` section. Dredd has no equivalent: authenticating a
+// suite there means a hook file, a worker process and a language runtime to run
+// it in, to do what is nearly always the same three steps — log in once, keep
+// what came back, send it on everything after.
+type authFile struct {
+	Login  *loginFile `yaml:"login"`
+	Carry  *string    `yaml:"carry"`
+	Cookie *string    `yaml:"cookie"`
+	Header *string    `yaml:"header"`
+	Except []string   `yaml:"except"`
+}
+
+// loginFile is the request that obtains the credential.
+type loginFile struct {
+	Method *string        `yaml:"method"`
+	Path   *string        `yaml:"path"`
+	Body   map[string]any `yaml:"body"`
 }
 
 // checksFile is the `checks` section, which Dredd has no equivalent of.
@@ -193,12 +320,163 @@ func Load(path string) (Config, error) {
 	}
 
 	apply(&config, parsed)
+
+	// vertrag's own keys are honoured only from a vertrag file. Read out of a
+	// dredd.yml, `auth` would authenticate vertrag's run and not Dredd's — and
+	// Dredd ignores keys it does not recognise without a word — so a project
+	// running both would have the two quietly testing different things.
+	switch {
+	case parsed.Spec != nil && parsed.Blueprint != nil:
+		config.Notes = append(config.Notes, fmt.Sprintf(
+			"%s sets both `spec` and `blueprint`; using spec (%s). `blueprint` is the "+
+				"former name for the same setting and can be deleted.", path, config.Spec))
+	case parsed.Blueprint != nil && !IsDreddFile(path):
+		// Not said for a Dredd file, which is already told about renaming itself
+		// and does not need a second migration note in the same breath.
+		config.Notes = append(config.Notes, fmt.Sprintf(
+			"%s uses `blueprint`, which still works and is no longer documented. It is "+
+				"now `spec` — the old name came from API Blueprint, the one format "+
+				"vertrag does not support.", path))
+	}
+
+	var own []string
+	if parsed.Auth != nil {
+		own = append(own, "`auth`")
+	}
+	if len(parsed.Skip) > 0 {
+		own = append(own, "`skip`")
+	}
+	conditional := toHeaderRules(parsed.Header)
+	if len(conditional) > 0 {
+		own = append(own, "the conditional entries in `header`")
+	}
+
+	switch {
+	case len(own) == 0:
+	case IsDreddFile(path):
+		config.Notes = append(config.Notes, fmt.Sprintf(
+			"%s in %s %s ignored: keys that change what is sent or run are read "+
+				"only from a vertrag.yml, because Dredd ignores keys it does not "+
+				"know without a word, and the two testers would then disagree about "+
+				"what they tested from one file that looks shared. Move them to a "+
+				"vertrag.yml, which may hold everything %s does.",
+			strings.Join(own, " and "), path, plural(len(own), "is", "are"), path))
+	default:
+		if parsed.Auth != nil {
+			applyAuth(&config.Auth, *parsed.Auth)
+		}
+		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
+		config.ConditionalHeaders = append(config.ConditionalHeaders, conditional...)
+	}
+
 	config.Source = path
 	return config, nil
 }
 
+// toHeaderRules reads the conditional entries out of the `header` list,
+// ignoring the plain strings that apply.go already took:
+//
+//	header:
+//	  - 'X-Trace: on'                       # Dredd's form, every transaction
+//	  - name: X-Mock-Scenario               # vertrag's, matched transactions
+//	    value: absent
+//	    when: {status: 404}
+//
+// A status is compared as text so `404` and `"404"` mean the same thing. YAML
+// reads the first as a number, and a config failing over the quotes would be a
+// silly way to lose an afternoon.
+func toHeaderRules(entries []any) []HeaderRule {
+	var rules []HeaderRule
+	for _, entry := range entries {
+		fields, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		name, _ := fields["name"].(string)
+		if name == "" {
+			continue
+		}
+		rule := HeaderRule{Name: name}
+		rule.Value, _ = fields["value"].(string)
+
+		if when, ok := fields["when"].(map[string]any); ok {
+			if status, present := when["status"]; present {
+				rule.Status = strings.TrimSpace(fmt.Sprint(status))
+			}
+			rule.Method, _ = when["method"].(string)
+		}
+		rules = append(rules, rule)
+	}
+	return rules
+}
+
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+	return many
+}
+
+// toSkipRules reads the `skip` list, whose entries may be a bare name or a
+// mapping carrying the reason:
+//
+//	skip:
+//	  - '/devices > List > 500 > application/json'
+//	  - name: '/devices/{id} > Get > 404 > application/json'
+//	    reason: the mock always finds the device
+//
+// Both forms are accepted because requiring the long one for every entry would
+// push people to the short one everywhere and lose the reasons entirely.
+func toSkipRules(entries []any) []SkipRule {
+	var rules []SkipRule
+	for _, entry := range entries {
+		switch value := entry.(type) {
+		case string:
+			if value != "" {
+				rules = append(rules, SkipRule{Name: value})
+			}
+		case map[string]any:
+			name, _ := value["name"].(string)
+			if name == "" {
+				continue
+			}
+			reason, _ := value["reason"].(string)
+			rules = append(rules, SkipRule{Name: name, Reason: reason})
+		}
+	}
+	return rules
+}
+
+func applyAuth(auth *Auth, parsed authFile) {
+	setString(&auth.Carry, parsed.Carry)
+	setString(&auth.Cookie, parsed.Cookie)
+	setString(&auth.Header, parsed.Header)
+	auth.Except = append(auth.Except, parsed.Except...)
+
+	if parsed.Login != nil {
+		setString(&auth.Login.Method, parsed.Login.Method)
+		setString(&auth.Login.Path, parsed.Login.Path)
+		auth.Login.Body = parsed.Login.Body
+		// A login is a POST unless it says otherwise; nothing else is common
+		// enough to be worth making every config state it.
+		if auth.Login.Method == "" && auth.Login.Path != "" {
+			auth.Login.Method = "POST"
+		}
+	}
+
+	// A login that captures a cookie is carrying a cookie. Making the config say
+	// so twice is a chance to say it inconsistently.
+	if auth.Carry == "" && auth.Cookie != "" {
+		auth.Carry = "cookie"
+	}
+}
+
 func apply(config *Config, parsed file) {
-	setString(&config.Blueprint, parsed.Blueprint)
+	// The old spelling first, so `spec` wins when a file carries both. Load
+	// reports that rather than letting it be discovered by experiment.
+	setString(&config.Spec, parsed.Blueprint)
+	setString(&config.Spec, parsed.Spec)
 	setString(&config.Endpoint, parsed.Endpoint)
 	setString(&config.Language, parsed.Language)
 	setString(&config.Server, parsed.Server)
@@ -224,7 +502,10 @@ func apply(config *Config, parsed file) {
 
 	config.Method = append(config.Method, parsed.Method...)
 	config.Only = append(config.Only, parsed.Only...)
-	config.Header = append(config.Header, parsed.Header...)
+	// Only the plain `Name: value` strings are taken here. The conditional form
+	// is vertrag's own and is applied in Load, which knows which file it came
+	// from.
+	config.Header = append(config.Header, toStrings(parsed.Header)...)
 	config.Path = append(config.Path, parsed.Path...)
 	config.Hookfiles = append(config.Hookfiles, toStrings(parsed.Hookfiles)...)
 
@@ -244,6 +525,15 @@ func apply(config *Config, parsed file) {
 		setBool(&config.Checks.HeaderSchema, parsed.Checks.HeaderSchema)
 	}
 
+	// Keys read into Config and then acted on by nobody. They were reported as
+	// supported because the field existed, which is the worst way to be wrong
+	// about it: `names: true` asked for a list of transaction names and got a
+	// test run instead, and `user` asked for credentials on every request and
+	// got none, both without a word.
+	//
+	// Listed by hand rather than derived, because "the field is never read" is
+	// not something the compiler will tell us — an unused struct field is legal.
+	// `require` and `custom` are `any`, so isSet can inspect them.
 	for key, value := range map[string]any{
 		"require": parsed.Require,
 		"custom":  parsed.Custom,
@@ -251,6 +541,34 @@ func apply(config *Config, parsed file) {
 		if isSet(value) {
 			config.Unsupported = append(config.Unsupported, key)
 		}
+	}
+
+	// The rest are typed pointers and slices, and must NOT go through isSet: a
+	// nil *string put in an `any` is not the untyped nil isSet tests for — the
+	// interface is non-nil and holds a nil pointer — so every one of them would
+	// read as set, and a config full of `server: null` would warn about all of
+	// it. Checked explicitly instead.
+	for _, unsupported := range []struct {
+		key string
+		set bool
+	}{
+		{"server", parsed.Server != nil && *parsed.Server != ""},
+		{"user", parsed.User != nil && *parsed.User != ""},
+		{"path", len(parsed.Path) > 0},
+		{"names", parsed.Names != nil && *parsed.Names},
+		{"inline-errors", parsed.InlineErrors != nil && *parsed.InlineErrors},
+	} {
+		if unsupported.set {
+			config.Unsupported = append(config.Unsupported, unsupported.key)
+		}
+	}
+
+	// `loglevel` is also not acted on, but nearly every configuration carries
+	// `loglevel: warning` — Dredd's own default, written out by its config
+	// generator — and warning about that on every run would be noise nobody
+	// reads. Only a level that was asked for on purpose is worth mentioning.
+	if parsed.LogLevel != nil && *parsed.LogLevel != "" && *parsed.LogLevel != Default().LogLevel {
+		config.Unsupported = append(config.Unsupported, "loglevel")
 	}
 }
 
@@ -333,8 +651,8 @@ func setDuration(target *time.Duration, value *float64, unit time.Duration) {
 
 // Validate reports settings that would make a run impossible.
 func (c Config) Validate() error {
-	if c.Blueprint == "" {
-		return fmt.Errorf("no API description given: set `blueprint` in the config or pass one as an argument")
+	if c.Spec == "" {
+		return fmt.Errorf("no API description given: set `spec` in the config or pass one as an argument")
 	}
 	if c.Endpoint == "" {
 		return fmt.Errorf("no endpoint given: set `endpoint` in the config or pass --endpoint")

@@ -1,0 +1,25 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/search?emoji=%F0%9F%8E%89\u0026control=a%0Ab\u0026bmp=caf%C3%A9",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Awkward encoding \u003e /search \u003e Values that break an encoder \u003e 200",
+      "origin": {
+        "filename": "awkward-encoding.yml",
+        "apiName": "Awkward encoding",
+        "resourceGroupName": "",
+        "resourceName": "/search",
+        "actionName": "Values that break an encoder",
+        "exampleName": "200"
+      }
+    }
+  ]
+}

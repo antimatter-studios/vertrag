@@ -1,0 +1,265 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/typed",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"name\":\"\",\"count\":0,\"active\":false,\"tags\":[]}"
+      },
+      "response": {
+        "status": "201",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"id\":\"\"}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Request Bodies \u003e /typed \u003e Typed object body \u003e 201 \u003e application/json",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/typed",
+        "actionName": "Typed object body",
+        "exampleName": "201 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/explicit-example",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"name\":\"given\",\"nested\":{\"deep\":true}}"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Request Bodies \u003e /explicit-example \u003e Body from an explicit example \u003e 200",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/explicit-example",
+        "actionName": "Body from an explicit example",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/named-examples",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"chosen\":1}"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Request Bodies \u003e /named-examples \u003e Body from named examples \u003e 200",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/named-examples",
+        "actionName": "Body from named examples",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/named-examples",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"ignored\":2}"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Request Bodies \u003e /named-examples \u003e Body from named examples \u003e 200",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/named-examples",
+        "actionName": "Body from named examples",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/multiple-content-types",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"a\":\"\"}"
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"ok\":false}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Request Bodies \u003e /multiple-content-types \u003e Several request content types \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/multiple-content-types",
+        "actionName": "Several request content types",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/multiple-content-types",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/plain"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"a\":\"\"}"
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": "done"
+      },
+      "name": "Request Bodies \u003e /multiple-content-types \u003e Several request content types \u003e 200 \u003e text/plain",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/multiple-content-types",
+        "actionName": "Several request content types",
+        "exampleName": "200 \u003e text/plain"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/multiple-content-types",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          },
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": "hello"
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"ok\":false}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Request Bodies \u003e /multiple-content-types \u003e Several request content types \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/multiple-content-types",
+        "actionName": "Several request content types",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/multiple-content-types",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/plain"
+          },
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": "hello"
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": "done"
+      },
+      "name": "Request Bodies \u003e /multiple-content-types \u003e Several request content types \u003e 200 \u003e text/plain",
+      "origin": {
+        "filename": "request-bodies.yml",
+        "apiName": "Request Bodies",
+        "resourceGroupName": "",
+        "resourceName": "/multiple-content-types",
+        "actionName": "Several request content types",
+        "exampleName": "200 \u003e text/plain"
+      }
+    }
+  ]
+}

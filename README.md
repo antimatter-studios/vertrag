@@ -109,35 +109,95 @@ Tuesday is a feature there and a broken build here.
 
 ## Configuration
 
-vertrag reads `vertrag.yml`, which is a **superset of `dredd.yml`**: every key
-Dredd understands means the same thing, and vertrag's own settings are added
-alongside. It looks for `vertrag.yml`, `vertrag.yaml`, then `dredd.yml`.
-
-So the upgrade path is: change nothing, and vertrag reads what you have. Rename
-the file when you want vertrag's own settings. See
-[`vertrag.example.yml`](vertrag.example.yml).
+vertrag reads `vertrag.yml`. Every setting it takes is in
+[`vertrag.example.yml`](vertrag.example.yml), with the reasoning next to it.
 
 ```yaml
-blueprint: ./openapi.json          # Dredd's keys, unchanged
+spec: ./openapi.json               # the API description: OpenAPI 2 or 3
 endpoint: http://localhost:4000
-hookfiles: ./dredd-hooks.js
+hookfiles: ./hooks.js
 
 reporter: [cli, junit]             # a readable log and a machine-readable file
 output: ["", report.xml]
 
-checks:                            # vertrag's own
+checks:
   server-error: true
   content-type: true
   header-schema: false             # off by default; see below
 ```
 
+Coming from Dredd, a `dredd.yml` is read when no vertrag file is present and
+every key it understands means the same thing here — so the upgrade is to change
+nothing, and the migration is to rename the file. That fallback is a
+convenience with an expected end rather than a second supported format: as the
+two diverge it will be removed. vertrag's own settings are read only from a
+vertrag file.
+
 `header-schema` validates a response header's value against the JSON Schema the
-description gave it — so a `X-Rate-Limit` documented as a non-negative integer
-fails when the server answers `banana`. Dredd only checks that a declared header
-is *present*, so no description has ever had this enforced and yours may well
-contain a header schema that was never true. It is therefore the one check that
-starts off; turn it on here or with `--check-header-schema` when you are ready
-to read what it finds.
+description gave it — so an `X-Rate-Limit` documented as a non-negative integer
+fails when the server answers `banana`.
+
+Dredd compares values for exactly five headers — `content-type`, `accept`, and
+the three `accept-*` — and checks only presence for every other one it declares.
+It never reads a Header Object's schema at all. So no description has ever had
+this enforced, and yours may well carry a header schema that was never true. It
+is therefore the one check that starts off; turn it on here or with
+`--check-header-schema` when you are ready to read what it finds.
+
+### Setup without a hook file
+
+Logging in, setting a header, and skipping a transaction are what most hook
+files spend their lines on, and almost none of it is specific to a project.
+Dredd cannot express any of it, so each suite writes it again — and pays a
+worker process and a language runtime to run steps that never vary.
+
+```yaml
+auth:
+  login:
+    path: /api/v1/auth/login       # method defaults to POST
+    body: {username: admin, password: secret}
+  cookie: jwt_token                # keep this one out of Set-Cookie
+  except:                          # must go out unauthenticated
+    - '/api/v1/auth/login > Login > 401 > application/json'
+
+header:
+  - 'X-Trace: on'                  # Dredd's form: every transaction
+  - name: X-Mock-Scenario          # vertrag's: only where it applies
+    value: absent
+    when: {status: 404}
+
+skip:
+  - name: '/api/v1/jobs/{id} > Get job > 200 > application/json'
+    reason: sends a literal "id"; covered by unit tests
+```
+
+A credential can equally come from the response body — `header: 'Authorization:
+Bearer {$response.body#/token}'` — because the value is a **runtime expression**,
+the same language OpenAPI links use. A static API key needs no `login` at all.
+
+`except` exists because a login endpoint that documents its own 401 cannot
+produce one while holding a valid credential.
+
+The conditional `header` form is really there for one job: telling a mock which
+failure to simulate, so the error responses a description promises can be
+reached at all. Which failure to ask for follows from which response is
+expected, which is why the condition is the expected status.
+
+A skip's `reason` is printed with the skip, so a report says *why* forty
+transactions did not run rather than only that they did not — a skip list is
+where a suite's debt collects, and one that states its reasons is one somebody
+can work through. An entry matching no transaction is reported rather than
+ignored; it usually means something was renamed.
+
+These keys change what is sent or run, so they are read only from a
+`vertrag.yml`. Dredd ignores keys it does not recognise **without a word**, so
+honouring them from a `dredd.yml` would leave vertrag authenticated and Dredd
+not — two testers disagreeing about what they tested, from one file that looks
+shared. A `dredd.yml` carrying them says where to move them.
+
+Anything that must look at a *response* is still a hook, and hooks are
+unchanged. The line is deliberate: config covers what does not vary, and no
+condition here can grow into a programming language.
 
 ## Why
 
@@ -150,14 +210,31 @@ it with something subtly different. The reasons for a Go port are operational:
   whose only reason to carry a `package.json` is its API tests can drop it.
 - **Speed.** No interpreter start-up per run.
 
-## Dredd is the oracle
+## How correctness was established
 
-The hard requirement is not "a tool that tests APIs" — it is *the same
-behaviour*, because real projects already depend on the details. A hook file
-addresses a transaction by a name built from the description document; renaming
-anything silently disables the hook rather than failing loudly. So this is not a
-reimplementation from the documentation. It is a port whose agreement with Dredd
-is mechanically checked.
+vertrag was not reimplemented from Dredd's documentation. It was built as a port
+whose agreement with Dredd was mechanically checked, fixture by fixture, because
+the requirement at the time was *the same behaviour*: real projects already
+depend on the details, and a hook file addresses transactions by a name built
+from the description document, so renaming anything silently disables the hook
+rather than failing loudly.
+
+That has been achieved, and it is now history rather than a constraint. **The
+differential no longer runs on every commit.** Agreeing with Dredd is not what
+makes vertrag right, and a required job saying otherwise shapes design decisions
+it should not — vertrag already does things Dredd cannot, and each of those is a
+place where the comparison has nothing to say.
+
+What the oracle was protecting is held instead by
+[`compile/testdata/golden`](compile/testdata/golden): the transactions every
+fixture yields, recorded while the differential passed over all of them, so the
+verification is carried forward rather than discarded. Those recordings are the
+only thing that can catch a parser regression — the corpus below cannot, because
+its server is built from vertrag's own reading of a document, so a misparse
+produces a server and a tester wrong in exactly the same way.
+
+The differential is still there for when a second opinion is wanted: run the
+`CI` workflow manually, or `make oracle` locally.
 
 For every fixture, both implementations run over the same input and their output
 must match:
@@ -171,16 +248,17 @@ must match:
                   └────────────────────────────┘
 ```
 
-The reference is *executed*, not snapshotted. Its expected output is not checked
-into this repository, so bumping the pinned Dredd version turns any behaviour
-change into a failing diff instead of quietly redefining what "correct" means.
+The reference is *executed*, not snapshotted — its output is not checked into
+this repository — so when the differential is run, a behaviour change in either
+implementation shows up as a failing diff rather than quietly redefining what
+"correct" means.
 
 ```console
 $ make oracle
 ok  github.com/antimatter-studios/vertrag/internal/oracle
 ```
 
-Currently agreeing, field for field:
+Agreeing, field for field, as of the last full run:
 
 | Suite | Compared | Covers |
 | --- | --- | --- |
@@ -202,18 +280,29 @@ production OpenAPI 3 service, with its own `dredd.yml` and a 431-line hook file,
 against a live server. vertrag and Dredd reported the same 35 passing, 15
 failing, 90 skipped — the same fifteen failures, not merely the same count.
 
-### What faithfulness costs
+### What faithfulness cost, and what it no longer costs
 
-Faithfulness costs something, and the port pays it deliberately.
+Faithfulness was paid for deliberately while it was the goal. Dredd's URI
+template library is not RFC 6570 — it percent-encodes without zero-padding
+(`%A`, not `%0A`) and double-escapes an already-escaped sequence — and vertrag
+reproduced both, on the grounds that a "corrected" port would disagree with the
+tool people were already running against their servers.
 
-Validation error text is reproduced down to the JavaScript engine's own JSON
-parse messages, because a body that fails to parse is reported to the user with
-that wording. Dredd's URI template library is not RFC 6570 — it percent-encodes without zero-padding
-(`%A`, not `%0A`), and double-escapes an already-escaped sequence. Those are
-defects, and they are reproduced here on purpose, because they are visible in
-the URIs Dredd requests. A "corrected" port would disagree with the tool people
-are already running against their servers. Each such deviation is marked in the
-source with why it is kept.
+Both are fixed. Each sends the request to a *different URL* than the one the
+description names — `%2F` and `%252F` are different paths, and a server given
+the second does not have the resource — which makes the result meaningless
+rather than merely different, and no amount of compatibility justifies that.
+
+Neither was caught by the differential, and could not have been: Dredd's corpus
+contains no already-escaped parameter value and no control character, so the
+comparison had nothing to disagree about. An oracle can only difference
+behaviour the reference's own fixtures exercise, which is the clearest argument
+for not treating agreement as the definition of correct.
+
+Validation still follows Gavel closely, including its error wording, and that is
+not sentimentality: the text appears in reports people read and grep, and there
+is no better phrasing waiting to replace it. Where a deviation is still kept on
+purpose it is marked in the source with why.
 
 ## Architecture
 
@@ -226,16 +315,16 @@ vertrag keeps that shape:
 
 | Package | Role | State |
 | --- | --- | --- |
-| `internal/refract` | The API Elements object model | Done |
-| `internal/compile` | API Elements → HTTP transactions | Done, oracle-verified |
-| `internal/uritemplate` | URI template expansion | Done, oracle-verified |
-| `internal/apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
-| `internal/apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
-| `internal/validate` | Response validation (Gavel) | Done, oracle-verified |
-| `internal/runner` | Sending requests, judging responses | Done |
-| `internal/hooks` | Running Node.js hook files | Done |
-| `internal/config` | Reading `dredd.yml` | Done |
-| `internal/reporter` | cli, dot, markdown, html, JUnit output | Done |
+| `refract` | The API Elements object model | Done |
+| `compile` | API Elements → HTTP transactions | Done, oracle-verified |
+| `uritemplate` | URI template expansion | Done, oracle-verified |
+| `apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
+| `apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
+| `validate` | Response validation (Gavel) | Done, oracle-verified |
+| `runner` | Sending requests, judging responses | Done |
+| `hooks` | Running Node.js hook files | Done |
+| `config` | Reading `vertrag.yml`, and `dredd.yml` while that lasts | Done |
+| `reporter` | cli, dot, markdown, html, JUnit output | Done |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
 API Blueprint, OpenAPI 2 and OpenAPI 3 at once, and Dredd ships pre-parsed API

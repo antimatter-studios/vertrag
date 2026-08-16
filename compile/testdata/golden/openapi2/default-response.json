@@ -1,0 +1,60 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/foo",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Colors API \u003e /foo \u003e GET \u003e 200",
+      "origin": {
+        "filename": "default-response.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/foo",
+        "actionName": "GET",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/bar",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "204",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      },
+      "name": "Colors API \u003e /bar \u003e GET \u003e 204 \u003e application/json",
+      "origin": {
+        "filename": "default-response.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/bar",
+        "actionName": "GET",
+        "exampleName": "204 \u003e application/json"
+      }
+    }
+  ],
+  "annotations": [
+    "warning: Default response is not yet supported",
+    "warning: Default response is not yet supported"
+  ]
+}

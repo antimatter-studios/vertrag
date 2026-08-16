@@ -1,0 +1,131 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      },
+      "name": "Colors API \u003e /resource \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "no-schema.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/resource",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource.json",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\n  \"name\": \"Honza\",\n  \"color\": \"green\"\n}"
+      },
+      "name": "Colors API \u003e /resource.json \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "no-schema.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/resource.json",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource.csv",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/csv"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/csv"
+          }
+        ],
+        "body": "name,color\nHonza,green\n"
+      },
+      "name": "Colors API \u003e /resource.csv \u003e GET \u003e 200 \u003e text/csv",
+      "origin": {
+        "filename": "no-schema.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/resource.csv",
+        "actionName": "GET",
+        "exampleName": "200 \u003e text/csv"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/resource.yaml",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "text/yaml"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/yaml"
+          }
+        ],
+        "body": "name: Honza\ncolor: green\n"
+      },
+      "name": "Colors API \u003e /resource.yaml \u003e GET \u003e 200 \u003e text/yaml",
+      "origin": {
+        "filename": "no-schema.yml",
+        "apiName": "Colors API",
+        "resourceGroupName": "",
+        "resourceName": "/resource.yaml",
+        "actionName": "GET",
+        "exampleName": "200 \u003e text/yaml"
+      }
+    }
+  ]
+}

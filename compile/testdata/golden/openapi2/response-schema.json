@@ -1,0 +1,68 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/test",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": "Hello"
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\n  \"id\": 456,\n  \"name\": \"Item name\"\n}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"number\",\"enum\":[123],\"default\":456},\"name\":{\"type\":\"string\",\"default\":\"Item name\"}},\"required\":[\"id\",\"name\"]}"
+      },
+      "name": "Schema Reference \u003e /test \u003e POST \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "response-schema.yml",
+        "apiName": "Schema Reference",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "POST",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test-without-produces",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [],
+        "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"number\",\"enum\":[123],\"default\":456},\"name\":{\"type\":\"string\",\"default\":\"Item name\"}},\"required\":[\"id\",\"name\"]}"
+      },
+      "name": "Schema Reference \u003e /test-without-produces \u003e GET \u003e 200",
+      "origin": {
+        "filename": "response-schema.yml",
+        "apiName": "Schema Reference",
+        "resourceGroupName": "",
+        "resourceName": "/test-without-produces",
+        "actionName": "GET",
+        "exampleName": "200"
+      }
+    }
+  ]
+}

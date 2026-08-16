@@ -1,0 +1,66 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json; charset=utf-8"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json; charset=utf-8"
+          }
+        ]
+      },
+      "name": "Produces Header With Content-Type Parameters \u003e /test \u003e GET \u003e 200 \u003e application/json; charset=utf-8",
+      "origin": {
+        "filename": "produces-charset.yml",
+        "apiName": "Produces Header With Content-Type Parameters",
+        "resourceGroupName": "",
+        "resourceName": "/test",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json; charset=utf-8"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/test-with-override",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json; charset=utf-8"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "text/plain"
+          }
+        ]
+      },
+      "name": "Produces Header With Content-Type Parameters \u003e /test-with-override \u003e GET \u003e 200 \u003e text/plain",
+      "origin": {
+        "filename": "produces-charset.yml",
+        "apiName": "Produces Header With Content-Type Parameters",
+        "resourceGroupName": "",
+        "resourceName": "/test-with-override",
+        "actionName": "GET",
+        "exampleName": "200 \u003e text/plain"
+      }
+    }
+  ]
+}

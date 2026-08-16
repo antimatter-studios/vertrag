@@ -78,6 +78,107 @@ type Runner struct {
 	// values from earlier responses. Nil means document order and no rewriting,
 	// which is what `vertrag run` does unless asked otherwise.
 	Plan Plan
+
+	// Auth is the credential obtained for this run, sent on every request but
+	// the ones that must go without.
+	Auth Credential
+
+	// Skip takes transactions out of the run before anything is sent, keyed by
+	// name and carrying the reason to report. A hook could do the same, but a
+	// skip list is where a suite's debt collects and it is worth being able to
+	// read the whole of it in one place.
+	Skip map[string]string
+
+	// ConditionalHeaders are added to the transactions they match.
+	ConditionalHeaders []ConditionalHeader
+}
+
+// ConditionalHeader is a header added only to the transactions it matches.
+//
+// The conditions are properties of the transaction the description already
+// fixed — the status it expects, the method it uses — and nothing about the
+// response, because these are decided before the request is sent. Anything
+// needing to look at what came back is a hook.
+type ConditionalHeader struct {
+	Name  string
+	Value string
+
+	// Status matches the response status the transaction expects. Empty matches
+	// every transaction.
+	//
+	// This is the condition worth having. A mock told which failure to simulate
+	// is how a suite reaches the error responses its description promises, and
+	// which failure to ask for follows from which response is expected.
+	Status string
+
+	// Method matches the request method. Empty matches every transaction.
+	Method string
+}
+
+// matches reports whether the header applies to a transaction.
+func (c ConditionalHeader) matches(transaction compile.Transaction) bool {
+	if c.Status != "" && c.Status != strings.TrimSpace(transaction.Response.Status) {
+		return false
+	}
+	if c.Method != "" && !strings.EqualFold(c.Method, transaction.Request.Method) {
+		return false
+	}
+	return true
+}
+
+// Credential is a header carrying an obtained credential, and the transactions
+// it must be withheld from.
+type Credential struct {
+	// Header is a `Name: value` line, empty when the run is unauthenticated.
+	Header string
+
+	// Except names transactions to send without the credential. A login
+	// endpoint's own 401 case is untestable while holding a valid one.
+	Except map[string]bool
+}
+
+// configuredSkipReason labels a skip as the configuration's doing.
+//
+// Without the label a reader cannot tell a transaction the config removed from
+// one a hook removed, and those are fixed in different files.
+func configuredSkipReason(reason string) string {
+	if reason == "" {
+		return "skipped by configuration"
+	}
+	return "skipped by configuration: " + reason
+}
+
+// headersFor returns the extra headers for one transaction: the run-wide ones,
+// plus the credential unless this transaction is one that must go without.
+func (r *Runner) headersFor(transaction compile.Transaction) []string {
+	authenticated := r.Auth.Header != "" && !r.Auth.Except[transaction.Name]
+
+	var conditional []string
+	for _, header := range r.ConditionalHeaders {
+		if header.matches(transaction) {
+			conditional = append(conditional, header.Name+": "+header.Value)
+		}
+	}
+
+	if !authenticated && len(conditional) == 0 {
+		return r.ExtraHeaders
+	}
+	// Copied rather than appended to in place. `append(r.ExtraHeaders, …)` would
+	// write into ExtraHeaders' backing array whenever it has spare capacity, and
+	// that array is shared by every transaction. Nothing visible goes wrong
+	// today — every caller writes the same credential into the same slot — so
+	// this is not a bug being fixed but a dependence on the slice's capacity
+	// being removed, for the price of one allocation per transaction.
+	headers := make([]string, 0, len(r.ExtraHeaders)+len(conditional)+1)
+	headers = append(headers, r.ExtraHeaders...)
+	// Conditional headers come after the run-wide ones so a rule aimed at some
+	// transactions can override a value set for all of them, which is the only
+	// order in which stating both is useful.
+	headers = append(headers, conditional...)
+	if authenticated {
+		headers = append(headers, r.Auth.Header)
+	}
+	return headers
 }
 
 // Hooks is the part of the hook system the runner needs.
@@ -119,7 +220,7 @@ func New(endpoint string) *Runner {
 // keeps the URL resolution, extra headers and redirect policy identical to a
 // normal run, so a finding is reproducible by `vertrag run`.
 func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate.Message, error) {
-	return r.send(ctx, newTransaction(source, r.Endpoint, r.ExtraHeaders))
+	return r.send(ctx, newTransaction(source, r.Endpoint, r.headersFor(source)))
 }
 
 // Run executes every transaction in order and returns the results.
@@ -129,7 +230,7 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([]Result, error) {
 	prepared := make([]*Transaction, 0, len(transactions))
 	for i := range transactions {
-		prepared = append(prepared, newTransaction(transactions[i], r.Endpoint, r.ExtraHeaders))
+		prepared = append(prepared, newTransaction(transactions[i], r.Endpoint, r.headersFor(transactions[i])))
 	}
 
 	if r.Hooks != nil {
@@ -145,6 +246,14 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 	completed := map[int]Result{}
 	for _, index := range r.sequence(len(prepared)) {
 		transaction := prepared[index]
+
+		// Checked before the plan and before hooks: a transaction the config
+		// takes out of the run should not be prepared, sequenced, or offered to
+		// a hook that might act on it.
+		if reason, skipped := r.Skip[transaction.Name]; skipped {
+			completed[index] = transaction.skippedResult(configuredSkipReason(reason))
+			continue
+		}
 
 		if r.Plan != nil {
 			if reason, ok := r.Plan.Prepare(index, transaction, completed); !ok {

@@ -1,0 +1,195 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/nested",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"wrapper\":{\"items\":[{\"label\":\"\"}]}}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"wrapper\":{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"}}}}}}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "References \u003e /nested \u003e Nested object and array schemas \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "references.yml",
+        "apiName": "References",
+        "resourceGroupName": "",
+        "resourceName": "/nested",
+        "actionName": "Nested object and array schemas",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/referenced",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"payload\":\"\"}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"payload\":{\"type\":\"string\"}}}"
+      },
+      "name": "References \u003e /referenced \u003e Response schema behind a reference \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "references.yml",
+        "apiName": "References",
+        "resourceGroupName": "",
+        "resourceName": "/referenced",
+        "actionName": "Response schema behind a reference",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/recursive",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"name\":\"\"}",
+        "schema": "{\"allOf\":[{\"$ref\":\"#/definitions/Node\"}],\"definitions\":{\"Node\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"child\":{\"$ref\":\"#/definitions/Node\"}}}}}"
+      },
+      "name": "References \u003e /recursive \u003e Self-referencing schema \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "references.yml",
+        "apiName": "References",
+        "resourceGroupName": "",
+        "resourceName": "/recursive",
+        "actionName": "Self-referencing schema",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/shared-body",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"value\":\"\"}"
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "References \u003e /shared-body \u003e Request body behind a reference \u003e 200",
+      "origin": {
+        "filename": "references.yml",
+        "apiName": "References",
+        "resourceGroupName": "",
+        "resourceName": "/shared-body",
+        "actionName": "Request body behind a reference",
+        "exampleName": "200"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/shared-response",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"status\":\"\"}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "References \u003e /shared-response \u003e Response behind a reference \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "references.yml",
+        "apiName": "References",
+        "resourceGroupName": "",
+        "resourceName": "/shared-response",
+        "actionName": "Response behind a reference",
+        "exampleName": "200 \u003e application/json"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/nullable",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\"maybe\":null}",
+        "schema": "{\"type\":\"object\",\"properties\":{\"maybe\":{\"type\":[\"string\",\"null\"]}},\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "References \u003e /nullable \u003e Nullable schema \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "references.yml",
+        "apiName": "References",
+        "resourceGroupName": "",
+        "resourceName": "/nullable",
+        "actionName": "Nullable schema",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ]
+}

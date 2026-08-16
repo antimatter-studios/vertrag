@@ -1,0 +1,26 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/endpoint",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [],
+        "schema": "{\"type\":\"string\",\"$schema\":\"http://json-schema.org/draft-04/schema#\"}"
+      },
+      "name": "Swagger Oauth2 Implicit \u003e /endpoint \u003e GET \u003e 200",
+      "origin": {
+        "filename": "security-definitions-transitions.yml",
+        "apiName": "Swagger Oauth2 Implicit",
+        "resourceGroupName": "",
+        "resourceName": "/endpoint",
+        "actionName": "GET",
+        "exampleName": "200"
+      }
+    }
+  ]
+}

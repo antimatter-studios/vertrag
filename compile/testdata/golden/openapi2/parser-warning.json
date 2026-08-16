@@ -1,0 +1,40 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/foo",
+        "headers": [
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": "{\n  \"status\": \"ok\"\n}"
+      },
+      "name": "Title \u003e /foo \u003e GET \u003e 200 \u003e application/json",
+      "origin": {
+        "filename": "parser-warning.yml",
+        "apiName": "Title",
+        "resourceGroupName": "",
+        "resourceName": "/foo",
+        "actionName": "GET",
+        "exampleName": "200 \u003e application/json"
+      }
+    }
+  ],
+  "annotations": [
+    "warning: Default response is not yet supported",
+    "warning: Only the first scheme will be used to create a hostname"
+  ]
+}

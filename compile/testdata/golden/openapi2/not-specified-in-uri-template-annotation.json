@@ -1,0 +1,6 @@
+{
+  "transactions": [],
+  "annotations": [
+    "error: Validation failed. /paths/pet/get has a path parameter named \"id\", but there is no corresponding {id} in the path string"
+  ]
+}

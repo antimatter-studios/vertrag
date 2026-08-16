@@ -1,0 +1,9 @@
+{
+  "transactions": [],
+  "annotations": [
+    "error: 'Info Object' is missing required property 'version'",
+    "error: 'Parameter Object' is missing required property 'in'",
+    "error: 'Parameter Object' is missing required property 'name'",
+    "error: 'Response Object' is missing required property 'description'"
+  ]
+}

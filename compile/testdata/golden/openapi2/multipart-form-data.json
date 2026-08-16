@@ -1,0 +1,40 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "POST",
+        "uri": "/data",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "multipart/form-data; boundary=CUSTOM-BOUNDARY"
+          },
+          {
+            "name": "Accept",
+            "value": "multipart/form-data; boundary=CUSTOM-BOUNDARY"
+          }
+        ],
+        "body": "--CUSTOM-BOUNDARY\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\ntest equals to 42\r\n--CUSTOM-BOUNDARY\r\nContent-Disposition: form-data; name=\"json\"\r\n\r\n{\"test\": 42}\r\n\r\n--CUSTOM-BOUNDARY--\r\n"
+      },
+      "response": {
+        "status": "200",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "multipart/form-data; boundary=CUSTOM-BOUNDARY"
+          }
+        ],
+        "body": "--CUSTOM-BOUNDARY\r\nContent-Disposition: form-data; name=\"text\"\r\nContent-Type: text/plain\r\n\r\ntest equals to 42\r\n--CUSTOM-BOUNDARY\r\nContent-Disposition: form-data; name=\"json\"\r\nContent-Type: application/json\r\n\r\n{\"test\": 42}\r\n\r\n--CUSTOM-BOUNDARY--\r\n"
+      },
+      "name": "Sanbox 'multipart/form-data' API \u003e /data \u003e POST \u003e 200 \u003e multipart/form-data; boundary=CUSTOM-BOUNDARY",
+      "origin": {
+        "filename": "multipart-form-data.yml",
+        "apiName": "Sanbox 'multipart/form-data' API",
+        "resourceGroupName": "",
+        "resourceName": "/data",
+        "actionName": "POST",
+        "exampleName": "200 \u003e multipart/form-data; boundary=CUSTOM-BOUNDARY"
+      }
+    }
+  ]
+}

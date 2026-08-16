@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -55,8 +56,8 @@ endpoint: 'http://localhost:4000'
 		t.Fatalf("Load: %v", err)
 	}
 
-	if config.Blueprint != "./openapi.json" {
-		t.Errorf("blueprint = %q", config.Blueprint)
+	if config.Spec != "./openapi.json" {
+		t.Errorf("blueprint = %q", config.Spec)
 	}
 	if config.Endpoint != "http://localhost:4000" {
 		t.Errorf("endpoint = %q", config.Endpoint)
@@ -79,8 +80,14 @@ endpoint: 'http://localhost:4000'
 
 	// Keys written as null or empty are at their default and must not be
 	// reported as unsupported — that would warn about nothing on every run.
-	if len(config.Unsupported) != 0 {
-		t.Errorf("unsupported = %v, want none: those keys are all empty", config.Unsupported)
+	//
+	// `server` is the exception here, and only because this fixture sets it to
+	// a real command. vertrag does not start a server under test, and used to
+	// accept the key and do nothing, which meant a project relying on it got a
+	// run against a server that was never started and a wall of connection
+	// errors that named no cause.
+	if want := []string{"server"}; !slices.Equal(config.Unsupported, want) {
+		t.Errorf("unsupported = %v, want %v", config.Unsupported, want)
 	}
 }
 
@@ -262,10 +269,10 @@ func TestValidate(t *testing.T) {
 		config  Config
 		wantErr bool
 	}{
-		{"complete", Config{Blueprint: "api.yml", Endpoint: "http://localhost:4000"}, false},
-		{"no blueprint", Config{Endpoint: "http://localhost"}, true},
-		{"no endpoint", Config{Blueprint: "api.yml"}, true},
-		{"endpoint without a scheme", Config{Blueprint: "api.yml", Endpoint: "localhost:4000"}, true},
+		{"complete", Config{Spec: "api.yml", Endpoint: "http://localhost:4000"}, false},
+		{"no spec", Config{Endpoint: "http://localhost"}, true},
+		{"no endpoint", Config{Spec: "api.yml"}, true},
+		{"endpoint without a scheme", Config{Spec: "api.yml", Endpoint: "localhost:4000"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.config.Validate()

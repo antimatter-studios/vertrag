@@ -45,7 +45,8 @@ func runFuzz(args []string) error {
 	var methods stringList
 	fs.Var(&methods, "method", "probe only transactions using this method (repeatable)")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
 
@@ -54,7 +55,7 @@ func runFuzz(args []string) error {
 		return err
 	}
 
-	settings, err := resolveConfig(*configPath, fs.Args())
+	settings, err := resolveConfig(*configPath, positional)
 	if err != nil {
 		return err
 	}
@@ -72,15 +73,22 @@ func runFuzz(args []string) error {
 		return err
 	}
 
-	source, err := os.ReadFile(settings.Blueprint)
+	for _, key := range settings.Unsupported {
+		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
+	}
+	for _, note := range settings.Notes {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
+
+	source, err := os.ReadFile(settings.Spec)
 	if err != nil {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
-	parsed, err := apidesc.Parse(source, settings.Blueprint)
+	parsed, err := apidesc.Parse(source, settings.Spec)
 	if err != nil {
-		return fmt.Errorf("parsing %s: %w", settings.Blueprint, err)
+		return fmt.Errorf("parsing %s: %w", settings.Spec, err)
 	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Blueprint)
+	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
 
 	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color}
 	annotations.Annotations(toAnnotations(result.Annotations))
@@ -107,6 +115,24 @@ func runFuzz(args []string) error {
 
 	engine := runner.New(settings.Endpoint)
 	engine.ExtraHeaders = settings.Header
+
+	// Probing needs the credential as much as a run does: without it an
+	// authenticated API answers 401 to every case, no transaction passes the
+	// baseline check, and the report says nothing was worth probing rather than
+	// that the door was locked.
+	if err := applyConfiguredRules(ctx, engine, settings, probeable); err != nil {
+		return err
+	}
+
+	probeable, configSkipped := withoutSkipped(probeable, engine.Skip)
+	if len(configSkipped) > 0 {
+		fmt.Printf("%d transaction(s) left out by the skip list in %s.\n",
+			len(configSkipped), settings.Source)
+	}
+	if len(probeable) == 0 {
+		fmt.Printf("Every operation that could be probed is on the skip list, so nothing was sent.\n")
+		return nil
+	}
 
 	return probeAll(ctx, engine, probeable, modes, skipped, fuzz.Options{
 		Cases: *cases,
@@ -208,6 +234,7 @@ func probeAll(
 	probed := 0
 	unprobeable := 0
 	unattributable := 0
+	refusedBaselines := 0
 
 	for _, transaction := range transactions {
 		targets, unreadable := probeTargets(transaction.Request)
@@ -230,7 +257,10 @@ func probeAll(
 		// It only silences the VALID half. A server accepting input its own
 		// schema forbids is a validation bypass whether or not the operation
 		// works, and that is the finding generation exists for.
-		baselinePassed := baselineWorks(ctx, engine, transaction)
+		base := baselineWorks(ctx, engine, transaction)
+		if base.refused {
+			refusedBaselines++
+		}
 
 		for _, target := range targets {
 			probed++
@@ -239,7 +269,7 @@ func probeAll(
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if mode == generate.Valid && !baselinePassed {
+				if mode == generate.Valid && !base.ok {
 					unattributable++
 					continue
 				}
@@ -283,6 +313,13 @@ func probeAll(
 	if unattributable > 0 {
 		fmt.Printf(", %d valid-input probe(s) skipped because the operation fails as documented",
 			unattributable)
+	}
+	// Said last and said plainly: every other number above is close to
+	// meaningless when the server never let the probe in.
+	if refusedBaselines > 0 {
+		fmt.Printf("\n\n%d operation(s) answered 401 or 403 to the documented request, so little was learned about them.\n"+
+			"Set `auth` in your vertrag.yml, or pass --header, to probe behind the credential.",
+			refusedBaselines)
 	}
 	if unprobeable > 0 {
 		fmt.Printf(", %d probe(s) had nothing to send and tested nothing", unprobeable)
@@ -361,23 +398,48 @@ func parseModes(name string) ([]generate.Mode, error) {
 // worth reading if the server would have accepted the documented value, and an
 // operation broken for its own reasons would otherwise blame every parameter it
 // has.
-func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compile.Transaction) bool {
+// It also distinguishes a locked door from a disagreement. An unauthenticated
+// probe of an authenticated API fails every baseline with 401, and reporting
+// that as "the operation fails as documented" sends the reader to look at their
+// handler when what they needed was a credential.
+func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compile.Transaction) baseline {
 	reply, err := engine.Send(ctx, transaction)
 	if err != nil {
-		return false
+		return baseline{}
 	}
 
 	status, err := strconv.Atoi(strings.TrimSpace(reply.StatusCode))
 	if err != nil {
-		return false
+		return baseline{}
 	}
+
 	// Judged against what the description promised rather than against 2xx: an
 	// operation documented as returning 404 is working when it returns one.
 	expected, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
-	if err != nil {
-		return status < 400
+	switch {
+	case err != nil:
+		return baseline{ok: status < 400, refused: refused(status, 0)}
+	default:
+		return baseline{ok: status == expected, refused: refused(status, expected)}
 	}
-	return status == expected
+}
+
+// baseline is what one baseline request established.
+type baseline struct {
+	ok bool
+	// refused means the server turned the request away for want of credentials
+	// rather than disagreeing with it.
+	refused bool
+}
+
+// refused reports whether a status means "not allowed in", except where the
+// description says that is the documented answer — an endpoint whose 401 is
+// under test is working when it gives one.
+func refused(status, expected int) bool {
+	if status == expected {
+		return false
+	}
+	return status == 401 || status == 403
 }
 
 // acceptsJSONBody reports whether the request's own content type is JSON.

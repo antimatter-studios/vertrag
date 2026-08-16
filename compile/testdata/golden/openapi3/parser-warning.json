@@ -1,0 +1,28 @@
+{
+  "transactions": [
+    {
+      "request": {
+        "method": "GET",
+        "uri": "/",
+        "headers": [],
+        "body": ""
+      },
+      "response": {
+        "status": "200",
+        "headers": []
+      },
+      "name": "Title \u003e / \u003e Summary \u003e 200",
+      "origin": {
+        "filename": "parser-warning.yml",
+        "apiName": "Title",
+        "resourceGroupName": "",
+        "resourceName": "/",
+        "actionName": "Summary",
+        "exampleName": "200"
+      }
+    }
+  ],
+  "annotations": [
+    "warning: 'Operation Object' contains invalid key 'foo'"
+  ]
+}
