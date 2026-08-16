@@ -36,7 +36,15 @@ func (c Checks) run(expected, actual validate.Message) []string {
 			findings = append(findings, finding)
 		}
 	}
-	if c.ContentType {
+	// The content type is only worth comparing when the status matched. A
+	// response with a different status is a DIFFERENT documented response — a
+	// 404 error body is JSON whatever the 200 promised — so comparing it
+	// against this expectation reports a disagreement that does not exist.
+	//
+	// Found the hard way: a card-reader endpoint answering 404 "no card has
+	// been read" was reported as a handler returning JSON where its
+	// description promised a binary download. The 200 path was never reached.
+	if c.ContentType && statusMatches(expected, actual) {
 		if finding, found := checkContentType(expected, actual); found {
 			findings = append(findings, finding)
 		}
@@ -62,10 +70,13 @@ func checkServerError(actual validate.Message) (string, bool) {
 // checkContentType reports a response carrying a media type the description did
 // not promise.
 //
-// Dredd checks that the expected headers are *present* and never compares their
-// values, so a document promising application/json and a server answering
-// text/html passes. Parameters are ignored: a charset the document did not
-// mention is not a contract violation.
+// Dredd compares the content type too — it is the one header whose value Gavel
+// compares, the rest being presence-only — so this is not a check Dredd lacks.
+// Where the two differ is parameters: Gavel fails `application/json;
+// charset=utf-8` against an expectation of `application/json`, and this does
+// not. A charset the document did not mention is not a contract violation, and
+// failing on one sends people to edit their descriptions rather than fix
+// anything. vertrag is the more lenient of the two here, not the stricter.
 func checkContentType(expected, actual validate.Message) (string, bool) {
 	want := baseMediaType(headerValue(expected.Headers, "content-type"))
 	if want == "" {
@@ -98,4 +109,10 @@ func baseMediaType(value string) string {
 		value = value[:i]
 	}
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+// statusMatches reports whether the response is the one the expectation
+// describes.
+func statusMatches(expected, actual validate.Message) bool {
+	return strings.TrimSpace(expected.StatusCode) == strings.TrimSpace(actual.StatusCode)
 }

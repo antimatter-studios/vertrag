@@ -114,7 +114,7 @@ func TestJUnitDetailIsReproducible(t *testing.T) {
 	}
 	// Findings Dredd would not raise stay labelled here too, so a CI failure
 	// explains itself without the reader consulting the docs.
-	if !strings.Contains(unescape(report), "[not checked by Dredd]") {
+	if !strings.Contains(unescape(report), "[additional check]") {
 		t.Error("beyond-Dredd findings should be labelled in the report")
 	}
 }

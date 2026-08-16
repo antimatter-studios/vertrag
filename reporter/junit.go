@@ -146,7 +146,7 @@ func detail(result runner.Result) string {
 		fmt.Fprintf(&b, "%s\n", message)
 	}
 	for _, message := range result.Beyond {
-		fmt.Fprintf(&b, "[not checked by Dredd] %s\n", message)
+		fmt.Fprintf(&b, "[additional check] %s\n", message)
 	}
 
 	fmt.Fprintf(&b, "\nrequest: %s %s\n", result.Request.Method, result.Request.URI)

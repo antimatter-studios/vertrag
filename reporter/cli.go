@@ -96,7 +96,7 @@ func (r CLI) failures(results []runner.Result) {
 		// Findings Dredd would not have raised are labelled, so an upgrade is
 		// not mistaken for a regression.
 		for _, message := range result.Beyond {
-			fmt.Fprintf(r.Out, "  %s %s\n", r.paint(cyan, "[not checked by Dredd]"), message)
+			fmt.Fprintf(r.Out, "  %s %s\n", r.paint(cyan, "[additional check]"), message)
 		}
 		r.exchange(result)
 	}
