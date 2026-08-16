@@ -1,0 +1,54 @@
+openapi: 3.0.0
+info:
+  title: Uploads
+  version: "1.0.0"
+  description: >
+    Multipart and form bodies. vertrag assembles multipart parts from the
+    schema where Dredd sends nothing, which is the difference between an
+    upload endpoint being testable and being skipped — so it needs a
+    conforming server to answer it and a fault to prove the check bites.
+
+paths:
+  /upload:
+    post:
+      summary: A file and its metadata
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, filename]
+              properties:
+                file: {type: string, format: binary}
+                filename: {type: string, minLength: 1, maxLength: 60}
+                size: {type: integer, minimum: 1}
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, filename]
+                properties:
+                  id: {type: integer, minimum: 1}
+                  filename: {type: string, minLength: 1}
+
+  /upload/many:
+    post:
+      summary: Several binary parts at once
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [primary, secondary]
+              properties:
+                primary: {type: string, format: binary}
+                secondary: {type: string, format: byte}
+                note: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}

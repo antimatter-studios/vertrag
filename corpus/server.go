@@ -447,6 +447,15 @@ func (s *Server) rejectsParameters(r *http.Request, matched route) (string, bool
 }
 
 func rejectsBody(r *http.Request, matched route) (string, bool) {
+	// A multipart body is checked by parsing it, because that is the only
+	// question worth asking of one: a standard parser either reads the parts or
+	// it does not, and a body that only vertrag can read is a body no server
+	// can. Its schema describes the parts rather than a JSON document, so
+	// validating the raw text against it would be meaningless.
+	if isMultipart(r) {
+		return rejectsMultipart(r, matched)
+	}
+
 	if strings.TrimSpace(matched.request.Schema) == "" || r.Body == nil {
 		return "", false
 	}
@@ -621,3 +630,47 @@ func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched 
 	writeJSON(w, status, string(rewritten), s.headersFor(matched))
 	return true
 }
+
+// isMultipart reports whether the request carries a multipart body.
+func isMultipart(r *http.Request) bool {
+	return strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/")
+}
+
+// rejectsMultipart reads the parts with the standard library and checks that
+// every property the schema requires arrived as one.
+//
+// This is what makes the multipart corpus worth having. vertrag assembles these
+// from the schema where Dredd sends an empty body, and an assembly nobody but
+// vertrag can parse would look identical from the outside — the request goes
+// out, the server answers, the test passes, and no upload endpoint is actually
+// being exercised.
+func rejectsMultipart(r *http.Request, matched route) (string, bool) {
+	if err := r.ParseMultipartForm(readLimit); err != nil {
+		return "the multipart body could not be parsed: " + err.Error(), true
+	}
+
+	var schema map[string]any
+	if json.Unmarshal([]byte(matched.request.Schema), &schema) != nil {
+		return "", false
+	}
+	required, _ := schema["required"].([]any)
+
+	for _, name := range required {
+		field, ok := name.(string)
+		if !ok {
+			continue
+		}
+		if _, present := r.MultipartForm.Value[field]; present {
+			continue
+		}
+		if _, present := r.MultipartForm.File[field]; present {
+			continue
+		}
+		return "the multipart body carries no part named " + field, true
+	}
+	return "", false
+}
+
+// readLimit bounds what ParseMultipartForm keeps in memory. Generous for a
+// corpus body, which is a placeholder rather than a real upload.
+const readLimit = 1 << 20

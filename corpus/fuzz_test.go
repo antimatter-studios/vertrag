@@ -60,7 +60,7 @@ func probeBody(t *testing.T, engine *runner.Runner, transaction compile.Transact
 	mode generate.Mode, options fuzz.Options) []fuzz.Finding {
 	t.Helper()
 
-	if strings.TrimSpace(transaction.Request.Schema) == "" {
+	if strings.TrimSpace(transaction.Request.Schema) == "" || !acceptsJSON(transaction.Request) {
 		return nil
 	}
 	var schema generate.Schema
@@ -175,4 +175,18 @@ func TestGenerationFindsTheFaultsARunCannot(t *testing.T) {
 				len(found), len(corpus.Names()), strings.Join(found, ", "))
 		})
 	}
+}
+
+// acceptsJSON reports whether a generated JSON body can be sent to this
+// operation at all. A multipart schema describes the parts of a body rather
+// than a document, so posting JSON at it gets a 400 that says nothing.
+func acceptsJSON(request compile.Request) bool {
+	for _, header := range request.Headers {
+		if !strings.EqualFold(header.Name, "Content-Type") {
+			continue
+		}
+		media := strings.ToLower(strings.TrimSpace(strings.SplitN(header.Value, ";", 2)[0]))
+		return media == "application/json" || strings.HasSuffix(media, "+json")
+	}
+	return true
 }

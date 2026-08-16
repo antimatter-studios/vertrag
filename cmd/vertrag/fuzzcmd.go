@@ -136,7 +136,13 @@ type target struct {
 // returned separately: that is a description someone should look at, not a
 // decision this made.
 func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.Subject) {
-	if strings.TrimSpace(request.Schema) != "" {
+	// A body is generated as JSON, so it can only be sent where JSON is what
+	// the operation takes. A multipart schema describes the PARTS of a body
+	// rather than a document, and carrying it — which generation needs, to
+	// assemble those parts — must not be mistaken for permission to post a JSON
+	// object at an upload endpoint. Doing so gets a 400 that says nothing about
+	// the schema.
+	if strings.TrimSpace(request.Schema) != "" && acceptsJSONBody(request) {
 		schema, err := decodeSchema(request.Schema)
 		switch {
 		case err != nil:
@@ -372,4 +378,19 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 		return status < 400
 	}
 	return status == expected
+}
+
+// acceptsJSONBody reports whether the request's own content type is JSON.
+func acceptsJSONBody(request compile.Request) bool {
+	for _, header := range request.Headers {
+		if !strings.EqualFold(header.Name, "Content-Type") {
+			continue
+		}
+		media := strings.ToLower(strings.TrimSpace(strings.SplitN(header.Value, ";", 2)[0]))
+		return media == "application/json" ||
+			strings.HasSuffix(media, "+json")
+	}
+	// No content type stated and a schema present: JSON is what every other
+	// part of this assumes, and generating for it is the useful default.
+	return true
 }
