@@ -52,17 +52,25 @@ var (
 		required:    []string{"openapi", "info", "paths"},
 	}
 	specInfo = objectSpec{
-		name:      "Info Object",
-		supported: []string{"title", "version", "description", "termsOfService", "contact", "license"},
-		required:  []string{"title", "version"},
+		name: "Info Object",
+		// `summary` is 3.1's addition and was being reported as an invalid key
+		// — telling the author of a valid 3.1 document that a field the
+		// specification defines does not exist. It is accepted for 3.0 too:
+		// the alternative is a version-dependent key list, and refusing a key
+		// that harms nothing buys nothing.
+		supported: []string{"title", "version", "summary", "description",
+			"termsOfService", "contact", "license"},
+		required: []string{"title", "version"},
 	}
 	specContact = objectSpec{
 		name:      "Contact Object",
 		supported: []string{"name", "url", "email"},
 	}
 	specLicense = objectSpec{
-		name:      "License Object",
-		supported: []string{"name", "url"},
+		name: "License Object",
+		// `identifier` is 3.1's SPDX field, added alongside `summary` on the
+		// Info Object and rejected for the same reason.
+		supported: []string{"name", "url", "identifier"},
 		required:  []string{"name"},
 	}
 	specServer = objectSpec{

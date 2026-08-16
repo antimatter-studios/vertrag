@@ -111,6 +111,16 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		return false, true
 
 	case "array":
+		// 2020-12 describes a tuple with prefixItems, one schema per position.
+		// An empty array satisfies it, which is what came out before, but
+		// demonstrates nothing about the positions the document went to the
+		// trouble of describing.
+		if prefix := schema.Get("prefixItems"); prefix.IsSequence() {
+			if value, ok := d.generateTuple(prefix, seen); ok {
+				return value, true
+			}
+		}
+
 		items := schema.Get("items")
 
 		value, ok := d.generateValue(items, seen)
@@ -791,4 +801,24 @@ func (d *document) mergeAll(branches []node, seen map[string]bool) (any, bool) {
 		return nil, false
 	}
 	return merged, true
+}
+
+// generateTuple builds a specimen for a 2020-12 prefixItems array.
+//
+// Every position has to be demonstrable, because a tuple missing one of its
+// members is not a shorter tuple — the positions after it shift, and the
+// specimen describes something the document did not.
+func (d *document) generateTuple(prefix node, seen map[string]bool) (any, bool) {
+	out := make([]any, 0, len(prefix.Items()))
+	for _, position := range prefix.Items() {
+		value, ok := d.generateValue(position, seen)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }

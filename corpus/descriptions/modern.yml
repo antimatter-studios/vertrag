@@ -1,0 +1,47 @@
+openapi: 3.1.0
+info:
+  title: Modern
+  version: "1.0.0"
+  summary: An OpenAPI 3.1 document
+  description: >
+    3.1 is JSON Schema 2020-12, which is a different language from the
+    modified subset 3.0 defined. `nullable` is gone, `type` may be a list,
+    `const` exists, and `exclusiveMinimum` is the bound itself rather than
+    a boolean beside `minimum`. Reading a 3.1 document under 3.0's rules
+    produces bodies the document never described.
+
+paths:
+  /modern:
+    get:
+      summary: Keywords 3.0 does not have
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [maybe, exact, above, tuple, needsBoth, either]
+                properties:
+                  # Nullability as a type list, which is 3.1's spelling.
+                  maybe: {type: [string, "null"]}
+                  # const, which does not exist in draft-4.
+                  exact: {const: fixed}
+                  # exclusiveMinimum as the bound, not a boolean.
+                  above: {type: integer, exclusiveMinimum: 10}
+                  # prefixItems, 2020-12's tuple.
+                  tuple:
+                    type: array
+                    prefixItems:
+                      - {type: string, minLength: 2}
+                      - {type: integer, minimum: 1}
+                  # dependentRequired, also 2020-12.
+                  needsBoth:
+                    type: object
+                    properties:
+                      a: {type: string}
+                      b: {type: string}
+                    dependentRequired:
+                      a: [b]
+                  # A type list with several real types.
+                  either: {type: [string, integer]}
