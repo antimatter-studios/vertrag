@@ -6,6 +6,11 @@ node_modules/
 # matches directories only.
 node_modules
 
+# Agent worktrees live here. Each is a git checkout of its own, so a plain
+# `git add -A` records it as a gitlink — an embedded repository that a clone
+# cannot fetch and that pins a commit nobody published.
+.claude/worktrees/
+
 # The oracle's lockfile IS tracked (see oracle/reference/). It is the pinned
 # reference vertrag is checked against, so a floating transitive dependency
 # would silently move the expectation. Any other lockfile is build output.
