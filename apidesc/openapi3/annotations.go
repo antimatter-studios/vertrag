@@ -340,15 +340,9 @@ func (d *document) validateContent(content node) []annotation {
 			for _, example := range examples {
 				nested = append(nested, d.validateObject(example.Value, specExample, nil)...)
 			}
-			// A transaction carries one body, so only the first example can be
-			// sent. The rest are dropped, and saying so is the difference
-			// between a deliberate choice and silently ignoring the document.
-			if len(examples) > 1 {
-				nested = append(nested, d.at(annotation{
-					class:   "warning",
-					message: "'Media Type Object' 'examples' only one example is supported, other examples have been ignored",
-				}, examples[1].Key))
-			}
+			// Dredd warns here that only the first example is used and the
+			// rest are ignored. vertrag sends them all, one exchange each, so
+			// there is nothing to warn about.
 			return nested
 		})...)
 	}
@@ -557,16 +551,10 @@ func deduplicateUnsupported(annotations []annotation) []annotation {
 
 // isUnsupportedWarning selects the warnings that are collapsed with a count.
 //
-// The ignored-examples warning is collapsed alongside the unsupported-key ones,
-// which is not obvious from its wording but is what the reference does: both
-// say "this document uses something not acted on", and repeating either per
-// occurrence would drown the rest.
+// Repeating "this document uses something not acted on" once per occurrence
+// would drown everything else in a document that uses the key throughout.
 func isUnsupportedWarning(a annotation) bool {
-	if a.class != "warning" {
-		return false
-	}
-	return strings.Contains(a.message, "contains unsupported key") ||
-		a.message == "'Media Type Object' 'examples' only one example is supported, other examples have been ignored"
+	return a.class == "warning" && strings.Contains(a.message, "contains unsupported key")
 }
 
 // elements renders the collected diagnostics as API Elements annotations.

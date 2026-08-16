@@ -78,6 +78,20 @@ var divergences = []divergence{
 		reason: "the generated multipart body needs its boundary in the " +
 			"Content-Type header, or the server cannot parse the parts.",
 	},
+	{
+		fixture: "request-bodies",
+		path:    "transactions",
+		reason: "Dredd sends the first named example and drops the rest, so a " +
+			"document illustrating an accepted and a rejected request is only " +
+			"ever tested on the accepted one. vertrag sends each named example " +
+			"as its own exchange, which is the extra transaction here.",
+	},
+	{
+		fixture: "request-bodies",
+		path:    "annotations",
+		reason: "Dredd warns that it ignored the examples after the first. " +
+			"vertrag sends them, so it has nothing to warn about.",
+	},
 }
 
 // expectedDivergence finds a recorded entry for a difference.

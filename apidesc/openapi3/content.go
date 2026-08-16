@@ -99,7 +99,11 @@ func (d *document) parseResponseHeaders(n node) []header {
 	return headers
 }
 
-// parseContent turns a Content Object into one message per media type.
+// parseContent turns a Content Object into the messages it describes.
+//
+// One per media type, and one per named example where a media type carries
+// several: a document giving an Examples Object with "accepted" and "rejected"
+// entries is describing two exchanges, not one illustrated twice.
 //
 // withSchema controls whether a JSON Schema is attached. It is emitted for
 // responses only: it exists so a consumer can validate what came back, and
@@ -110,54 +114,96 @@ func (d *document) parseContent(content node, withSchema bool) []message {
 	for _, member := range content.Entries() {
 		mediaType := member.Key.Str()
 		mediaTypeObject := member.Value
-
-		msg := message{contentType: mediaType}
-
-		// An explicit example is what the author chose to demonstrate, and
-		// takes precedence over anything derived from the schema.
-		if example := mediaTypeObject.Get("example"); example.Valid() {
-			if body, ok := renderBody(scalarValue(example), mediaType); ok {
-				msg.body, msg.hasBody = body, true
-			}
-		} else if example, ok := d.firstNamedExample(mediaTypeObject.Get("examples")); ok {
-			if body, ok := renderBody(example, mediaType); ok {
-				msg.body, msg.hasBody = body, true
-			}
-		}
-
 		schema := mediaTypeObject.Get("schema")
 
-		// A multipart body is assembled from the schema's properties rather
-		// than serialised, and the boundary that separates the parts has to
-		// reach the Content-Type header too, or the server cannot read it.
-		//
-		// Dredd sends nothing here, which is why projects testing file uploads
-		// end up skipping those endpoints entirely.
-		if !msg.hasBody && isMultipartMediaType(mediaType) && schema.Valid() {
-			if body, ok := d.multipartBody(schema, multipartBoundary); ok {
-				msg.body, msg.hasBody = body, true
-				msg.contentType = mediaType + "; boundary=" + multipartBoundary
+		for _, example := range d.examplesOf(mediaTypeObject, mediaType) {
+			msg := message{
+				contentType: mediaType,
+				example:     example.name,
+				body:        example.body,
+				hasBody:     example.hasBody,
 			}
-		}
 
-		if !msg.hasBody && schema.Valid() {
-			if value, ok := d.generateValue(schema, nil); ok {
-				if body, ok := renderBody(value, mediaType); ok {
+			// A multipart body is assembled from the schema's properties rather
+			// than serialised, and the boundary that separates the parts has to
+			// reach the Content-Type header too, or the server cannot read it.
+			//
+			// Dredd sends nothing here, which is why projects testing file
+			// uploads end up skipping those endpoints entirely.
+			if !msg.hasBody && isMultipartMediaType(mediaType) && schema.Valid() {
+				if body, ok := d.multipartBody(schema, multipartBoundary); ok {
 					msg.body, msg.hasBody = body, true
+					msg.contentType = mediaType + "; boundary=" + multipartBoundary
 				}
 			}
-		}
 
-		if withSchema && schema.Valid() && isJSONMediaType(mediaType) {
-			if converted, ok := d.convertSchema(schema); ok {
-				msg.schema = converted
+			if !msg.hasBody && schema.Valid() {
+				if value, ok := d.generateValue(schema, nil); ok {
+					if body, ok := renderBody(value, mediaType); ok {
+						msg.body, msg.hasBody = body, true
+					}
+				}
 			}
-		}
 
-		messages = append(messages, msg)
+			if withSchema && schema.Valid() && isJSONMediaType(mediaType) {
+				if converted, ok := d.convertSchema(schema); ok {
+					msg.schema = converted
+				}
+			}
+
+			messages = append(messages, msg)
+		}
 	}
 
 	return messages
+}
+
+// namedBody is one body a media type describes, under the name the document
+// gave it.
+type namedBody struct {
+	name    string
+	body    string
+	hasBody bool
+}
+
+// examplesOf reads the bodies a Media Type Object describes.
+//
+// Always at least one, so a media type with no example at all still yields a
+// message to be filled in from its schema.
+func (d *document) examplesOf(mediaTypeObject node, mediaType string) []namedBody {
+	// A single `example` is what the author chose to demonstrate and takes
+	// precedence over anything else, including an Examples Object beside it.
+	if example := mediaTypeObject.Get("example"); example.Valid() {
+		if body, ok := renderBody(scalarValue(example), mediaType); ok {
+			return []namedBody{{body: body, hasBody: true}}
+		}
+		return []namedBody{{}}
+	}
+
+	var out []namedBody
+	for _, member := range mediaTypeObject.Get("examples").Entries() {
+		name := member.Key.Str()
+		example := d.Resolve(member.Value)
+
+		value := example.Get("value")
+		if !value.Valid() {
+			// An externalValue points at a body vertrag has not fetched, so
+			// there is nothing to send. The name is still carried, so the
+			// exchange exists and its body comes from the schema.
+			out = append(out, namedBody{name: name})
+			continue
+		}
+		if body, ok := renderBody(scalarValue(value), mediaType); ok {
+			out = append(out, namedBody{name: name, body: body, hasBody: true})
+			continue
+		}
+		out = append(out, namedBody{name: name})
+	}
+
+	if len(out) == 0 {
+		return []namedBody{{}}
+	}
+	return out
 }
 
 // multipartBoundary separates the parts of a generated multipart body.
@@ -216,19 +262,4 @@ func isBinarySchema(schema node) bool {
 
 func isMultipartMediaType(mediaType string) bool {
 	return strings.HasPrefix(strings.ToLower(baseMediaType(mediaType)), "multipart/")
-}
-
-// firstNamedExample takes the first entry of an Examples Object.
-//
-// Only the first is used, because a transaction carries one body; the reference
-// makes the same choice and warns about the rest.
-func (d *document) firstNamedExample(examples node) (any, bool) {
-	for _, member := range examples.Entries() {
-		example := d.Resolve(member.Value)
-		if value := example.Get("value"); value.Valid() {
-			return scalarValue(value), true
-		}
-		return nil, false
-	}
-	return nil, false
 }

@@ -148,6 +148,11 @@ type message struct {
 	schema      string
 	statusCode  string
 	headers     []header
+
+	// example is the name the document gave this body in an Examples Object,
+	// empty for a body that was not named. It decides which request goes with
+	// which response: see pairs.
+	example string
 }
 
 type header struct {
@@ -155,11 +160,11 @@ type header struct {
 	value string
 }
 
-// buildTransactions pairs every request with every response.
+// buildTransactions pairs each request with the responses it belongs with.
 //
-// The cartesian product is deliberate and matches the reference: a document
-// offering two request content types and three responses describes six
-// exchanges, and each is a separate test.
+// The product is deliberate: a document offering two request content types and
+// three responses describes six exchanges, and each is a separate test. Named
+// examples narrow it — see pairs.
 func buildTransactions(method string, requests, responses []message, headerParams []header) []*refract.Element {
 	if len(requests) == 0 {
 		requests = []message{{}}
@@ -171,6 +176,10 @@ func buildTransactions(method string, requests, responses []message, headerParam
 	var transactions []*refract.Element
 	for _, request := range requests {
 		for _, response := range responses {
+			if !pairs(request, response) {
+				continue
+			}
+
 			httpRequest := refract.Named("httpRequest")
 			httpRequest.SetAttr("method", refract.String(method))
 
@@ -217,6 +226,24 @@ func buildTransactions(method string, requests, responses []message, headerParam
 		}
 	}
 	return transactions
+}
+
+// pairs reports whether a request and a response describe the same exchange.
+//
+// A document naming its examples is saying which request produces which
+// response: a request named "rejected" carrying an invalid payload goes with
+// the 400 named "rejected", not with the 200. Pairing those by the product
+// instead would generate a test asserting that the invalid request succeeds,
+// which is guaranteed to fail and tells nobody anything.
+//
+// A name on only one side constrains nothing, so those still pair with
+// everything — that is the case of a document that names its request examples
+// but describes its responses by schema alone.
+func pairs(request, response message) bool {
+	if request.example == "" || response.example == "" {
+		return true
+	}
+	return request.example == response.example
 }
 
 func containsHeader(headers []header, name string) bool {
