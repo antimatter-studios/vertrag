@@ -1,6 +1,6 @@
 package openapi2
 
-import "github.com/antimatter-studios/vertrag/internal/yamldoc"
+import "github.com/antimatter-studios/vertrag/yamldoc"
 
 // The document reader is shared with the other format parser. These aliases
 // keep this package reading in its own terms — a parser talks about nodes and

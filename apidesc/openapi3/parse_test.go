@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // compileSource parses a document and compiles it, which is the pairing every
@@ -540,7 +540,7 @@ paths:
 // The oracle checks these against Dredd, but that needs Node. This keeps them
 // exercised in a plain `go test`.
 func TestCorpusDocumentsParse(t *testing.T) {
-	dir := filepath.Join("..", "..", "..", "oracle", "corpus", "openapi3")
+	dir := filepath.Join("..", "..", "oracle", "corpus", "openapi3")
 	documents, err := filepath.Glob(filepath.Join(dir, "*.yml"))
 	if err != nil || len(documents) == 0 {
 		t.Fatalf("no corpus documents found in %s: %v", dir, err)

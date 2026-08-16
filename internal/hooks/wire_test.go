@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/internal/runner"
 )
 

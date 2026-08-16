@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/internal/config"
 )
 

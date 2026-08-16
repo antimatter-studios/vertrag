@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // Parse reads a Swagger 2.0 document into API Elements.

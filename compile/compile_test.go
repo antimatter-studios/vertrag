@@ -3,7 +3,7 @@ package compile
 import (
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // buildAPI assembles a minimal API Elements tree, the way a format parser would.

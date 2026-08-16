@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // annotation is a diagnostic about the description document.

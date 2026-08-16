@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/apidesc"
-	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/apidesc"
+	"github.com/antimatter-studios/vertrag/compile"
 )
 
 // TestParseMatchesReference is the end-to-end contract for the format parsers:

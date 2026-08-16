@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 	"gopkg.in/yaml.v3"
 )
 

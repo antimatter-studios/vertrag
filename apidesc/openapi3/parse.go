@@ -3,7 +3,7 @@ package openapi3
 import (
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // Parse reads an OpenAPI 3 document into API Elements.

@@ -2,11 +2,11 @@ package openapi3
 
 import (
 	"fmt"
-	"github.com/antimatter-studios/vertrag/internal/yamldoc"
+	"github.com/antimatter-studios/vertrag/yamldoc"
 	"sort"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // annotation is a diagnostic about the description document.

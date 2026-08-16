@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
-	"github.com/antimatter-studios/vertrag/internal/uritemplate"
+	"github.com/antimatter-studios/vertrag/refract"
+	"github.com/antimatter-studios/vertrag/uritemplate"
 )
 
 // param is one URI parameter gathered from an hrefVariables element.

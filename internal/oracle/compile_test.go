@@ -22,8 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // mediaTypes maps a corpus directory to the media type its documents were

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/compile"
 )
 
 func TestDetect(t *testing.T) {

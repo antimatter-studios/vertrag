@@ -1,6 +1,6 @@
 package openapi2
 
-import "github.com/antimatter-studios/vertrag/internal/refract"
+import "github.com/antimatter-studios/vertrag/refract"
 
 // parameter is one Swagger Parameter Object.
 //

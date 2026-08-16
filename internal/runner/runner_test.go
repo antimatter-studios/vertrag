@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/compile"
 )
 
 // transaction builds a compiled transaction the way the compiler would.

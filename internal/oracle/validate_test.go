@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/antimatter-studios/vertrag/internal/validate"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // validationCase is one expected/actual pair, as the corpus stores it.

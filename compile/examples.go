@@ -3,7 +3,7 @@ package compile
 import (
 	"sort"
 
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // detectTransactionExampleNumbers recovers API Blueprint's transaction example

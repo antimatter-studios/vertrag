@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/antimatter-studios/vertrag/internal/runner"
-	"github.com/antimatter-studios/vertrag/internal/validate"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 func report(t *testing.T, r CLI, results []runner.Result) (string, bool) {

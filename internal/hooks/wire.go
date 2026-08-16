@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/internal/runner"
-	"github.com/antimatter-studios/vertrag/internal/validate"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // wireTransaction is the shape a hook file sees.

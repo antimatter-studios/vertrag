@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/antimatter-studios/vertrag/internal/compile"
-	"github.com/antimatter-studios/vertrag/internal/validate"
+	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // Status is the outcome of one transaction.

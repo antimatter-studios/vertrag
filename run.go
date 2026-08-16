@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/antimatter-studios/vertrag/internal/apidesc"
-	"github.com/antimatter-studios/vertrag/internal/compile"
+	"github.com/antimatter-studios/vertrag/apidesc"
+	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/internal/config"
 	"github.com/antimatter-studios/vertrag/internal/hooks"
 	"github.com/antimatter-studios/vertrag/internal/reporter"

@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/antimatter-studios/vertrag/internal/apidesc"
-	"github.com/antimatter-studios/vertrag/internal/compile"
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/apidesc"
+	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // Stamped at build time by the release pipeline; see .goreleaser.yml.

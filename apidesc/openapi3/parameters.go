@@ -1,6 +1,6 @@
 package openapi3
 
-import "github.com/antimatter-studios/vertrag/internal/refract"
+import "github.com/antimatter-studios/vertrag/refract"
 
 // parameter is one Parameter Object.
 type parameter struct {

@@ -8,9 +8,9 @@ package apidesc
 import (
 	"regexp"
 
-	"github.com/antimatter-studios/vertrag/internal/apidesc/openapi2"
-	"github.com/antimatter-studios/vertrag/internal/apidesc/openapi3"
-	"github.com/antimatter-studios/vertrag/internal/refract"
+	"github.com/antimatter-studios/vertrag/apidesc/openapi2"
+	"github.com/antimatter-studios/vertrag/apidesc/openapi3"
+	"github.com/antimatter-studios/vertrag/refract"
 )
 
 // Media types identifying the supported description formats. They are the same
