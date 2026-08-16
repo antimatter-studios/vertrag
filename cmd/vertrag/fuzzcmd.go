@@ -45,7 +45,8 @@ func runFuzz(args []string) error {
 	var methods stringList
 	fs.Var(&methods, "method", "probe only transactions using this method (repeatable)")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
 
@@ -54,7 +55,7 @@ func runFuzz(args []string) error {
 		return err
 	}
 
-	settings, err := resolveConfig(*configPath, fs.Args())
+	settings, err := resolveConfig(*configPath, positional)
 	if err != nil {
 		return err
 	}

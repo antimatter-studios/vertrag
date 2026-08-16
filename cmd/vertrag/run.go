@@ -64,11 +64,39 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
 	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return f, err
 	}
-	f.positional = fs.Args()
+	f.positional = positional
 	return f, nil
+}
+
+// parseInterspersed parses flags that appear before, after or between the
+// positional arguments, and returns the positional ones.
+//
+// Go's flag package stops at the first argument that is not a flag, so
+// `vertrag run api.yml http://host --details` puts `--details` in the
+// positional list and silently ignores it. Dredd accepts flags anywhere, its
+// own documentation writes them last, and a flag that is quietly dropped is
+// indistinguishable from one that had no effect.
+//
+// The loop is the standard idiom: parse, take the first leftover as positional,
+// parse again from what follows. Flag values are still consumed by Parse, so
+// `--only NAME` keeps its argument rather than NAME becoming positional.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return positional, nil
+		}
+		positional = append(positional, args[0])
+		args = args[1:]
+	}
 }
 
 // settingsFor merges the config file with the command line.
