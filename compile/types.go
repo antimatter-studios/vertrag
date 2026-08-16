@@ -27,6 +27,16 @@ type Request struct {
 	URI     string   `json:"uri"`
 	Headers []Header `json:"headers"`
 	Body    string   `json:"body"`
+
+	// Schema is the JSON Schema the request body was built from, when the
+	// description carried one.
+	//
+	// It is deliberately absent from the JSON. Dredd has no equivalent — it
+	// sends the example and never needs to know what else would have been
+	// valid — so emitting it would make every compiled transaction differ from
+	// the reference for no benefit to the comparison. It exists for generation,
+	// which needs the shape of a valid body rather than one instance of it.
+	Schema string `json:"-"`
 }
 
 // Response is the response the API description promises.

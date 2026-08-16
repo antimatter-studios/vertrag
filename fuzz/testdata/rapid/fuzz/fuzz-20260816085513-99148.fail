@@ -1,0 +1,20 @@
+# 2026/08/16 08:55:13.256549 [fuzz] [rapid] draw body: map[string]interface {}{"age":18, "username":"aaa"}
+# 2026/08/16 08:55:13.256554 [fuzz] the server returned 400 for a body its own schema permits, so it disagrees with its description about what is valid
+# 
+v0.4.8#2381876380766993745
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

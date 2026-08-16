@@ -156,12 +156,16 @@ func compileRequest(element *refract.Element) (*Request, []Annotation) {
 	}
 
 	headers := compileHeaders(element.Attr("headers"))
-	return &Request{
+	request := &Request{
 		Method:  element.Attr("method").String(),
 		URI:     uri,
 		Headers: headers,
 		Body:    compileBody(element.ChildWithClass("asset", "messageBody"), hasMultipartBody(headers)),
-	}, annotations
+	}
+	if schema := element.ChildWithClass("asset", "messageBodySchema"); schema != nil {
+		request.Schema = schema.String()
+	}
+	return request, annotations
 }
 
 func compileResponse(element *refract.Element) Response {

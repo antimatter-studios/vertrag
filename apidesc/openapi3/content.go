@@ -20,7 +20,7 @@ func (d *document) parseRequestBody(n node) []message {
 	if !body.IsMapping() {
 		return nil
 	}
-	return d.parseContent(body.Get("content"), false)
+	return d.parseContent(body.Get("content"), true)
 }
 
 // parseResponses turns a Responses Object into the responses to expect.
@@ -105,9 +105,10 @@ func (d *document) parseResponseHeaders(n node) []header {
 // several: a document giving an Examples Object with "accepted" and "rejected"
 // entries is describing two exchanges, not one illustrated twice.
 //
-// withSchema controls whether a JSON Schema is attached. It is emitted for
-// responses only: it exists so a consumer can validate what came back, and
-// there is nothing to validate on the way out.
+// withSchema controls whether a JSON Schema is attached. On a response it is
+// what the body is validated against; on a request it is what generation draws
+// from, since testing an operation with inputs the description permits needs
+// the shape of a valid body rather than the single instance the example shows.
 func (d *document) parseContent(content node, withSchema bool) []message {
 	var messages []message
 

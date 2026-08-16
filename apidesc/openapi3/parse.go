@@ -203,6 +203,9 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			if request.hasBody {
 				httpRequest.Append(bodyAsset(request.body, request.contentType))
 			}
+			if request.schema != "" {
+				httpRequest.Append(schemaAsset(request.schema))
+			}
 
 			httpResponse := refract.Named("httpResponse")
 			if response.statusCode != "" {
