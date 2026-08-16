@@ -1,0 +1,51 @@
+openapi: 3.0.0
+info:
+  title: Statuses
+  version: "1.0.0"
+  description: >
+    Status codes that are not a plain "200": a range, a default, several
+    codes on one operation, and a 2xx with no content. Each is a place a
+    tester can quietly assume more than the document said.
+
+paths:
+  /ranged:
+    get:
+      summary: A status range
+      responses:
+        "2XX":
+          description: Any success
+          content:
+            application/json:
+              schema: {type: object, required: [ok], properties: {ok: {type: boolean}}}
+
+  /defaulted:
+    get:
+      summary: Only a default response
+      responses:
+        default:
+          description: Whatever happens
+          content:
+            application/json:
+              schema: {type: object, required: [message], properties: {message: {type: string, minLength: 1}}}
+
+  /several:
+    get:
+      summary: Several documented outcomes
+      responses:
+        "200":
+          description: Found
+          content:
+            application/json:
+              schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
+        "404":
+          description: Missing
+          content:
+            application/json:
+              schema: {type: object, required: [error], properties: {error: {type: string, minLength: 1}}}
+
+  /accepted:
+    post:
+      summary: Accepted with no content
+      responses:
+        "202":
+          description: Accepted, nothing to say

@@ -27,6 +27,18 @@ type Server struct {
 	routes []route
 	faults faultSet
 
+	// answered counts how many times each method-and-path has been asked, so
+	// an operation documenting several outcomes can give each in turn.
+	//
+	// A description saying one request yields both a 200 and a 404 is
+	// describing two states of the world, and a tester asks for each in
+	// document order. No stateless server can satisfy that from the request
+	// alone — the requests are identical — so answering them in the order they
+	// are asked is the only way to satisfy the document at all. It is also
+	// exactly the awkwardness real projects hit, and solve with a hook that
+	// skips one.
+	answered map[string]int
+
 	// stateful makes the server mint identifiers rather than echo the
 	// documented one, and refuse any it did not mint.
 	//
@@ -44,6 +56,7 @@ type Server struct {
 // Stateful returns a copy of the server that mints identifiers.
 func (s *Server) Stateful() *Server {
 	copied := *s
+	copied.answered = map[string]int{}
 	copied.stateful = true
 	copied.minted = map[string]bool{}
 	copied.nextID = 41
@@ -84,7 +97,7 @@ func New(description []byte, faults ...Fault) (*Server, error) {
 		}
 	}
 
-	server := &Server{faults: faultSet{}}
+	server := &Server{faults: faultSet{}, answered: map[string]int{}}
 	for _, fault := range faults {
 		server.faults[fault] = true
 	}
@@ -168,6 +181,7 @@ func (s *Server) match(r *http.Request) (route, bool) {
 		parts = nil
 	}
 
+	var matching []route
 	for _, candidate := range s.routes {
 		if candidate.method != r.Method || len(candidate.segments) != len(parts) {
 			continue
@@ -180,10 +194,23 @@ func (s *Server) match(r *http.Request) (route, bool) {
 			}
 		}
 		if fits {
-			return candidate, true
+			matching = append(matching, candidate)
 		}
 	}
-	return route{}, false
+
+	if len(matching) == 0 {
+		return route{}, false
+	}
+
+	// Several documented outcomes for one request: give each in turn, in
+	// document order, which is the order they are asked for.
+	key := r.Method + " " + r.URL.Path
+	at := s.answered[key]
+	s.answered[key] = at + 1
+	if at >= len(matching) {
+		at = len(matching) - 1
+	}
+	return matching[at], true
 }
 
 // answer replies as the description promises, deviating only where a fault says
