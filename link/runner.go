@@ -25,6 +25,16 @@ type Sequencer struct {
 
 	// exchanges records what each completed step actually sent and received.
 	exchanges map[int]Exchange
+
+	// substituted holds the parameter values a link put into a step, by
+	// location and name.
+	//
+	// Without it, an exchange was recorded from the COMPILED transaction, whose
+	// parameters still carry the description's example — so a third step
+	// reading `$request.path.id` from the second got the example rather than
+	// the identifier the first step minted, and went looking for a resource
+	// nobody created.
+	substituted map[int]map[string]string
 }
 
 // NewSequencer builds a plan-driven runner from compiled transactions.
@@ -52,6 +62,7 @@ func NewSequencer(transactions []compile.Transaction) *Sequencer {
 		sources:      sources,
 		links:        links,
 		exchanges:    map[int]Exchange{},
+		substituted:  map[int]map[string]string{},
 	}
 }
 
@@ -95,10 +106,11 @@ func (s *Sequencer) Prepare(index int, transaction *runner.Transaction, complete
 			l.Name, strings.Join(unresolved, ", "), s.transactions[source].Name), false
 	}
 
-	applied, failure := apply(transaction, s.transactions[index], values)
+	applied, used, failure := apply(transaction, s.transactions[index], values)
 	if failure != "" {
 		return failure, false
 	}
+	s.substituted[index] = used
 	if applied == 0 && len(values) > 0 {
 		return fmt.Sprintf("link %s supplied values for no parameter this operation declares", l.Name), false
 	}
@@ -116,8 +128,9 @@ func (s *Sequencer) Prepare(index int, transaction *runner.Transaction, complete
 // runner derives FullPath once and sends to it precisely so that a late hook
 // editing Request.URI cannot silently redirect a request; the same protection
 // means editing URI alone here would change nothing at all.
-func apply(target *runner.Transaction, source compile.Transaction, values map[string]any) (int, string) {
+func apply(target *runner.Transaction, source compile.Transaction, values map[string]any) (int, map[string]string, string) {
 	applied := 0
+	used := map[string]string{}
 	request := source.Request
 
 	for _, parameter := range source.Request.Parameters {
@@ -126,15 +139,18 @@ func apply(target *runner.Transaction, source compile.Transaction, values map[st
 				continue
 			}
 
+			text := stringify(value)
+			used[parameter.In+"."+parameter.Name] = text
+
 			if parameter.In == compile.InHeader {
-				target.Request.Headers[parameter.Name] = stringify(value)
+				target.Request.Headers[parameter.Name] = text
 				applied++
 				continue
 			}
 
-			rebuilt, err := request.SetParameter(parameter, stringify(value))
+			rebuilt, err := request.SetParameter(parameter, text)
 			if err != nil {
-				return applied, fmt.Sprintf("could not put %s into the %s parameter %q: %v",
+				return applied, used, fmt.Sprintf("could not put %s into the %s parameter %q: %v",
 					key, parameter.In, parameter.Name, err)
 			}
 			request = rebuilt
@@ -153,7 +169,7 @@ func apply(target *runner.Transaction, source compile.Transaction, values map[st
 		// /widgets/1 was fetched, and a 404 nobody can explain.
 		target.SetFullURL(target.Endpoint() + request.URI)
 	}
-	return applied, ""
+	return applied, used, ""
 }
 
 // Record keeps what a completed step sent and received, so a later step can
@@ -178,7 +194,14 @@ func (s *Sequencer) Record(index int, transaction *runner.Transaction, result ru
 		if !parameter.HasValue {
 			continue
 		}
+
+		// What was actually sent, which is the description's example only when
+		// no link replaced it.
 		value := stringify(parameter.Value)
+		if replaced, ok := s.substituted[index][parameter.In+"."+parameter.Name]; ok {
+			value = replaced
+		}
+
 		switch parameter.In {
 		case compile.InPath:
 			exchange.RequestPath[parameter.Name] = value

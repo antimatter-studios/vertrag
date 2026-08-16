@@ -182,3 +182,44 @@ func TestAFailedStepSkipsWhatDependsOnItRatherThanCascading(t *testing.T) {
 		}
 	}
 }
+
+// TestAChainOfThreeCarriesValuesAllTheWay pins that a step reading from the
+// step before it gets what that step actually sent.
+//
+// The chain is create, read what was created, delete what was read — and the
+// delete takes its identifier from the READ's request rather than from a
+// response body, which is the `$request.path.x` form. An exchange recorded from
+// the compiled transaction still carries the description's example, so the
+// delete went looking for item 1 while the create had minted 42, and a
+// three-step chain broke at the third step while the first two passed.
+func TestAChainOfThreeCarriesValuesAllTheWay(t *testing.T) {
+	server, err := corpus.NewNamed("chained")
+	if err != nil {
+		t.Fatalf("building the server: %v", err)
+	}
+	http := httptest.NewServer(server.Stateful().Handler())
+	t.Cleanup(http.Close)
+
+	source, _ := corpus.Load("chained")
+	parsed, err := apidesc.Parse(source, "chained")
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	compiled := compile.Compile(parsed.MediaType, parsed.Elements, "chained")
+
+	engine := runner.New(http.URL)
+	engine.Plan = link.NewSequencer(compiled.Transactions)
+
+	results, err := engine.Run(context.Background(), compiled.Transactions)
+	if err != nil {
+		t.Fatalf("running: %v", err)
+	}
+
+	for _, result := range results {
+		if result.Status != runner.StatusPass {
+			t.Errorf("%s %s: %s\n  %v\n  sent to %s",
+				result.Request.Method, result.Name, result.Status,
+				result.Errors, result.Request.URI)
+		}
+	}
+}
