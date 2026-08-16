@@ -1,5 +1,10 @@
 /dist/
 node_modules/
+# Without the slashless form, a worktree that SYMLINKS node_modules from the
+# main checkout — which is how an agent gets the oracle running without a
+# 31 MB reinstall — shows the link as untracked, because the pattern above
+# matches directories only.
+node_modules
 
 # The oracle's lockfile IS tracked (see oracle/reference/). It is the pinned
 # reference vertrag is checked against, so a floating transitive dependency
