@@ -2,6 +2,7 @@ package generate
 
 import (
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -100,10 +101,7 @@ func (c Constraints) Number(start float64) float64 {
 	}
 
 	if c.MultipleOf != nil && *c.MultipleOf > 0 {
-		// Rounding goes UP, because rounding down would satisfy multipleOf by
-		// breaking the minimum just applied — and a minimum is rarely itself a
-		// multiple. `multipleOf: 5, minimum: 7` permits 10, not 7 and not 5.
-		value = math.Ceil(value / *c.MultipleOf) * *c.MultipleOf
+		value = snapToMultiple(value, *c.MultipleOf)
 	}
 
 	if c.Maximum != nil && value > *c.Maximum {
@@ -125,3 +123,73 @@ func Items(minItems *float64) int {
 	}
 	return int(*minItems)
 }
+
+// snapToMultiple raises a value to the next multiple of a step.
+//
+// Rounding goes UP, because rounding down would satisfy multipleOf by breaking
+// the minimum just applied — and a minimum is rarely itself a multiple:
+// `multipleOf: 5, minimum: 7` permits 10, not 7 and not 5.
+//
+// Both halves of the arithmetic need protecting from binary floating point, and
+// the naive version got both wrong. `0.3 / 0.1` is 2.9999999999999996, so
+// ceiling it jumps a whole step to 4 and yields 0.4 where 0.3 was permitted.
+// And `3 * 0.1` is 0.30000000000000004, so even the right multiple is not one:
+// the validator rejects the specimen against the very constraint it was
+// generated from.
+//
+// A quotient within a hair of a whole number is therefore taken as whole, and
+// the product is rounded to the step's own decimal precision — which is where
+// the representation error lives and nowhere the description meant anything.
+func snapToMultiple(value, step float64) float64 {
+	quotient := value / step
+
+	multiple := math.Ceil(quotient)
+	if math.Abs(quotient-math.Round(quotient)) < quotientTolerance {
+		multiple = math.Round(quotient)
+	}
+
+	product := multiple * step
+	if places := decimalPlaces(step); places >= 0 {
+		scale := math.Pow(10, float64(places))
+		product = math.Round(product*scale) / scale
+	}
+	return product
+}
+
+// quotientTolerance is how far from whole a quotient may be and still be
+// treated as whole.
+//
+// Generous enough to absorb the representation error of any step a description
+// would plausibly state, and far tighter than any interval such a step divides.
+const quotientTolerance = 1e-9
+
+// decimalPlaces counts the digits after the point in a step's shortest decimal
+// form, which is the precision the description was written in.
+//
+// Returns -1 where rounding could not help: a step needing more places than a
+// float64 can distinguish is one whose representation error is the value, and
+// scaling by 10^20 to round it would introduce more error than it removes.
+//
+// An earlier version tested the formatted text for an exponent, which was dead
+// code — 'f' never produces one, so 1e-20 came back as twenty places rather
+// than the refusal that was intended.
+func decimalPlaces(step float64) int {
+	text := strconv.FormatFloat(step, 'f', -1, 64)
+
+	point := strings.IndexByte(text, '.')
+	if point < 0 {
+		return 0
+	}
+
+	places := len(text) - point - 1
+	if places > maxRoundablePlaces {
+		return -1
+	}
+	return places
+}
+
+// maxRoundablePlaces is the precision beyond which rounding stops helping.
+//
+// A float64 carries about fifteen to seventeen significant decimal digits, so
+// past this the digits being rounded are the representation error itself.
+const maxRoundablePlaces = 15

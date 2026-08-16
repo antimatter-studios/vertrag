@@ -1,0 +1,35 @@
+openapi: 3.0.0
+info:
+  title: Numbers
+  version: "1.0.0"
+  description: >
+    Numbers at the edges of what JSON and Go can carry. A specimen chosen
+    by arithmetic can drift outside its own bounds through rounding, print
+    in exponent form a server will not parse, or lose precision entirely.
+
+paths:
+  /numbers:
+    get:
+      summary: Numeric extremes
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [big, small, precise, negative, fraction, wideBand, exact, driftProne, tenths]
+                properties:
+                  big: {type: integer, minimum: 9007199254740990}
+                  small: {type: integer, maximum: -9007199254740990}
+                  precise: {type: number, minimum: 0.1, maximum: 0.2}
+                  negative: {type: integer, minimum: -100, maximum: -10}
+                  fraction: {type: number, minimum: 0.0001, maximum: 0.0002}
+                  wideBand: {type: integer, minimum: -1000000, maximum: 1000000}
+                  exact: {type: number, minimum: 1.5, maximum: 1.5}
+                  steppedFraction: {type: number, multipleOf: 0.25, minimum: 0.3}
+                  # 0.3/0.1 is 2.9999999999999996 in binary floating point, so a
+                  # naive ceil rounds to 3 and yields 0.30000000000000004 —
+                  # which multipleOf then rejects.
+                  driftProne: {type: number, multipleOf: 0.1, minimum: 0.3}
+                  tenths: {type: number, multipleOf: 0.1, minimum: 0.7}
