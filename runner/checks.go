@@ -11,7 +11,8 @@ import (
 //
 // Dredd compares the status code, the presence of the expected headers, and the
 // body against its schema. That leaves gaps a contract test ought to close: a
-// server can answer with a content type the document never mentions, or fail
+// server can answer with a content type the document never mentions, return a
+// header whose value contradicts the schema the description gave it, or fail
 // outright with a 5xx nobody documented, and Dredd reports only that the status
 // was not the expected one.
 //
@@ -25,6 +26,15 @@ import (
 type Checks struct {
 	ServerError bool
 	ContentType bool
+
+	// HeaderSchema validates response header values against the schemas the
+	// description gave them. It is off unless a run asks for it, unlike its
+	// neighbours: those two report things nobody disputes are wrong, while this
+	// one has to decide what a header's text means before it can judge it, and
+	// a description whose header schemas were never enforced is quite likely to
+	// contain one nobody ever checked. Turning that into red on the first run
+	// after adopting vertrag would be a poor trade.
+	HeaderSchema bool
 }
 
 // run performs the enabled checks and returns what they found.
@@ -48,6 +58,13 @@ func (c Checks) run(expected, actual validate.Message) []string {
 		if finding, found := checkContentType(expected, actual); found {
 			findings = append(findings, finding)
 		}
+	}
+	// Gated on the status for the same reason as the content type: the schemas
+	// belong to the response the expectation names, and a 404's headers are not
+	// evidence about what the documented 200 promised.
+	if c.HeaderSchema && statusMatches(expected, actual) {
+		findings = append(findings,
+			validate.AgainstHeaderSchemas(expected.HeaderSchemas, actual.Headers)...)
 	}
 	return findings
 }

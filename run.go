@@ -34,6 +34,7 @@ func runRun(args []string) error {
 	fs.Var(&only, "only", "run only the named transaction (repeatable)")
 	var methods stringList
 	fs.Var(&methods, "method", "run only transactions using this method (repeatable)")
+	checkHeaderSchema := fs.Bool("check-header-schema", false, "validate response header values against the schemas the description gives them")
 	reporterName := fs.String("reporter", "", "output format: cli or junit (overrides the config)")
 	output := fs.String("output", "", "write the report to a file instead of stdout")
 
@@ -62,6 +63,12 @@ func runRun(args []string) error {
 	}
 	if *sorted {
 		settings.Sorted = true
+	}
+	// Only ever turned on from the command line: the flag says "check this too",
+	// and there is no reading of it that means "stop checking what the config
+	// asked for".
+	if *checkHeaderSchema {
+		settings.Checks.HeaderSchema = true
 	}
 	settings.Header = append(settings.Header, headers...)
 	settings.Only = append(settings.Only, only...)
@@ -141,8 +148,9 @@ func runRun(args []string) error {
 	engine := runner.New(settings.Endpoint)
 	engine.ExtraHeaders = settings.Header
 	engine.Checks = runner.Checks{
-		ServerError: settings.Checks.ServerError,
-		ContentType: settings.Checks.ContentType,
+		ServerError:  settings.Checks.ServerError,
+		ContentType:  settings.Checks.ContentType,
+		HeaderSchema: settings.Checks.HeaderSchema,
 	}
 
 	// Hook files run in a worker process. Starting it is a hard failure: a

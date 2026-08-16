@@ -831,3 +831,82 @@ func TestRefractBuildersProduceUsableElements(t *testing.T) {
 		t.Error("a built element should read back its attributes")
 	}
 }
+
+const headerSchemasDocument = `
+openapi: "3.0.0"
+info: {title: H, version: "1.0.0"}
+paths:
+  /things:
+    get:
+      summary: List
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Rate-Limit:
+              required: true
+              schema: {type: integer, minimum: 0}
+            X-Style-Matrix:
+              style: matrix
+              schema: {type: string}
+            X-No-Schema:
+              description: nothing to check against
+            Content-Type:
+              schema: {type: string}
+`
+
+// TestResponseHeaderSchemasReachTheCompiledTransaction pins the whole carriage
+// path for a capability Dredd does not have: a Header Object's schema has to
+// survive parsing, the API Elements representation and compilation, or the check
+// downstream has nothing to check against.
+//
+// The exclusions are as load-bearing as the inclusion. A style other than
+// `simple` means the value on the wire is not the plain rendering of the schema,
+// and a `Content-Type` Header Object is one the specification says to ignore —
+// carrying either would produce failures against servers behaving exactly as
+// documented.
+func TestResponseHeaderSchemasReachTheCompiledTransaction(t *testing.T) {
+	result := compileSource(t, headerSchemasDocument)
+	if len(result.Transactions) != 1 {
+		t.Fatalf("transactions = %d, want 1", len(result.Transactions))
+	}
+
+	schemas := result.Transactions[0].Response.HeaderSchemas
+	if len(schemas) != 1 {
+		t.Fatalf("header schemas = %v, want only X-Rate-Limit", schemas)
+	}
+
+	var declared map[string]any
+	if err := json.Unmarshal(schemas["X-Rate-Limit"], &declared); err != nil {
+		t.Fatalf("the carried schema is not JSON: %v", err)
+	}
+	if declared["type"] != "integer" || declared["minimum"] != float64(0) {
+		t.Errorf("the constraints did not survive: %v", declared)
+	}
+}
+
+// TestHeaderSchemasStayOutOfTheCompiledJSON pins the oracle's comparison
+// surface. Dredd emits no such field, and the oracle compares vertrag's
+// marshalled output against the reference byte for byte — so a visible field
+// here would break every OpenAPI fixture that documents a response header.
+func TestHeaderSchemasStayOutOfTheCompiledJSON(t *testing.T) {
+	result := compileSource(t, headerSchemasDocument)
+
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(encoded), "HeaderSchemas") ||
+		strings.Contains(string(encoded), "headerSchemas") {
+		t.Errorf("the compiled JSON must not mention header schemas: %s", encoded)
+	}
+}
+
+// TestADocumentWithNoHeaderSchemasCarriesNone keeps the asset from appearing
+// where it has nothing to say, so the common description is unchanged.
+func TestADocumentWithNoHeaderSchemasCarriesNone(t *testing.T) {
+	result := compileSource(t, minimalDocument)
+	if schemas := result.Transactions[0].Response.HeaderSchemas; schemas != nil {
+		t.Errorf("header schemas = %v, want none", schemas)
+	}
+}

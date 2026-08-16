@@ -80,12 +80,18 @@ func isStatusCodeRange(key string) bool {
 
 // parseResponseHeaders reads a Headers Object.
 //
-// The values are left empty because the document declares what a header will
-// be, not what it will contain; the compiler carries the name through so the
-// response can be checked for its presence.
+// A value is only a demonstration — the document declares what a header will be,
+// not what it will contain — so the name is what matters downstream: the
+// compiler carries it through and the response is checked for its presence.
+//
+// `required` is deliberately not carried. Gavel demands every header the
+// description declares, whether or not it was marked required, so an absent one
+// already fails through ordinary validation; recording the flag would let it
+// look as though something acted on it.
 func (d *document) parseResponseHeaders(n node) []header {
 	var headers []header
 	for _, member := range n.Entries() {
+		name := member.Key.Str()
 		declared := d.Resolve(member.Value)
 		value := ""
 		if example, ok := schemaExample(d.Resolve(declared.Get("schema"))); ok {
@@ -94,9 +100,39 @@ func (d *document) parseResponseHeaders(n node) []header {
 		if example := declared.Get("example"); example.Valid() {
 			value = stringifyScalar(scalarValue(example))
 		}
-		headers = append(headers, header{name: member.Key.Str(), value: value})
+		headers = append(headers, header{
+			name:   name,
+			value:  value,
+			schema: d.headerSchema(name, declared),
+		})
 	}
 	return headers
+}
+
+// headerSchema converts a Header Object's schema into the JSON Schema its value
+// is checked against, or "" for a declaration vertrag will not act on.
+//
+// A Header Object borrows the Parameter Object's serialisation rules, and only
+// the default `simple` style is read back off the wire. A document choosing
+// another style, or describing its header with `content` rather than a schema,
+// is saying the text is not the plain rendering of the schema — and checking it
+// as though it were would fail servers doing exactly what they were told.
+//
+// A `Content-Type` entry is dropped because the specification says a Header
+// Object of that name is to be ignored. The media type belongs to the Response
+// Object's content map, which vertrag already compares.
+func (d *document) headerSchema(name string, declared node) string {
+	if strings.EqualFold(name, "content-type") {
+		return ""
+	}
+	if style := declared.Get("style").Str(); style != "" && style != "simple" {
+		return ""
+	}
+	converted, ok := d.convertSchema(declared.Get("schema"))
+	if !ok {
+		return ""
+	}
+	return converted
 }
 
 // parseContent turns a Content Object into the messages it describes.
