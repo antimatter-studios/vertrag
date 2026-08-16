@@ -52,6 +52,44 @@ func TestParseMatchesReference(t *testing.T) {
 	}
 }
 
+// divergence is a difference from Dredd that vertrag intends.
+//
+// Recording one is not a way to silence a failing test. Each entry has to say
+// what differs and why, and the suite fails if a recorded divergence stops
+// diverging — a ledger that is not checked becomes a list of things that used
+// to be true.
+type divergence struct {
+	fixture string
+	path    string
+	reason  string
+}
+
+var divergences = []divergence{
+	{
+		fixture: "media-types",
+		path:    "transactions[1].request.body",
+		reason: "Dredd sends an empty body for multipart/form-data, so a project " +
+			"testing file uploads has to skip those endpoints. vertrag assembles " +
+			"the parts from the schema.",
+	},
+	{
+		fixture: "media-types",
+		path:    "transactions[1].request.headers[0].value",
+		reason: "the generated multipart body needs its boundary in the " +
+			"Content-Type header, or the server cannot parse the parts.",
+	},
+}
+
+// expectedDivergence finds a recorded entry for a difference.
+func expectedDivergence(fixture, difference string) (divergence, bool) {
+	for _, entry := range divergences {
+		if entry.fixture == fixture && strings.HasPrefix(difference, entry.path+":") {
+			return entry, true
+		}
+	}
+	return divergence{}, false
+}
+
 func compareDocument(t *testing.T, root, document string) {
 	t.Helper()
 
@@ -83,11 +121,28 @@ func compareDocument(t *testing.T, root, document string) {
 		t.Errorf("mediaType: reference has %v, vertrag has %v", wantMap["mediaType"], gotMap["mediaType"])
 	}
 
-	for _, diff := range diffValues("transactions", wantMap["transactions"], gotMap["transactions"]) {
-		t.Errorf("%s", diff)
+	fixture := baseName(document)
+	seen := map[string]bool{}
+
+	for _, section := range []string{"transactions", "annotations"} {
+		for _, diff := range diffValues(section, wantMap[section], gotMap[section]) {
+			entry, intended := expectedDivergence(fixture, diff)
+			if !intended {
+				t.Errorf("%s", diff)
+				continue
+			}
+			seen[entry.path] = true
+			t.Logf("diverges from Dredd, as intended — %s\n  %s", entry.reason, diff)
+		}
 	}
-	for _, diff := range diffValues("annotations", wantMap["annotations"], gotMap["annotations"]) {
-		t.Errorf("%s", diff)
+
+	// A recorded divergence that no longer diverges means either Dredd changed
+	// or vertrag did, and either way the ledger is now describing something
+	// that is not happening.
+	for _, entry := range divergences {
+		if entry.fixture == fixture && !seen[entry.path] {
+			t.Errorf("%s no longer differs from Dredd; remove it from the divergence ledger", entry.path)
+		}
 	}
 }
 

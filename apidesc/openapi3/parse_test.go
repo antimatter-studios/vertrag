@@ -676,6 +676,83 @@ func TestVersionDetection(t *testing.T) {
 	}
 }
 
+// TestMultipartRequestBody pins the payload assembled for a file upload.
+//
+// Dredd sends nothing for multipart/form-data, which is why projects testing
+// uploads skip those endpoints — inpace skips ten of them for exactly this
+// reason.
+func TestMultipartRequestBody(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /upload:
+    post:
+      summary: Upload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                note: {type: string, example: hello}
+                file: {type: string, format: binary}
+      responses:
+        "200": {description: OK}
+`)
+
+	transaction := result.Transactions[0]
+
+	// The boundary has to reach the header, or a server cannot find the parts.
+	var contentType string
+	for _, header := range transaction.Request.Headers {
+		if header.Name == "Content-Type" {
+			contentType = header.Value
+		}
+	}
+	if !strings.Contains(contentType, "boundary=") {
+		t.Errorf("Content-Type = %q, want a boundary", contentType)
+	}
+
+	body := transaction.Request.Body
+	for _, want := range []string{
+		`Content-Disposition: form-data; name="note"`,
+		"hello",
+		// A binary field is sent as a file, since that is what an upload
+		// handler looks for.
+		`name="file"; filename="file"`,
+		"--vertrag-boundary--",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q:\n%s", want, body)
+		}
+	}
+
+	// Two runs of the same document must produce identical bytes, so the
+	// boundary is fixed rather than random.
+	again := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /upload:
+    post:
+      summary: Upload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                note: {type: string, example: hello}
+                file: {type: string, format: binary}
+      responses:
+        "200": {description: OK}
+`)
+	if again.Transactions[0].Request.Body != body {
+		t.Error("the same document produced two different bodies")
+	}
+}
+
 func TestParseRejectsMalformedYAML(t *testing.T) {
 	if _, err := Parse([]byte("openapi: \"3.0.0\"\n\tbad")); err == nil {
 		t.Error("unparseable YAML should be an error")

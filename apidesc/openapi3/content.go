@@ -1,6 +1,10 @@
 package openapi3
 
-import "regexp"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
 
 // statusCodePattern matches an exact HTTP status code. A range such as `2XX`
 // deliberately does not match: the reference gives ranges no status code, so
@@ -122,6 +126,20 @@ func (d *document) parseContent(content node, withSchema bool) []message {
 		}
 
 		schema := mediaTypeObject.Get("schema")
+
+		// A multipart body is assembled from the schema's properties rather
+		// than serialised, and the boundary that separates the parts has to
+		// reach the Content-Type header too, or the server cannot read it.
+		//
+		// Dredd sends nothing here, which is why projects testing file uploads
+		// end up skipping those endpoints entirely.
+		if !msg.hasBody && isMultipartMediaType(mediaType) && schema.Valid() {
+			if body, ok := d.multipartBody(schema, multipartBoundary); ok {
+				msg.body, msg.hasBody = body, true
+				msg.contentType = mediaType + "; boundary=" + multipartBoundary
+			}
+		}
+
 		if !msg.hasBody && schema.Valid() {
 			if value, ok := d.generateValue(schema, nil); ok {
 				if body, ok := renderBody(value, mediaType); ok {
@@ -140,6 +158,64 @@ func (d *document) parseContent(content node, withSchema bool) []message {
 	}
 
 	return messages
+}
+
+// multipartBoundary separates the parts of a generated multipart body.
+//
+// It is fixed rather than random so that two runs of the same description
+// produce byte-identical requests. A contract test that differs run to run
+// cannot be diffed, and a random boundary would change every recorded body.
+const multipartBoundary = "vertrag-boundary"
+
+// multipartBody assembles a multipart payload from a schema's properties.
+//
+// Each property becomes one part. A property declaring a binary format gets
+// placeholder bytes and a filename, since that is what a server parsing an
+// upload expects to find; anything else is sent as its generated value.
+func (d *document) multipartBody(schema node, boundary string) (string, bool) {
+	resolved := d.Resolve(schema)
+	properties := resolved.Get("properties").Entries()
+	if len(properties) == 0 {
+		return "", false
+	}
+
+	var body strings.Builder
+	for _, property := range properties {
+		name := property.Key.Str()
+		field := d.Resolve(property.Value)
+
+		disposition := fmt.Sprintf("form-data; name=%q", name)
+		content := ""
+
+		if isBinarySchema(field) {
+			disposition += fmt.Sprintf("; filename=%q", name)
+			// Enough bytes to be a file without pretending to be a real one.
+			content = "vertrag placeholder"
+		} else if value, ok := d.generateValue(field, nil); ok {
+			content = stringifyScalar(value)
+		}
+
+		fmt.Fprintf(&body, "--%s\r\nContent-Disposition: %s\r\n\r\n%s\r\n", boundary, disposition, content)
+	}
+	fmt.Fprintf(&body, "--%s--\r\n", boundary)
+
+	return body.String(), true
+}
+
+// isBinarySchema reports whether a property describes file content.
+func isBinarySchema(schema node) bool {
+	if schema.Get("type").Str() != "string" {
+		return false
+	}
+	switch schema.Get("format").Str() {
+	case "binary", "base64", "byte":
+		return true
+	}
+	return false
+}
+
+func isMultipartMediaType(mediaType string) bool {
+	return strings.HasPrefix(strings.ToLower(baseMediaType(mediaType)), "multipart/")
 }
 
 // firstNamedExample takes the first entry of an Examples Object.
