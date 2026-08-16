@@ -2,6 +2,7 @@ package openapi3
 
 import (
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -281,9 +282,63 @@ func renderBody(value any, mediaType string) (string, bool) {
 			return "", false
 		}
 		return text, true
+	case isFormMediaType(mediaType):
+		return renderForm(value)
 	default:
 		return "", false
 	}
+}
+
+// isFormMediaType reports the encoding HTML forms have posted since forever and
+// a great many APIs still accept.
+func isFormMediaType(mediaType string) bool {
+	return strings.EqualFold(baseMediaType(mediaType), "application/x-www-form-urlencoded")
+}
+
+// renderForm encodes an object the way a form post carries it.
+//
+// Dredd renders nothing here, exactly as it renders nothing for multipart, so
+// an endpoint taking a form is sent an empty body and any server requiring its
+// fields answers 400 — the endpoint cannot be tested at all. It is the same
+// defect as the multipart one and a good deal more common, forms being what a
+// great many APIs still accept.
+//
+// Only a flat object encodes: a nested one has no single spelling here, since
+// whether it becomes `a[b]=1`, `a.b=1` or JSON in a field depends on a
+// convention the description does not state. Guessing would send something the
+// document never described.
+func renderForm(value any) (string, bool) {
+	object, ok := value.(*orderedMap)
+	if !ok {
+		return "", false
+	}
+
+	form := url.Values{}
+	for _, key := range object.Keys() {
+		nested, _ := object.Get(key)
+		switch nested.(type) {
+		case *orderedMap, []any:
+			return "", false
+		}
+		form.Set(key, stringifyScalar(nested))
+	}
+	if len(form) == 0 {
+		return "", false
+	}
+
+	// Encoded in the document's own key order rather than sorted, so the body
+	// reads as the description does. url.Values.Encode sorts, so it cannot be
+	// used directly.
+	var b strings.Builder
+	for i, key := range object.Keys() {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(url.QueryEscape(key))
+		b.WriteByte('=')
+		b.WriteString(url.QueryEscape(form.Get(key)))
+	}
+	return b.String(), true
 }
 
 // truthy applies JavaScript's notion of truthiness, which is what the reference

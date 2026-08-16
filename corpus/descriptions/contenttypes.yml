@@ -1,0 +1,62 @@
+openapi: 3.0.0
+info:
+  title: Content types
+  version: "1.0.0"
+  description: >
+    Bodies that are not JSON. Form encoding, plain text and a binary
+    download each travel differently, and a tester that assumes JSON
+    everywhere either sends the wrong thing or checks nothing.
+
+paths:
+  /form:
+    post:
+      summary: Form-encoded request
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, size]
+              properties:
+                name: {type: string, minLength: 2}
+                size: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {type: object, required: [ok], properties: {ok: {type: boolean}}}
+
+  /text:
+    post:
+      summary: A plain text body
+      requestBody:
+        content:
+          text/plain:
+            schema: {type: string, minLength: 3}
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema: {type: string}
+
+  /download:
+    get:
+      summary: A binary download
+      responses:
+        "200":
+          description: The bytes
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+
+  /csv:
+    get:
+      summary: A CSV export
+      responses:
+        "200":
+          description: Rows
+          content:
+            text/csv:
+              schema: {type: string}

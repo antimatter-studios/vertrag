@@ -67,6 +67,14 @@ type divergence struct {
 var divergences = []divergence{
 	{
 		fixture: "media-types",
+		path:    "transactions[0].request.body",
+		reason: "Dredd sends an empty body for application/x-www-form-urlencoded, " +
+			"exactly as it does for multipart, so an endpoint taking a form is " +
+			"sent nothing and any server requiring its fields answers 400 — the " +
+			"endpoint cannot be tested at all. vertrag encodes the object.",
+	},
+	{
+		fixture: "media-types",
 		path:    "transactions[1].request.body",
 		reason: "Dredd sends an empty body for multipart/form-data, so a project " +
 			"testing file uploads has to skip those endpoints. vertrag assembles " +
