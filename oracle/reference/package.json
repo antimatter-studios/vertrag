@@ -18,7 +18,7 @@
     "forked and upstream packages measured a toolchain nobody runs."
   ],
   "dependencies": {
-    "@antimatter-studios/dredd-transactions": "12.2.0",
+    "@antimatter-studios/dredd-transactions": "12.2.1",
     "@antimatter-studios/gavel": "1.0.0",
     "@antimatter-studios/core": "0.2.1"
   }
