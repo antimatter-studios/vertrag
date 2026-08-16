@@ -53,6 +53,9 @@ vertrag compile openapi.yml         # the transactions, as JSON
 
 # JUnit XML for CI — Jenkins, GitLab, GitHub Actions
 vertrag run --reporter junit --output report.xml
+
+vertrag run --reporter dot                          # one character per transaction
+vertrag run --reporter html --output report.html    # a page to publish
 ```
 
 ## Configuration
@@ -174,7 +177,7 @@ vertrag keeps that shape:
 | `internal/runner` | Sending requests, judging responses | Done |
 | `internal/hooks` | Running Node.js hook files | Done |
 | `internal/config` | Reading `dredd.yml` | Done |
-| `internal/reporter` | CLI output | Done |
+| `internal/reporter` | cli, dot, markdown, html, JUnit output | Done |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
 API Blueprint, OpenAPI 2 and OpenAPI 3 at once, and Dredd ships pre-parsed API
@@ -194,7 +197,7 @@ when it reproduces its pair.
 4. ~~Transaction runner~~ — done
 5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
-7. ~~JUnit XML reporter~~ — done; dot, markdown and HTML still to come
+7. ~~Reporters~~ — done; cli, dot, markdown, html and JUnit XML
 8. Adversarial input generation, with shrinking
 
 ## Not supported: API Blueprint

@@ -34,7 +34,7 @@ func runRun(args []string) error {
 	fs.Var(&only, "only", "run only the named transaction (repeatable)")
 	var methods stringList
 	fs.Var(&methods, "method", "run only transactions using this method (repeatable)")
-	reporterName := fs.String("reporter", "", "output format: cli or junit (overrides the config)")
+	reporterName := fs.String("reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
 	output := fs.String("output", "", "write the report to a file instead of stdout")
 
 	if err := fs.Parse(args); err != nil {
@@ -213,11 +213,18 @@ func newReporter(settings config.Config) (Reporter, func(), error) {
 		case "cli", "":
 			reporters = append(reporters, reporter.CLI{
 				Out: destination, Color: colour, Details: settings.Details})
+		case "dot":
+			reporters = append(reporters, reporter.Dot{Out: destination, Color: colour})
+		case "markdown", "md":
+			reporters = append(reporters, reporter.Markdown{Out: destination, Details: settings.Details})
+		case "html":
+			reporters = append(reporters, reporter.HTML{Out: destination, Details: settings.Details})
 		case "junit", "xunit":
 			reporters = append(reporters, reporter.JUnit{Out: destination})
 		default:
 			closeAll()
-			return nil, closeAll, fmt.Errorf("unknown reporter %q; vertrag has cli and junit", name)
+			return nil, closeAll, fmt.Errorf(
+				"unknown reporter %q; vertrag has cli, dot, markdown, html and junit", name)
 		}
 	}
 
