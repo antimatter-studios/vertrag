@@ -15,7 +15,8 @@ language: nodejs
 # Narrowing a run.
 only: []                           # transaction names, as hooks address them
 method: []                         # GET, POST, …
-header: []                         # "Name: value", sent with every request
+# `header` is Dredd's too, and vertrag adds a conditional form to it. Both are
+# demonstrated together further down rather than split across two places.
 
 color: true
 details: false                     # print passing exchanges too
@@ -49,3 +50,52 @@ checks:
   # on the day you adopt vertrag. Turn it on when you are ready to read what it
   # finds; `--check-header-schema` does the same for one run.
   header-schema: false
+
+# Authentication. Nearly every suite needs this and almost none of it is
+# specific to a project: log in once, keep what came back, send it on
+# everything afterwards. Doing that with a hook file costs a worker process and
+# a language runtime to run three steps that never vary.
+auth:
+  login:
+    path: /api/v1/auth/login    # method defaults to POST
+    body: {username: admin, password: secret}
+
+  # How the credential comes back. Naming a cookie implies `carry: cookie`.
+  cookie: jwt_token             # keep this one out of Set-Cookie
+
+  # Or take it from the response body. The value is a runtime expression, the
+  # same language OpenAPI links use, so a token that is not at /token needs no
+  # new setting:
+  #   header: 'Authorization: Bearer {$response.body#/data/access_token}'
+  # A static API key needs no `login` block at all:
+  #   header: 'X-API-Key: abc123'
+
+  # Transactions that must go out unauthenticated. A login endpoint documenting
+  # its own 401 cannot produce one while holding a valid credential.
+  except:
+    - '/api/v1/auth/login > Login > 401 > application/json'
+
+# Headers. Dredd's plain form still works, and an entry may instead carry a
+# condition so it reaches only the transactions it is meant for.
+header:
+  - 'X-Trace: on'                # every transaction, as in Dredd
+
+  # The case this is really for: telling a mock which failure to simulate, so
+  # the error responses the description promises can actually be reached. Which
+  # failure to ask for follows from which response is expected.
+  - name: X-Mock-Scenario
+    value: absent
+    when: {status: 404}
+  - name: X-Mock-Scenario
+    value: broken
+    when: {status: 500}
+  # `when` also takes `method`. Nothing may look at the response: a rule needing
+  # that is a hook.
+
+# Transactions to leave out of the run. The reason is optional and worth
+# giving — it is printed with the skip, so the report says why forty
+# transactions did not run rather than only that they did not.
+skip:
+  - name: '/api/v1/jobs/{id} > Get job > 200 > application/json'
+    reason: sends a literal "id" that fails integer parsing; covered by unit tests
+  - '/api/v1/unstable > Unstable > 200 > application/json'

@@ -85,6 +85,7 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 
 	if f.endpoint != "" {
+		noteOverride(&settings, "the endpoint", f.endpoint, settings.Endpoint)
 		settings.Endpoint = f.endpoint
 	}
 	if f.dryRun {
@@ -384,13 +385,33 @@ func resolveConfig(path string, positional []string) (config.Config, error) {
 
 	// Positional arguments are Dredd's own calling convention:
 	//   vertrag run <description> <endpoint>
+	//
+	// They win over the file. Dredd resolves this the other way — a dredd.yml
+	// silently outranks what you typed — and an afternoon has been lost to
+	// running `dredd ./api.json http://localhost:4001` in a directory whose
+	// dredd.yml named a different endpoint, and reading a hundred connection
+	// errors against the port that was not asked for. So where the two disagree,
+	// say which one is being used rather than leaving it to be deduced.
 	if len(positional) > 0 {
+		noteOverride(&settings, "the description", positional[0], settings.Blueprint)
 		settings.Blueprint = positional[0]
 	}
 	if len(positional) > 1 {
+		noteOverride(&settings, "the endpoint", positional[1], settings.Endpoint)
 		settings.Endpoint = positional[1]
 	}
 	return settings, nil
+}
+
+// noteOverride records that an argument displaced a different value from the
+// configuration file. Agreement is silent: only a disagreement is surprising.
+func noteOverride(settings *config.Config, what, argument, configured string) {
+	if settings.Source == "" || configured == "" || configured == argument {
+		return
+	}
+	settings.Notes = append(settings.Notes, fmt.Sprintf(
+		"using %s %s from the command line; %s says %s",
+		what, argument, settings.Source, configured))
 }
 
 // stripAPIName removes the API title from the front of each transaction name.

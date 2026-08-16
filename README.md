@@ -139,6 +139,61 @@ contain a header schema that was never true. It is therefore the one check that
 starts off; turn it on here or with `--check-header-schema` when you are ready
 to read what it finds.
 
+### Setup without a hook file
+
+Logging in, setting a header, and skipping a transaction are what most hook
+files spend their lines on, and almost none of it is specific to a project.
+Dredd cannot express any of it, so each suite writes it again — and pays a
+worker process and a language runtime to run steps that never vary.
+
+```yaml
+auth:
+  login:
+    path: /api/v1/auth/login       # method defaults to POST
+    body: {username: admin, password: secret}
+  cookie: jwt_token                # keep this one out of Set-Cookie
+  except:                          # must go out unauthenticated
+    - '/api/v1/auth/login > Login > 401 > application/json'
+
+header:
+  - 'X-Trace: on'                  # Dredd's form: every transaction
+  - name: X-Mock-Scenario          # vertrag's: only where it applies
+    value: absent
+    when: {status: 404}
+
+skip:
+  - name: '/api/v1/jobs/{id} > Get job > 200 > application/json'
+    reason: sends a literal "id"; covered by unit tests
+```
+
+A credential can equally come from the response body — `header: 'Authorization:
+Bearer {$response.body#/token}'` — because the value is a **runtime expression**,
+the same language OpenAPI links use. A static API key needs no `login` at all.
+
+`except` exists because a login endpoint that documents its own 401 cannot
+produce one while holding a valid credential.
+
+The conditional `header` form is really there for one job: telling a mock which
+failure to simulate, so the error responses a description promises can be
+reached at all. Which failure to ask for follows from which response is
+expected, which is why the condition is the expected status.
+
+A skip's `reason` is printed with the skip, so a report says *why* forty
+transactions did not run rather than only that they did not — a skip list is
+where a suite's debt collects, and one that states its reasons is one somebody
+can work through. An entry matching no transaction is reported rather than
+ignored; it usually means something was renamed.
+
+These keys change what is sent or run, so they are read only from a
+`vertrag.yml`. Dredd ignores keys it does not recognise **without a word**, so
+honouring them from a `dredd.yml` would leave vertrag authenticated and Dredd
+not — two testers disagreeing about what they tested, from one file that looks
+shared. A `dredd.yml` carrying them says where to move them.
+
+Anything that must look at a *response* is still a hook, and hooks are
+unchanged. The line is deliberate: config covers what does not vary, and no
+condition here can grow into a programming language.
+
 ## Why
 
 Dredd works, and this project exists to keep it working rather than to replace
