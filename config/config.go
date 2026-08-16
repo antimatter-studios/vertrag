@@ -70,6 +70,13 @@ type Config struct {
 	// read only from a vertrag file — see Discover.
 	Auth Auth
 
+	// Skip takes transactions out of the run. Read only from a vertrag file.
+	Skip []SkipRule
+
+	// ConditionalHeaders are the `header` entries written in vertrag's
+	// conditional form. Read only from a vertrag file.
+	ConditionalHeaders []HeaderRule
+
 	// Source is the file these settings came from, or "" for defaults.
 	Source string
 
@@ -132,6 +139,32 @@ type Auth struct {
 	Except []string
 }
 
+// HeaderRule adds a header to the transactions it matches.
+//
+// It shares the `header` key with Dredd's plain `Name: value` strings rather
+// than taking a `headers:` of its own, because two keys a letter apart that did
+// different things would be read wrong at a glance and mistyped forever.
+type HeaderRule struct {
+	Name  string
+	Value string
+
+	// Status and Method are the conditions, both optional. Empty matches every
+	// transaction, which is the same as writing a plain string entry.
+	Status string
+	Method string
+}
+
+// SkipRule takes one transaction out of the run.
+//
+// The reason is optional but strongly worth giving: it is printed with the skip,
+// so a report says why 40 transactions did not run instead of only that they
+// did not. A skip list is where a suite's unexamined debt collects, and one that
+// states its reasons is one somebody can eventually work through.
+type SkipRule struct {
+	Name   string
+	Reason string
+}
+
 // Login is the request that obtains a credential.
 type Login struct {
 	Method string
@@ -187,9 +220,11 @@ type file struct {
 	Server     *string  `yaml:"server"`
 	ServerWait *float64 `yaml:"server-wait"`
 
-	Method       []string `yaml:"method"`
-	Only         []string `yaml:"only"`
-	Header       []string `yaml:"header"`
+	Method []string `yaml:"method"`
+	Only   []string `yaml:"only"`
+	// Header is `any` because an entry may be Dredd's `Name: value` string or
+	// vertrag's conditional form — see toHeaderRules.
+	Header       []any    `yaml:"header"`
 	Path         []string `yaml:"path"`
 	Sorted       *bool    `yaml:"sorted"`
 	DryRun       *bool    `yaml:"dry-run"`
@@ -217,6 +252,8 @@ type file struct {
 	// vertrag's own.
 	Checks *checksFile `yaml:"checks"`
 	Auth   *authFile   `yaml:"auth"`
+	// Skip is `any` because an entry may be written either way — see toSkipRules.
+	Skip []any `yaml:"skip"`
 }
 
 // authFile is the `auth` section. Dredd has no equivalent: authenticating a
@@ -281,20 +318,113 @@ func Load(path string) (Config, error) {
 	// dredd.yml, `auth` would authenticate vertrag's run and not Dredd's — and
 	// Dredd ignores keys it does not recognise without a word — so a project
 	// running both would have the two quietly testing different things.
+	var own []string
 	if parsed.Auth != nil {
-		if IsDreddFile(path) {
-			config.Notes = append(config.Notes, fmt.Sprintf(
-				"`auth` in %s is ignored: vertrag's own keys are read only from a "+
-					"vertrag.yml, because Dredd ignores keys it does not know without "+
-					"a word and the two testers would silently disagree. Move it to a "+
-					"vertrag.yml, which may hold everything %s does.", path, path))
-		} else {
+		own = append(own, "`auth`")
+	}
+	if len(parsed.Skip) > 0 {
+		own = append(own, "`skip`")
+	}
+	conditional := toHeaderRules(parsed.Header)
+	if len(conditional) > 0 {
+		own = append(own, "the conditional entries in `header`")
+	}
+
+	switch {
+	case len(own) == 0:
+	case IsDreddFile(path):
+		config.Notes = append(config.Notes, fmt.Sprintf(
+			"%s in %s %s ignored: keys that change what is sent or run are read "+
+				"only from a vertrag.yml, because Dredd ignores keys it does not "+
+				"know without a word, and the two testers would then disagree about "+
+				"what they tested from one file that looks shared. Move them to a "+
+				"vertrag.yml, which may hold everything %s does.",
+			strings.Join(own, " and "), path, plural(len(own), "is", "are"), path))
+	default:
+		if parsed.Auth != nil {
 			applyAuth(&config.Auth, *parsed.Auth)
 		}
+		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
+		config.ConditionalHeaders = append(config.ConditionalHeaders, conditional...)
 	}
 
 	config.Source = path
 	return config, nil
+}
+
+// toHeaderRules reads the conditional entries out of the `header` list,
+// ignoring the plain strings that apply.go already took:
+//
+//	header:
+//	  - 'X-Trace: on'                       # Dredd's form, every transaction
+//	  - name: X-Mock-Scenario               # vertrag's, matched transactions
+//	    value: absent
+//	    when: {status: 404}
+//
+// A status is compared as text so `404` and `"404"` mean the same thing. YAML
+// reads the first as a number, and a config failing over the quotes would be a
+// silly way to lose an afternoon.
+func toHeaderRules(entries []any) []HeaderRule {
+	var rules []HeaderRule
+	for _, entry := range entries {
+		fields, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		name, _ := fields["name"].(string)
+		if name == "" {
+			continue
+		}
+		rule := HeaderRule{Name: name}
+		rule.Value, _ = fields["value"].(string)
+
+		if when, ok := fields["when"].(map[string]any); ok {
+			if status, present := when["status"]; present {
+				rule.Status = strings.TrimSpace(fmt.Sprint(status))
+			}
+			rule.Method, _ = when["method"].(string)
+		}
+		rules = append(rules, rule)
+	}
+	return rules
+}
+
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+	return many
+}
+
+// toSkipRules reads the `skip` list, whose entries may be a bare name or a
+// mapping carrying the reason:
+//
+//	skip:
+//	  - '/devices > List > 500 > application/json'
+//	  - name: '/devices/{id} > Get > 404 > application/json'
+//	    reason: the mock always finds the device
+//
+// Both forms are accepted because requiring the long one for every entry would
+// push people to the short one everywhere and lose the reasons entirely.
+func toSkipRules(entries []any) []SkipRule {
+	var rules []SkipRule
+	for _, entry := range entries {
+		switch value := entry.(type) {
+		case string:
+			if value != "" {
+				rules = append(rules, SkipRule{Name: value})
+			}
+		case map[string]any:
+			name, _ := value["name"].(string)
+			if name == "" {
+				continue
+			}
+			reason, _ := value["reason"].(string)
+			rules = append(rules, SkipRule{Name: name, Reason: reason})
+		}
+	}
+	return rules
 }
 
 func applyAuth(auth *Auth, parsed authFile) {
@@ -348,7 +478,10 @@ func apply(config *Config, parsed file) {
 
 	config.Method = append(config.Method, parsed.Method...)
 	config.Only = append(config.Only, parsed.Only...)
-	config.Header = append(config.Header, parsed.Header...)
+	// Only the plain `Name: value` strings are taken here. The conditional form
+	// is vertrag's own and is applied in Load, which knows which file it came
+	// from.
+	config.Header = append(config.Header, toStrings(parsed.Header)...)
 	config.Path = append(config.Path, parsed.Path...)
 	config.Hookfiles = append(config.Hookfiles, toStrings(parsed.Hookfiles)...)
 

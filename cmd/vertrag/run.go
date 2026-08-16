@@ -221,6 +221,24 @@ func runRun(args []string) error {
 		engine.Auth = runner.Credential{Header: credential, Except: except}
 	}
 
+	for _, rule := range settings.ConditionalHeaders {
+		engine.ConditionalHeaders = append(engine.ConditionalHeaders, runner.ConditionalHeader{
+			Name: rule.Name, Value: rule.Value, Status: rule.Status, Method: rule.Method,
+		})
+	}
+
+	if len(settings.Skip) > 0 {
+		skips, unmatched := configuredSkips(settings.Skip, transactions)
+		// An unmatched skip is worth more noise than an unmatched except: it
+		// usually means a transaction was renamed, and the entry now silently
+		// protects nothing while still reading like coverage was decided on.
+		for _, name := range unmatched {
+			fmt.Fprintf(os.Stderr,
+				"vertrag: skip has no transaction named %q; it matches nothing and will not run\n", name)
+		}
+		engine.Skip = skips
+	}
+
 	// Sequencing is opt-in because it reorders a run, and a suite whose hooks
 	// were written against document order would notice. It is not exploratory —
 	// the plan is fixed by the description, so the same document always
@@ -465,6 +483,26 @@ func filterTransactions(transactions []compile.Transaction, settings config.Conf
 		filtered = append(filtered, transaction)
 	}
 	return filtered
+}
+
+// configuredSkips turns the configured skip rules into a name-to-reason map,
+// and returns the names that matched no transaction.
+func configuredSkips(rules []config.SkipRule, transactions []compile.Transaction) (map[string]string, []string) {
+	present := make(map[string]bool, len(transactions))
+	for _, transaction := range transactions {
+		present[transaction.Name] = true
+	}
+
+	skips := make(map[string]string, len(rules))
+	var unmatched []string
+	for _, rule := range rules {
+		if !present[rule.Name] {
+			unmatched = append(unmatched, rule.Name)
+			continue
+		}
+		skips[rule.Name] = rule.Reason
+	}
+	return skips, unmatched
 }
 
 // exceptedTransactions turns the configured exception names into a set, and
