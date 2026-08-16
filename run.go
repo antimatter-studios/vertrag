@@ -15,6 +15,7 @@ import (
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/hooks"
+	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
 )
@@ -35,6 +36,7 @@ func runRun(args []string) error {
 	fs.Var(&only, "only", "run only the named transaction (repeatable)")
 	var methods stringList
 	fs.Var(&methods, "method", "run only transactions using this method (repeatable)")
+	sequence := fs.Bool("sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
 	checkHeaderSchema := fs.Bool("check-header-schema", false, "validate response header values against the schemas the description gives them")
 	reporterName := fs.String("reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
 	output := fs.String("output", "", "write the report to a file instead of stdout")
@@ -148,6 +150,20 @@ func runRun(args []string) error {
 
 	engine := runner.New(settings.Endpoint)
 	engine.ExtraHeaders = settings.Header
+
+	// Sequencing is opt-in because it reorders a run, and a suite whose hooks
+	// were written against document order would notice. It is not exploratory —
+	// the plan is fixed by the description, so the same document always
+	// produces the same order — which is why it belongs on `run` rather than
+	// in a mode of its own.
+	if *sequence {
+		sequencer := link.NewSequencer(transactions)
+		for _, note := range sequencer.Notes() {
+			fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+		}
+		engine.Plan = sequencer
+	}
+
 	engine.Checks = runner.Checks{
 		ServerError:  settings.Checks.ServerError,
 		ContentType:  settings.Checks.ContentType,

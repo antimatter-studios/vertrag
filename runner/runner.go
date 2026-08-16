@@ -73,6 +73,11 @@ type Runner struct {
 
 	// Checks selects the checks Dredd does not make.
 	Checks Checks
+
+	// Plan, when set, decides the order transactions run in and may fill in
+	// values from earlier responses. Nil means document order and no rewriting,
+	// which is what `vertrag run` does unless asked otherwise.
+	Plan Plan
 }
 
 // Hooks is the part of the hook system the runner needs.
@@ -133,9 +138,31 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 		}
 	}
 
+	// Results are collected against their original positions and reported in
+	// the document's order however the plan chose to run them. A report that
+	// reordered itself would be unreadable against the description, and a diff
+	// between two runs would be noise.
+	completed := map[int]Result{}
+	for _, index := range r.sequence(len(prepared)) {
+		transaction := prepared[index]
+
+		if r.Plan != nil {
+			if reason, ok := r.Plan.Prepare(index, transaction, completed); !ok {
+				completed[index] = transaction.skippedResult(reason)
+				continue
+			}
+		}
+
+		result := r.runOne(ctx, transaction)
+		if r.Plan != nil {
+			r.Plan.Record(index, transaction, result)
+		}
+		completed[index] = result
+	}
+
 	results := make([]Result, 0, len(prepared))
-	for _, transaction := range prepared {
-		results = append(results, r.runOne(ctx, transaction))
+	for i := range prepared {
+		results = append(results, completed[i])
 	}
 
 	if r.Hooks != nil {
@@ -457,6 +484,21 @@ func (t *Transaction) failResult(errors []string, elapsed time.Duration) Result 
 	return Result{
 		Name: t.Name, Status: StatusFail, Request: t.sentRequest(),
 		Expected: t.Expected, Actual: t.Real, Errors: errors, Duration: elapsed,
+	}
+}
+
+// skippedResult reports a transaction the plan could not run.
+//
+// It is a skip rather than a failure because nothing was asked of the server.
+// A step whose values were to come from a response that never arrived would, if
+// run anyway, send the description's own example — 404 against an identifier
+// that was never created — and report a second failure with no relation to the
+// first. One root cause should produce one finding, and a cascade of them is
+// how a reader is taught to ignore a report.
+func (t *Transaction) skippedResult(reason string) Result {
+	return Result{
+		Name: t.Name, Status: StatusSkip, Request: t.sentRequest(),
+		Expected: t.Expected, Errors: []string{reason},
 	}
 }
 

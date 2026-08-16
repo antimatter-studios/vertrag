@@ -1,0 +1,62 @@
+openapi: 3.0.0
+info:
+  title: Linked
+  version: "1.0.0"
+  description: >
+    A create-then-read sequence, described with Link Objects. The read is
+    listed BEFORE the create on purpose: run in document order it asks for
+    an identifier nothing has made yet, which is exactly the failure links
+    exist to remove.
+
+paths:
+  /widgets/{widgetId}:
+    get:
+      operationId: readWidget
+      summary: Read a widget
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          example: 1
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: The widget
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id: {type: integer, minimum: 1}
+                  name: {type: string, minLength: 1}
+
+  /widgets:
+    post:
+      operationId: createWidget
+      summary: Create a widget
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 40}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id: {type: integer, minimum: 1}
+                  name: {type: string, minLength: 1}
+          links:
+            ReadWidget:
+              operationId: readWidget
+              description: Read the widget just created
+              parameters:
+                widgetId: "$response.body#/id"

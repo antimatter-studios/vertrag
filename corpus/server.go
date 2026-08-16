@@ -25,6 +25,28 @@ import (
 type Server struct {
 	routes []route
 	faults faultSet
+
+	// stateful makes the server mint identifiers rather than echo the
+	// documented one, and refuse any it did not mint.
+	//
+	// Without it a sequencing test proves nothing: the description's example
+	// identifier would be accepted whether or not the link was followed, so the
+	// run passes either way and the feature is untested. With it, a run in
+	// document order asks for a widget nothing has created and gets a 404 —
+	// which is the failure links exist to remove, and therefore the only way to
+	// show they remove it.
+	stateful bool
+	minted   map[string]bool
+	nextID   int
+}
+
+// Stateful returns a copy of the server that mints identifiers.
+func (s *Server) Stateful() *Server {
+	copied := *s
+	copied.stateful = true
+	copied.minted = map[string]bool{}
+	copied.nextID = 41
+	return &copied
 }
 
 // route is one documented exchange, with the template it answers on.
@@ -186,6 +208,13 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request, matched route) {
 	status, err := strconv.Atoi(strings.TrimSpace(matched.response.Status))
 	if err != nil {
 		status = http.StatusOK
+	}
+
+	if s.stateful {
+		if reply, handled := s.statefulAnswer(w, r, matched, status); handled {
+			_ = reply
+			return
+		}
 	}
 	if s.faults.has(FaultWrongStatus) {
 		status = http.StatusInternalServerError
@@ -456,4 +485,48 @@ func dropAProperty(body string) string {
 		return body
 	}
 	return string(rewritten)
+}
+
+// statefulAnswer mints identifiers on creation and refuses unknown ones.
+//
+// Deliberately narrow: it acts only on a 2xx that carries an `id`, and on a
+// path whose last segment is a variable. A corpus server that tried to model a
+// real datastore would become a thing needing its own tests.
+func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched route, status int) (string, bool) {
+	last := ""
+	if n := len(matched.segments); n > 0 && matched.segments[n-1].variable {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		last = parts[len(parts)-1]
+	}
+
+	// Reading something never created is a 404, which is precisely what a run
+	// in document order does before the create has happened.
+	if last != "" && !s.minted[last] {
+		writeJSON(w, http.StatusNotFound, `{"error":"no such widget"}`, nil)
+		return "", true
+	}
+
+	if status < 200 || status > 299 || last != "" {
+		return "", false
+	}
+
+	var body map[string]any
+	if json.Unmarshal([]byte(matched.response.Body), &body) != nil {
+		return "", false
+	}
+	if _, carries := body["id"]; !carries {
+		return "", false
+	}
+
+	s.nextID++
+	id := strconv.Itoa(s.nextID)
+	s.minted[id] = true
+	body["id"] = s.nextID
+
+	rewritten, err := json.Marshal(body)
+	if err != nil {
+		return "", false
+	}
+	writeJSON(w, status, string(rewritten), s.headersFor(matched))
+	return string(rewritten), true
 }
