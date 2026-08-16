@@ -56,4 +56,4 @@ clean:
 # a target rather than part of `test`.
 .PHONY: property
 property:
-	go test ./generate/ ./link/ ./fuzz/ -count=1 -rapid.checks=20000
+	go test ./generate/ ./link/ ./fuzz/ ./uritemplate/ ./validate/ -count=1 -rapid.checks=20000
