@@ -106,13 +106,54 @@ func TestEachFaultIsFound(t *testing.T) {
 		corpus.FaultRejectsValidInput,
 	}
 
+	checks := runner.Checks{ServerError: true, ContentType: true, HeaderSchema: true}
+
 	for _, fault := range responseFaults {
 		t.Run(string(fault), func(t *testing.T) {
-			results := run(t, "widgets",
-				runner.Checks{ServerError: true, ContentType: true, HeaderSchema: true}, fault)
+			// Every description, not one. A fault that only ever fires against
+			// a single document proves less than it appears to: the descriptions
+			// differ in what they declare — headers, several outcomes, non-JSON
+			// bodies — and a check that works on one shape can be blind on
+			// another.
+			var found []string
+			for _, name := range corpus.Names() {
+				if len(failures(run(t, name, checks, fault))) > 0 {
+					found = append(found, name)
+				}
+			}
 
-			if len(failures(results)) == 0 {
-				t.Errorf("%s was committed and nothing was reported", fault)
+			if len(found) == 0 {
+				t.Errorf("%s was committed against every description in the corpus and nothing was reported", fault)
+			}
+			t.Logf("found in %d of %d description(s): %s",
+				len(found), len(corpus.Names()), strings.Join(found, ", "))
+		})
+	}
+}
+
+// TestNoFaultGoesUnnoticedInADescriptionThatCarriesItsFeature is the sharper
+// question: not "is this fault findable somewhere" but "is it findable wherever
+// it applies".
+//
+// A description declaring response headers should report a header fault. One
+// declaring none cannot, and saying so is the difference between coverage and
+// the appearance of it.
+func TestNoFaultGoesUnnoticedInADescriptionThatCarriesItsFeature(t *testing.T) {
+	checks := runner.Checks{ServerError: true, ContentType: true, HeaderSchema: true}
+
+	// A fault that alters every response should be found in every description,
+	// because every description has at least one response.
+	universal := []corpus.Fault{
+		corpus.FaultWrongStatus,
+		corpus.FaultRejectsValidInput,
+	}
+
+	for _, fault := range universal {
+		t.Run(string(fault), func(t *testing.T) {
+			for _, name := range corpus.Names() {
+				if len(failures(run(t, name, checks, fault))) == 0 {
+					t.Errorf("%s went unnoticed in %s, which has responses to alter", fault, name)
+				}
 			}
 		})
 	}

@@ -1,0 +1,41 @@
+openapi: 3.0.0
+info:
+  title: Paths
+  version: "1.0.0"
+  description: >
+    Path shapes a router or a substitution can get wrong: several
+    parameters in one path, a parameter adjacent to a literal, one at the
+    root, and two operations distinguished only by method.
+
+paths:
+  /tenants/{tenantId}/widgets/{widgetId}:
+    get:
+      summary: Two path parameters
+      parameters:
+        - {name: tenantId, in: path, required: true, example: acme, schema: {type: string, minLength: 2}}
+        - {name: widgetId, in: path, required: true, example: 7, schema: {type: integer, minimum: 1}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
+    delete:
+      summary: The same path, a different method
+      parameters:
+        - {name: tenantId, in: path, required: true, example: acme, schema: {type: string, minLength: 2}}
+        - {name: widgetId, in: path, required: true, example: 7, schema: {type: integer, minimum: 1}}
+      responses:
+        "204":
+          description: Deleted
+
+  /{root}:
+    get:
+      summary: A parameter at the root
+      parameters:
+        - {name: root, in: path, required: true, example: anything, schema: {type: string, minLength: 1}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json: {schema: {type: object}}
