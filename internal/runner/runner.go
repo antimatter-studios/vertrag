@@ -69,6 +69,9 @@ type Runner struct {
 
 	// Hooks, when set, is given each transaction before and after it runs.
 	Hooks Hooks
+
+	// Checks selects the checks Dredd does not make.
+	Checks Checks
 }
 
 // Hooks is the part of the hook system the runner needs.
@@ -87,6 +90,9 @@ type Hooks interface {
 func New(endpoint string) *Runner {
 	return &Runner{
 		Endpoint: strings.TrimRight(endpoint, "/"),
+		// On by default: a contract violation is worth reporting even when the
+		// tool a project came from would have missed it.
+		Checks: Checks{ServerError: true, ContentType: true},
 		Client: &http.Client{
 			Timeout: 30 * time.Second,
 			// Redirects are not followed. A description promising a 301 is
@@ -162,7 +168,7 @@ func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
 		return Result{Name: transaction.Name, Status: StatusSkip, Duration: time.Since(started)}
 	}
 
-	result := transaction.validated(time.Since(started))
+	result := transaction.validated(r.Checks, time.Since(started))
 
 	if r.Hooks != nil {
 		if err := r.Hooks.AfterEach(transaction); err != nil {
@@ -324,7 +330,7 @@ func (t *Transaction) sentRequest() Request {
 // Endpoint is the server the transaction is aimed at.
 func (t *Transaction) Endpoint() string { return t.endpoint }
 
-func (t *Transaction) validated(elapsed time.Duration) Result {
+func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
 	validation := validate.Validate(t.Expected, t.Real)
 
 	result := Result{
@@ -336,7 +342,7 @@ func (t *Transaction) validated(elapsed time.Duration) Result {
 		Validation: validation,
 		Duration:   elapsed,
 	}
-	result.Beyond = beyondDredd(t.Expected, t.Real)
+	result.Beyond = checks.run(t.Expected, t.Real)
 	if len(result.Beyond) > 0 {
 		result.Status = StatusFail
 	}

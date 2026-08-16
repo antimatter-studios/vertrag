@@ -21,15 +21,25 @@ import (
 // unnoticed, and saying so plainly is the difference between a useful finding
 // and an apparent regression.
 
-// beyondDredd runs the additional checks and returns what they found.
-func beyondDredd(expected, actual validate.Message) []string {
+// Checks selects which of the additional checks run.
+type Checks struct {
+	ServerError bool
+	ContentType bool
+}
+
+// run performs the enabled checks and returns what they found.
+func (c Checks) run(expected, actual validate.Message) []string {
 	var findings []string
 
-	if finding, found := checkServerError(actual); found {
-		findings = append(findings, finding)
+	if c.ServerError {
+		if finding, found := checkServerError(actual); found {
+			findings = append(findings, finding)
+		}
 	}
-	if finding, found := checkContentType(expected, actual); found {
-		findings = append(findings, finding)
+	if c.ContentType {
+		if finding, found := checkContentType(expected, actual); found {
+			findings = append(findings, finding)
+		}
 	}
 	return findings
 }

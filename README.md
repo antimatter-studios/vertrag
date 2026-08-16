@@ -55,6 +55,29 @@ vertrag compile openapi.yml         # the transactions, as JSON
 vertrag run --reporter junit --output report.xml
 ```
 
+## Configuration
+
+vertrag reads `vertrag.yml`, which is a **superset of `dredd.yml`**: every key
+Dredd understands means the same thing, and vertrag's own settings are added
+alongside. It looks for `vertrag.yml`, `vertrag.yaml`, then `dredd.yml`.
+
+So the upgrade path is: change nothing, and vertrag reads what you have. Rename
+the file when you want vertrag's own settings. See
+[`vertrag.example.yml`](vertrag.example.yml).
+
+```yaml
+blueprint: ./openapi.json          # Dredd's keys, unchanged
+endpoint: http://localhost:4000
+hookfiles: ./dredd-hooks.js
+
+reporter: [cli, junit]             # a readable log and a machine-readable file
+output: ["", report.xml]
+
+checks:                            # vertrag's own
+  server-error: true
+  content-type: true
+```
+
 ## Why
 
 Dredd works, and this project exists to keep it working rather than to replace

@@ -1,15 +1,20 @@
-// Package config reads Dredd's configuration.
+// Package config reads vertrag's configuration.
 //
-// The file format is Dredd's `dredd.yml`, unchanged, because a project adopting
-// vertrag should not have to rewrite its configuration to find out whether
-// vertrag works. Options vertrag does not act on yet are accepted and reported
-// rather than rejected: a document that Dredd runs should not fail here for a
-// key that only affects output formatting.
+// The file is `vertrag.yml`, and it is a superset of Dredd's `dredd.yml`: every
+// key Dredd understands means the same thing here, and vertrag's own keys are
+// added alongside. A `dredd.yml` is still read when no vertrag file is present,
+// so adopting vertrag needs no change at all — and renaming the file is then
+// the whole of the migration.
+//
+// Options vertrag does not act on are accepted and reported rather than
+// rejected: a project that Dredd runs should not fail here over a key that only
+// affects output.
 package config
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -51,10 +56,54 @@ type Config struct {
 	HooksWorkerTimeout     time.Duration
 	HooksWorkerConnectWait time.Duration
 
+	// Reporters name the output formats, each optionally paired with a file in
+	// Outputs by position. A reporter with no file writes to stdout.
+	Reporters []string
+	Outputs   []string
+
+	// Checks turns off the checks Dredd does not make. They are on by default:
+	// a contract violation is worth reporting even when the tool a project came
+	// from would have missed it.
+	Checks Checks
+
+	// Source is the file these settings came from, or "" for defaults.
+	Source string
+
 	// Unsupported records configuration keys that were present and are not
 	// acted on. The caller reports them, so a run never quietly ignores what
 	// the user asked for.
 	Unsupported []string
+}
+
+// Checks selects the checks beyond Dredd's.
+type Checks struct {
+	// ServerError reports a 5xx as the server failing rather than as a status
+	// mismatch like any other.
+	ServerError bool
+	// ContentType reports a response carrying a media type the description
+	// never promised. Dredd compares header presence only.
+	ContentType bool
+}
+
+// Filenames are tried in order. A vertrag file wins over a Dredd one, so a
+// project can add its own settings without touching what it already has.
+var Filenames = []string{"vertrag.yml", "vertrag.yaml", "dredd.yml", "dredd.yaml"}
+
+// Discover finds a configuration file in the working directory.
+func Discover() string {
+	for _, name := range Filenames {
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+	}
+	return ""
+}
+
+// IsDreddFile reports whether a path names a Dredd configuration, which the
+// caller mentions so the reader knows a rename is available.
+func IsDreddFile(path string) bool {
+	base := filepath.Base(path)
+	return base == "dredd.yml" || base == "dredd.yaml"
 }
 
 // file mirrors dredd.yml. Every field is a pointer or slice so an absent key can
@@ -86,13 +135,23 @@ type file struct {
 	HooksWorkerTimeout     *float64 `yaml:"hooks-worker-timeout"`
 	HooksWorkerConnectWait *float64 `yaml:"hooks-worker-after-connect-wait"`
 
-	// Keys Dredd accepts that vertrag does not act on. They are declared so
-	// they can be reported rather than silently dropped.
 	Reporter any `yaml:"reporter"`
 	Output   any `yaml:"output"`
-	Require  any `yaml:"require"`
-	Custom   any `yaml:"custom"`
-	Init     any `yaml:"init"`
+
+	// Keys Dredd accepts that vertrag does not act on. They are declared so
+	// they can be reported rather than silently dropped.
+	Require any `yaml:"require"`
+	Custom  any `yaml:"custom"`
+	Init    any `yaml:"init"`
+
+	// vertrag's own.
+	Checks *checksFile `yaml:"checks"`
+}
+
+// checksFile is the `checks` section, which Dredd has no equivalent of.
+type checksFile struct {
+	ServerError *bool `yaml:"server-error"`
+	ContentType *bool `yaml:"content-type"`
 }
 
 // Default returns the settings a run starts from.
@@ -106,6 +165,8 @@ func Default() Config {
 		HooksWorkerHandlerPort: 61321,
 		HooksWorkerTimeout:     5 * time.Second,
 		HooksWorkerConnectWait: 100 * time.Millisecond,
+		Reporters:              []string{"cli"},
+		Checks:                 Checks{ServerError: true, ContentType: true},
 	}
 }
 
@@ -124,6 +185,7 @@ func Load(path string) (Config, error) {
 	}
 
 	apply(&config, parsed)
+	config.Source = path
 	return config, nil
 }
 
@@ -158,11 +220,24 @@ func apply(config *Config, parsed file) {
 	config.Path = append(config.Path, parsed.Path...)
 	config.Hookfiles = append(config.Hookfiles, toStrings(parsed.Hookfiles)...)
 
+	// Dredd wrote `xunit` where vertrag writes `junit`; both are accepted so a
+	// pipeline's existing configuration keeps working.
+	if reporters := toStrings(parsed.Reporter); len(reporters) > 0 {
+		config.Reporters = reporters
+	}
+	// Outputs pair with reporters by position, so an empty entry is meaningful:
+	// it says "this reporter writes to stdout". Dropping empties the way
+	// hookfiles does would silently shift every file to the wrong reporter.
+	config.Outputs = toStringsKeepingBlanks(parsed.Output)
+
+	if parsed.Checks != nil {
+		setBool(&config.Checks.ServerError, parsed.Checks.ServerError)
+		setBool(&config.Checks.ContentType, parsed.Checks.ContentType)
+	}
+
 	for key, value := range map[string]any{
-		"reporter": parsed.Reporter,
-		"output":   parsed.Output,
-		"require":  parsed.Require,
-		"custom":   parsed.Custom,
+		"require": parsed.Require,
+		"custom":  parsed.Custom,
 	} {
 		if isSet(value) {
 			config.Unsupported = append(config.Unsupported, key)
@@ -205,6 +280,23 @@ func toStrings(value any) []string {
 			if s, ok := item.(string); ok && s != "" {
 				out = append(out, s)
 			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// toStringsKeepingBlanks reads a list without discarding empty entries.
+func toStringsKeepingBlanks(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			text, _ := item.(string)
+			out = append(out, text)
 		}
 		return out
 	default:

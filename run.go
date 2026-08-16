@@ -22,7 +22,7 @@ import (
 // them at a server, and report what came back.
 func runRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	configPath := fs.String("config", "", "path to a dredd.yml (default: ./dredd.yml when present)")
+	configPath := fs.String("config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
 	endpoint := fs.String("endpoint", "", "base URL of the server under test")
 	dryRun := fs.Bool("dry-run", false, "compile and report the transactions without sending them")
 	details := fs.Bool("details", false, "print the request and response of passing transactions too")
@@ -34,7 +34,7 @@ func runRun(args []string) error {
 	fs.Var(&only, "only", "run only the named transaction (repeatable)")
 	var methods stringList
 	fs.Var(&methods, "method", "run only transactions using this method (repeatable)")
-	reporterName := fs.String("reporter", "cli", "output format: cli or junit")
+	reporterName := fs.String("reporter", "", "output format: cli or junit (overrides the config)")
 	output := fs.String("output", "", "write the report to a file instead of stdout")
 
 	if err := fs.Parse(args); err != nil {
@@ -71,23 +71,28 @@ func runRun(args []string) error {
 		return err
 	}
 
-	// A report written to a file is for a machine to read, so it never carries
-	// colour, and progress still goes to the terminal.
-	destination := io.Writer(os.Stdout)
-	if *output != "" {
-		file, err := os.Create(*output)
-		if err != nil {
-			return fmt.Errorf("opening the report file: %w", err)
-		}
-		defer file.Close()
-		destination = file
-		settings.Color = false
+	// Reading a Dredd file works, and saying so is how a reader learns the
+	// rename is available. It is said once, not per run of the day.
+	if config.IsDreddFile(settings.Source) {
+		fmt.Fprintf(os.Stderr,
+			"vertrag: read %s. Renaming it to vertrag.yml enables vertrag's own settings; every key you have keeps working.\n",
+			settings.Source)
 	}
 
-	report, err := newReporter(*reporterName, destination, settings)
+	// Command-line reporter and output override whatever the file said.
+	if *reporterName != "" {
+		settings.Reporters = []string{*reporterName}
+		settings.Outputs = nil
+	}
+	if *output != "" {
+		settings.Outputs = []string{*output}
+	}
+
+	report, closeReport, err := newReporter(settings)
 	if err != nil {
 		return err
 	}
+	defer closeReport()
 
 	// Diagnostics about the description go to the terminal whatever the report
 	// format is: they are about the document, not the run.
@@ -135,6 +140,10 @@ func runRun(args []string) error {
 
 	engine := runner.New(settings.Endpoint)
 	engine.ExtraHeaders = settings.Header
+	engine.Checks = runner.Checks{
+		ServerError: settings.Checks.ServerError,
+		ContentType: settings.Checks.ContentType,
+	}
 
 	// Hook files run in a worker process. Starting it is a hard failure: a
 	// suite whose hooks did not load would authenticate nothing and skip
@@ -172,15 +181,65 @@ type Reporter interface {
 	Report(results []runner.Result) bool
 }
 
-func newReporter(name string, out io.Writer, settings config.Config) (Reporter, error) {
-	switch name {
-	case "cli", "":
-		return reporter.CLI{Out: out, Color: settings.Color, Details: settings.Details}, nil
-	case "junit", "xunit":
-		return reporter.JUnit{Out: out}, nil
-	default:
-		return nil, fmt.Errorf("unknown reporter %q; vertrag has cli and junit", name)
+// newReporter builds the reporters the settings ask for, writing each to its
+// paired output file or to stdout when it has none.
+//
+// A report written to a file is for a machine, so it never carries colour.
+func newReporter(settings config.Config) (Reporter, func(), error) {
+	var reporters []Reporter
+	var files []*os.File
+
+	closeAll := func() {
+		for _, file := range files {
+			file.Close()
+		}
 	}
+
+	for i, name := range settings.Reporters {
+		destination := io.Writer(os.Stdout)
+		colour := settings.Color
+
+		if i < len(settings.Outputs) && settings.Outputs[i] != "" {
+			file, err := os.Create(settings.Outputs[i])
+			if err != nil {
+				closeAll()
+				return nil, closeAll, fmt.Errorf("opening %s: %w", settings.Outputs[i], err)
+			}
+			files = append(files, file)
+			destination, colour = file, false
+		}
+
+		switch name {
+		case "cli", "":
+			reporters = append(reporters, reporter.CLI{
+				Out: destination, Color: colour, Details: settings.Details})
+		case "junit", "xunit":
+			reporters = append(reporters, reporter.JUnit{Out: destination})
+		default:
+			closeAll()
+			return nil, closeAll, fmt.Errorf("unknown reporter %q; vertrag has cli and junit", name)
+		}
+	}
+
+	if len(reporters) == 0 {
+		reporters = append(reporters, reporter.CLI{Out: os.Stdout, Color: settings.Color})
+	}
+	return multiReporter(reporters), closeAll, nil
+}
+
+// multiReporter runs several reporters over the same results, which is how a
+// pipeline gets a readable terminal log and a machine-readable file from one
+// run.
+type multiReporter []Reporter
+
+func (m multiReporter) Report(results []runner.Result) bool {
+	passed := true
+	for _, r := range m {
+		if !r.Report(results) {
+			passed = false
+		}
+	}
+	return passed
 }
 
 // errFailed reports a run whose tests failed, as opposed to one that could not
@@ -193,9 +252,7 @@ func resolveConfig(path string, positional []string) (config.Config, error) {
 	settings := config.Default()
 
 	if path == "" {
-		if _, err := os.Stat("dredd.yml"); err == nil {
-			path = "dredd.yml"
-		}
+		path = config.Discover()
 	}
 	if path != "" {
 		loaded, err := config.Load(path)
