@@ -91,6 +91,36 @@ func TestJUnitEscapesPayloads(t *testing.T) {
 	}
 }
 
+// TestJUnitSurvivesABinaryBody pins behaviour that already holds rather than
+// behaviour that was fixed: the XML encoder substitutes U+FFFD for the bytes XML
+// forbids, so a failing binary download cannot produce a document the CI system
+// then refuses to parse — which would turn a reported failure into no report at
+// all. It is pinned because it is a property of encoding/xml rather than of any
+// code here, and nothing else would notice if a hand-rolled writer replaced it.
+func TestJUnitSurvivesABinaryBody(t *testing.T) {
+	report, _ := junitReport(t, []runner.Result{{
+		Name:    "GET /download",
+		Status:  runner.StatusFail,
+		Actual:  validate.Message{StatusCode: "200", Body: "\x00\x01\xff\xfe\x00ab\x80\x00"},
+		Request: runner.Request{Method: "GET"},
+		// The first error line becomes the `message` attribute, which XML escapes
+		// by a different path from character data. A hook can put anything there,
+		// so both paths are worth covering.
+		Errors: []string{"body: unexpected \x00 in \xff response"},
+	}})
+
+	var parsed junitSuite
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(report, xml.Header)), &parsed); err != nil {
+		t.Fatalf("a binary body broke the document: %v\n%s", err, report)
+	}
+	if strings.ContainsRune(report, 0) {
+		t.Error("a NUL byte reached the document")
+	}
+	if parsed.Failures != 1 {
+		t.Errorf("failures = %d, want the failure still reported", parsed.Failures)
+	}
+}
+
 // TestJUnitDetailIsReproducible pins that the failure body says what was sent,
 // so a reader can repeat the request without rerunning the suite.
 func TestJUnitDetailIsReproducible(t *testing.T) {

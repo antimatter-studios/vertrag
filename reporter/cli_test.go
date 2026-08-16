@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/antimatter-studios/vertrag/runner"
 	"github.com/antimatter-studios/vertrag/validate"
@@ -120,6 +121,60 @@ func TestLongBodiesAreTruncated(t *testing.T) {
 	}
 	if len(output) > 4000 {
 		t.Errorf("truncated output is still %d bytes", len(output))
+	}
+}
+
+// TestABinaryBodyCannotCorruptTheTerminalReport pins that a body is treated as
+// bytes the server chose rather than as text the report can trust. A failing
+// `application/octet-stream` download reaches this printer, and printed as it
+// stands its NULs and invalid UTF-8 garble the surrounding lines while an escape
+// sequence in it can repaint them — including into a line that reads as a pass.
+func TestABinaryBodyCannotCorruptTheTerminalReport(t *testing.T) {
+	output, _ := report(t, CLI{}, []runner.Result{{
+		Name:   "a",
+		Status: runner.StatusFail,
+		Actual: validate.Message{
+			StatusCode: "200",
+			Body:       "\x00\xff\x80before\x1b[2K\rpass: GET /forged\x07",
+		},
+		Request: runner.Request{Method: "GET"},
+		Errors:  []string{"body: wrong"},
+	}})
+
+	for _, forbidden := range []string{"\x00", "\x1b", "\x07", "\xff", "\x80"} {
+		if strings.Contains(output, forbidden) {
+			t.Errorf("the report still carries the byte %q from the body", forbidden)
+		}
+	}
+	// The readable part of the body has to survive, or the substitution has
+	// destroyed the evidence rather than made it safe to look at.
+	if !strings.Contains(output, "before") {
+		t.Errorf("printable text should be kept:\n%s", output)
+	}
+	if !utf8.ValidString(output) {
+		t.Error("the report should be valid UTF-8 whatever the body was")
+	}
+}
+
+// TestCRLFBodiesPrintWithoutSubstitution pins that guarding against a stray
+// carriage return does not disfigure the bodies that legitimately contain one.
+// A CSV is specified with CRLF line endings, so treating every return as a
+// cursor move would fill the commonest non-JSON body with replacement
+// characters.
+func TestCRLFBodiesPrintWithoutSubstitution(t *testing.T) {
+	output, _ := report(t, CLI{}, []runner.Result{{
+		Name:    "a",
+		Status:  runner.StatusFail,
+		Actual:  validate.Message{StatusCode: "200", Body: "id,name\r\n1,alice\r\n"},
+		Request: runner.Request{Method: "GET"},
+		Errors:  []string{"body: wrong"},
+	}})
+
+	if strings.Contains(output, "�") {
+		t.Errorf("a CRLF body should print as it is:\n%s", output)
+	}
+	if !strings.Contains(output, "1,alice") {
+		t.Errorf("output missing the CSV row:\n%s", output)
 	}
 }
 
