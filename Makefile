@@ -14,7 +14,7 @@ help:
 	@echo "clean        Remove build output"
 
 build:
-	go build -o dist/vertrag .
+	go build -o dist/vertrag ./cmd/vertrag
 
 test:
 	go test ./...

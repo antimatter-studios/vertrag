@@ -14,7 +14,7 @@ project_name: vertrag
 
 builds:
   - id: vertrag
-    main: .
+    main: ./cmd/vertrag
     binary: vertrag
     # No cgo, so the binary is static and the release can be cross-built for every
     # target from one runner. Keeping it that way is a standing constraint on

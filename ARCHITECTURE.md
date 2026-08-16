@@ -18,8 +18,18 @@ alphabetical.
 | `runner` | Sends the transactions and judges what comes back |
 | `hooks` | Runs Node.js hook files and lets them rewrite transactions |
 | `reporter` | Renders results — a terminal log or dots, a Markdown or HTML document, JUnit XML for CI |
+| `link` | Orders a run by the sequences its description declares |
+| `generate` | Values drawn from a schema, valid and invalid |
+| `fuzz` | Sends generated values and judges what the server did with them |
+| `corpus` | vertrag's own descriptions, and a server that answers what they promise |
+| `cmd/vertrag` | The command itself: flags, wiring, exit codes |
 
-These are stages, not layers: each has one input type and one output type, and
+The command lives under `cmd/` rather than at the root. Go allows a `main`
+package anywhere, and putting it beside the libraries meant `main.go`, `run.go`
+and their tests sat in the same directory listing as every package — so the
+first thing anyone saw of the project was its wiring rather than its parts.
+
+The first ten are stages, not layers: each has one input type and one output type, and
 each is tested against a reference implementation on its own. That is what lets
 a failure name its own cause — a parse difference cannot be mistaken for a
 compile difference, because they are compared separately.
