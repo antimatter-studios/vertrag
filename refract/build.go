@@ -10,6 +10,18 @@ package refract
 // compiler walks upwards from a transaction to the resource and category that
 // name it. A tree built without them compiles to transactions with empty names.
 
+// SchemaAttribute names the attribute a parser hangs a parameter's JSON Schema
+// from.
+//
+// It is vertrag's own extension rather than part of API Elements, and it is
+// named so that a reader of an element tree can tell at a glance. The format has
+// nowhere to say what a URI or header parameter's value must look like beyond
+// its primitive type and its enumerations, which is enough to substitute one
+// example into a URI and not enough to generate from: the length, range and
+// pattern a handler forgets to check are all written in the parameter's schema
+// and would otherwise be dropped at the parse stage.
+const SchemaAttribute = "vertragSchema"
+
 // New returns an empty element with the given name.
 func New(name string) *Element {
 	return &Element{Name: name, Kind: ContentNone}

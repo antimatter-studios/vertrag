@@ -158,6 +158,11 @@ type message struct {
 type header struct {
 	name  string
 	value string
+
+	// schema is set only for a header that is a declared parameter, and is what
+	// distinguishes one from a header the message itself states. A Content-Type
+	// is not a parameter and has no schema to generate against.
+	schema string
 }
 
 // buildTransactions pairs each request with the responses it belongs with.
@@ -187,10 +192,10 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			// Accept advertises what the response promises, so the server is
 			// asked for the representation the document is being tested against.
 			if response.contentType != "" {
-				headers = append(headers, header{"Accept", response.contentType})
+				headers = append(headers, header{name: "Accept", value: response.contentType})
 			}
 			if request.contentType != "" {
-				headers = append(headers, header{"Content-Type", request.contentType})
+				headers = append(headers, header{name: "Content-Type", value: request.contentType})
 			}
 			// A parameter must not displace a header the message already
 			// carries; the message's own is the more specific statement.
@@ -213,7 +218,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			responseHeaders := make([]header, 0, len(response.headers)+1)
 			if response.contentType != "" {
-				responseHeaders = append(responseHeaders, header{"Content-Type", response.contentType})
+				responseHeaders = append(responseHeaders, header{name: "Content-Type", value: response.contentType})
 			}
 			responseHeaders = append(responseHeaders, response.headers...)
 			setHeaders(httpResponse, responseHeaders)
@@ -264,7 +269,11 @@ func setHeaders(element *refract.Element, headers []header) {
 	}
 	httpHeaders := refract.Named("httpHeaders")
 	for _, h := range headers {
-		httpHeaders.Append(refract.Member(h.name, refract.String(h.value)))
+		value := refract.String(h.value)
+		if h.schema != "" {
+			value.SetAttr(refract.SchemaAttribute, refract.String(h.schema))
+		}
+		httpHeaders.Append(refract.Member(h.name, value))
 	}
 	element.SetAttr("headers", httpHeaders)
 }

@@ -21,6 +21,11 @@ type param struct {
 	example    any
 	hasExample bool
 	values     []any
+	// schema is the JSON Schema a parser attached to the parameter, empty when
+	// the description gave none or the elements came from a parser that does
+	// not carry one. Nothing in URI expansion reads it; it is carried through
+	// for generation.
+	schema string
 }
 
 // paramSet preserves declaration order.
@@ -77,6 +82,7 @@ func compileParams(hrefVariables *refract.Element) *paramSet {
 		p := &param{name: name, required: hasRequiredTypeAttribute(member)}
 
 		if value != nil {
+			p.schema = value.Attr(refract.SchemaAttribute).String()
 			if def := value.Attr("default"); def != nil {
 				p.defaultVal = def.ToValue()
 				p.hasDefault = p.defaultVal != nil
@@ -182,9 +188,20 @@ func containsValue(values []any, target any) bool {
 	return false
 }
 
+// compiledURI is a request's URI together with what it was built from.
+//
+// The template and the values are kept because generation replaces one
+// parameter and expands again, which needs both. They say nothing the URI does
+// not already contain for a run that only sends the compiled request.
+type compiledURI struct {
+	uri        string
+	template   string
+	parameters []Parameter
+}
+
 // compileURI resolves the URI for a request by cascading href and parameter
 // declarations from the resource, through the transition, to the request.
-func compileURI(request *refract.Element) (string, []Annotation) {
+func compileURI(request *refract.Element) (compiledURI, []Annotation) {
 	var annotations []Annotation
 
 	cascade := []*refract.Element{
@@ -216,10 +233,52 @@ func compileURI(request *refract.Element) (string, []Annotation) {
 	errs, warnings := validateParams(params)
 	annotations = appendAnnotations(annotations, "parametersValidation", errs, warnings)
 
-	uri, errs, warnings := expandURITemplate(href, params)
+	uri, values, errs, warnings := expandURITemplate(href, params)
 	annotations = appendAnnotations(annotations, "uriTemplateExpansion", errs, warnings)
 
-	return uri, annotations
+	return compiledURI{
+		uri:        uri,
+		template:   href,
+		parameters: uriParameters(href, params, values),
+	}, annotations
+}
+
+// uriParameters describes the parameters the URI was expanded from.
+//
+// Where each one travels is read from the template rather than from the
+// description: the operator is what decides it, so `{?limit}` is the query
+// string and `{id}`, `{/id}` and `{.format}` are all the path. Asking the
+// template also means a parameter the description declared and the template
+// never mentions is left out, since there is nowhere in the request to put it.
+func uriParameters(template string, params *paramSet, values map[string]any) []Parameter {
+	parsed, err := uritemplate.Parse(template)
+	if err != nil {
+		return nil
+	}
+
+	var out []Parameter
+	for _, expression := range parsed.Expressions {
+		in := InPath
+		if expression.Op == '?' || expression.Op == '&' {
+			in = InQuery
+		}
+		for _, reference := range expression.Params {
+			name := decodeURIComponentish(reference.Name)
+			declared, ok := params.get(name)
+			if !ok {
+				continue
+			}
+			value, hasValue := values[name]
+			out = append(out, Parameter{
+				In:       in,
+				Name:     name,
+				Schema:   declared.schema,
+				Value:    value,
+				HasValue: hasValue,
+			})
+		}
+	}
+	return out
 }
 
 func appendAnnotations(annotations []Annotation, component string, errs, warnings []string) []Annotation {
@@ -238,10 +297,13 @@ func appendAnnotations(annotations []Annotation, component string, errs, warning
 // The caller treats that as "no request", so the transaction is dropped and
 // only the annotations survive — a description that cannot yield a concrete
 // URI produces a diagnostic rather than a guessed request.
-func expandURITemplate(template string, params *paramSet) (uri string, errs []string, warnings []string) {
+//
+// The values it expanded with are returned alongside, so that the same URI can
+// be produced again with one of them changed.
+func expandURITemplate(template string, params *paramSet) (uri string, values map[string]any, errs []string, warnings []string) {
 	parsed, err := uritemplate.Parse(template)
 	if err != nil {
-		return "", []string{fmt.Sprintf(
+		return "", nil, []string{fmt.Sprintf(
 			"Failed to parse URI template: %s\nError: SyntaxError: %s", template, err)}, nil
 	}
 
@@ -253,7 +315,7 @@ func expandURITemplate(template string, params *paramSet) (uri string, errs []st
 	}
 
 	if len(parsed.Expressions) == 0 {
-		return template, nil, nil
+		return template, nil, nil, nil
 	}
 
 	ambiguous := false
@@ -267,7 +329,7 @@ func expandURITemplate(template string, params *paramSet) (uri string, errs []st
 	}
 
 	if ambiguous {
-		return "", errs, warnings
+		return "", nil, errs, warnings
 	}
 
 	toExpand := map[string]any{}
@@ -298,9 +360,9 @@ func expandURITemplate(template string, params *paramSet) (uri string, errs []st
 	}
 
 	if ambiguous {
-		return "", errs, warnings
+		return "", nil, errs, warnings
 	}
-	return parsed.Expand(toExpand), errs, warnings
+	return parsed.Expand(toExpand), toExpand, errs, warnings
 }
 
 // decodeURIComponentish mirrors JavaScript's decodeURI: percent escapes are

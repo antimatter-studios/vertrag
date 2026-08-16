@@ -473,6 +473,51 @@ paths:
 	}
 }
 
+// TestParameterConstraintsBecomeASchema pins the lifting Swagger needs and
+// OpenAPI 3 does not.
+//
+// Swagger writes a non-body parameter's constraints directly on the parameter
+// object, so they arrive mixed in with where the parameter goes and whether it
+// must be given. Two of those keys collide with JSON Schema: `required` is a
+// boolean here and a list of property names there, and `name` means something
+// else entirely. Left in, the result is a schema no validator will compile — and
+// a schema that will not compile is treated as constraining nothing, so the
+// parameter would be probed with every value passing.
+func TestParameterConstraintsBecomeASchema(t *testing.T) {
+	result := compileSource(t, `
+swagger: '2.0'
+info: {title: P, version: '1.0'}
+paths:
+  /things/{id}:
+    get:
+      summary: Read
+      parameters:
+        - {name: id, in: path, required: true, type: integer, minimum: 1, x-example: 7}
+      responses:
+        200: {description: OK}
+`)
+
+	if len(result.Transactions) != 1 {
+		t.Fatalf("transactions = %d, want 1", len(result.Transactions))
+	}
+	parameters := result.Transactions[0].Request.Parameters
+	if len(parameters) != 1 {
+		t.Fatalf("parameters = %+v, want the path parameter", parameters)
+	}
+
+	schema := parameters[0].Schema
+	for _, want := range []string{`"type":"integer"`, `"minimum":1`} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("schema %s does not carry %s", schema, want)
+		}
+	}
+	for _, absent := range []string{`"required"`, `"in"`, `"name"`} {
+		if strings.Contains(schema, absent) {
+			t.Errorf("schema %s carries %s, which is not a JSON Schema keyword here", schema, absent)
+		}
+	}
+}
+
 func TestOrderedMap(t *testing.T) {
 	m := newOrderedMap()
 	m.Set("b", 1)

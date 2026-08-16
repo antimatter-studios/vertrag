@@ -155,6 +155,11 @@ type message struct {
 type header struct {
 	name  string
 	value string
+
+	// schema is set only for a header that is a declared parameter, which is
+	// what tells one apart from a header the message itself states: a
+	// Content-Type is not a parameter and has no constraints to generate from.
+	schema string
 }
 
 // buildRequests produces one request per consumed content type.
@@ -381,10 +386,10 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			// own headers first and prepends what the response asks for after.
 			headers := make([]header, 0, len(headerParams)+2)
 			if request.contentType != "" {
-				headers = append(headers, header{"Content-Type", request.contentType})
+				headers = append(headers, header{name: "Content-Type", value: request.contentType})
 			}
 			if response.accept != "" {
-				headers = append(headers, header{"Accept", response.accept})
+				headers = append(headers, header{name: "Accept", value: response.accept})
 			}
 			for _, param := range headerParams {
 				if !containsHeader(headers, param.name) {
@@ -402,7 +407,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			responseHeaders := make([]header, 0, len(response.headers)+1)
 			if response.contentType != "" {
-				responseHeaders = append(responseHeaders, header{"Content-Type", response.contentType})
+				responseHeaders = append(responseHeaders, header{name: "Content-Type", value: response.contentType})
 			}
 			responseHeaders = append(responseHeaders, response.headers...)
 			setHeaders(httpResponse, responseHeaders)
@@ -435,7 +440,11 @@ func setHeaders(element *refract.Element, headers []header) {
 	}
 	httpHeaders := refract.Named("httpHeaders")
 	for _, h := range headers {
-		httpHeaders.Append(refract.Member(h.name, refract.String(h.value)))
+		value := refract.String(h.value)
+		if h.schema != "" {
+			value.SetAttr(refract.SchemaAttribute, refract.String(h.schema))
+		}
+		httpHeaders.Append(refract.Member(h.name, value))
 	}
 	element.SetAttr("headers", httpHeaders)
 }
