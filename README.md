@@ -134,12 +134,15 @@ two diverge it will be removed. vertrag's own settings are read only from a
 vertrag file.
 
 `header-schema` validates a response header's value against the JSON Schema the
-description gave it — so a `X-Rate-Limit` documented as a non-negative integer
-fails when the server answers `banana`. Dredd only checks that a declared header
-is *present*, so no description has ever had this enforced and yours may well
-contain a header schema that was never true. It is therefore the one check that
-starts off; turn it on here or with `--check-header-schema` when you are ready
-to read what it finds.
+description gave it — so an `X-Rate-Limit` documented as a non-negative integer
+fails when the server answers `banana`.
+
+Dredd compares values for exactly five headers — `content-type`, `accept`, and
+the three `accept-*` — and checks only presence for every other one it declares.
+It never reads a Header Object's schema at all. So no description has ever had
+this enforced, and yours may well carry a header schema that was never true. It
+is therefore the one check that starts off; turn it on here or with
+`--check-header-schema` when you are ready to read what it finds.
 
 ### Setup without a hook file
 
@@ -312,16 +315,16 @@ vertrag keeps that shape:
 
 | Package | Role | State |
 | --- | --- | --- |
-| `internal/refract` | The API Elements object model | Done |
-| `internal/compile` | API Elements → HTTP transactions | Done, oracle-verified |
-| `internal/uritemplate` | URI template expansion | Done, oracle-verified |
-| `internal/apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
-| `internal/apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
-| `internal/validate` | Response validation (Gavel) | Done, oracle-verified |
-| `internal/runner` | Sending requests, judging responses | Done |
-| `internal/hooks` | Running Node.js hook files | Done |
-| `internal/config` | Reading `dredd.yml` | Done |
-| `internal/reporter` | cli, dot, markdown, html, JUnit output | Done |
+| `refract` | The API Elements object model | Done |
+| `compile` | API Elements → HTTP transactions | Done, oracle-verified |
+| `uritemplate` | URI template expansion | Done, oracle-verified |
+| `apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
+| `apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
+| `validate` | Response validation (Gavel) | Done, oracle-verified |
+| `runner` | Sending requests, judging responses | Done |
+| `hooks` | Running Node.js hook files | Done |
+| `config` | Reading `vertrag.yml`, and `dredd.yml` while that lasts | Done |
+| `reporter` | cli, dot, markdown, html, JUnit output | Done |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
 API Blueprint, OpenAPI 2 and OpenAPI 3 at once, and Dredd ships pre-parsed API
