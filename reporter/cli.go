@@ -31,11 +31,18 @@ const (
 	dim    = "\033[2m"
 )
 
-func (r CLI) paint(code, text string) string {
-	if !r.Color {
+// paint colours text when the destination is a terminal the user asked to
+// colour. Every reporter that colours anything goes through here, so a failure
+// is the same red whichever format a reader is looking at.
+func paint(enabled bool, code, text string) string {
+	if !enabled {
 		return text
 	}
 	return code + text + reset
+}
+
+func (r CLI) paint(code, text string) string {
+	return paint(r.Color, code, text)
 }
 
 // Report writes the results and returns true when the run passed.

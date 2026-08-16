@@ -17,7 +17,7 @@ alphabetical.
 | `config` | Reads `vertrag.yml`, and the `dredd.yml` it is a superset of |
 | `runner` | Sends the transactions and judges what comes back |
 | `hooks` | Runs Node.js hook files and lets them rewrite transactions |
-| `reporter` | Renders results — a terminal log, or JUnit XML for CI |
+| `reporter` | Renders results — a terminal log or dots, a Markdown or HTML document, JUnit XML for CI |
 
 These are stages, not layers: each has one input type and one output type, and
 each is tested against a reference implementation on its own. That is what lets

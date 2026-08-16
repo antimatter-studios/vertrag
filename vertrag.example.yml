@@ -28,6 +28,7 @@ hooks-worker-timeout: 5000
 
 # Reporters pair with outputs by position. An empty output means stdout, so
 # this writes a readable log to the terminal AND a machine-readable file.
+# Available: cli, dot, markdown, html, junit.
 reporter: [cli, junit]
 output: ["", report.xml]
 

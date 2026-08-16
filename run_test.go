@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -98,5 +100,38 @@ func TestToAnnotations(t *testing.T) {
 	}
 	if converted[1].Line != 0 {
 		t.Error("an annotation without a location should report none")
+	}
+}
+
+// TestEveryDocumentedReporterCanBeBuilt pins that the names the help text offers
+// are the names this switch accepts.
+//
+// A reporter that exists but is not wired up fails at the worst moment: the run
+// itself is fine, and the pipeline that asked for a report file gets an error
+// instead of one. The names are listed here rather than derived so that adding a
+// reporter without offering it, or offering one that was renamed, fails.
+func TestEveryDocumentedReporterCanBeBuilt(t *testing.T) {
+	for _, name := range []string{"cli", "", "dot", "markdown", "md", "html", "junit", "xunit"} {
+		settings := config.Config{Reporters: []string{name}, Outputs: []string{filepath.Join(t.TempDir(), "report")}}
+		if _, closeReport, err := newReporter(settings); err != nil {
+			t.Errorf("reporter %q should be available: %v", name, err)
+		} else {
+			closeReport()
+		}
+	}
+}
+
+// TestAnUnknownReporterIsRefusedByName pins that a typo stops the run rather
+// than silently producing no report — a suite whose report never appeared looks
+// exactly like a suite that was never run.
+func TestAnUnknownReporterIsRefusedByName(t *testing.T) {
+	_, closeReport, err := newReporter(config.Config{Reporters: []string{"nyan"}})
+	closeReport()
+
+	if err == nil {
+		t.Fatal("an unknown reporter should be refused")
+	}
+	if !strings.Contains(err.Error(), "nyan") || !strings.Contains(err.Error(), "markdown") {
+		t.Errorf("the error should name what was asked for and what is available: %v", err)
 	}
 }
