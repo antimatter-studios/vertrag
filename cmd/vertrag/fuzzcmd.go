@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -200,6 +201,7 @@ func probeAll(
 	requests := 0
 	probed := 0
 	unprobeable := 0
+	unattributable := 0
 
 	for _, transaction := range transactions {
 		targets, unreadable := probeTargets(transaction.Request)
@@ -208,12 +210,32 @@ func probeAll(
 				transaction.Name, subject.Describe())
 		}
 
+		// Does the operation work at all, sent exactly as the description
+		// describes it? Established once, before anything is generated.
+		//
+		// Without this, an operation that fails for its own reasons reports one
+		// finding per parameter, every one of them blaming a parameter that had
+		// nothing to do with it. Against a real API the shape was unmistakable:
+		// a download endpoint answering 404 because nothing had been read
+		// produced three findings saying the server disagreed with its
+		// description about a `format` value — while returning exactly the same
+		// 404 for the documented value.
+		//
+		// It only silences the VALID half. A server accepting input its own
+		// schema forbids is a validation bypass whether or not the operation
+		// works, and that is the finding generation exists for.
+		baselinePassed := baselineWorks(ctx, engine, transaction)
+
 		for _, target := range targets {
 			probed++
 
 			for _, mode := range modes {
 				if ctx.Err() != nil {
 					return ctx.Err()
+				}
+				if mode == generate.Valid && !baselinePassed {
+					unattributable++
+					continue
 				}
 
 				send := func(ctx context.Context, value any) (validate.Message, error) {
@@ -252,6 +274,10 @@ func probeAll(
 
 	fmt.Printf("\n%d operation(s) probed over %d body and parameter target(s), %d request(s) sent, %d finding(s)",
 		len(transactions), probed, requests, findings)
+	if unattributable > 0 {
+		fmt.Printf(", %d valid-input probe(s) skipped because the operation fails as documented",
+			unattributable)
+	}
 	if unprobeable > 0 {
 		fmt.Printf(", %d probe(s) had nothing to send and tested nothing", unprobeable)
 	}
@@ -319,4 +345,31 @@ func parseModes(name string) ([]generate.Mode, error) {
 	default:
 		return nil, fmt.Errorf("unknown mode %q; use valid, invalid, or both", name)
 	}
+}
+
+// baselineWorks reports whether an operation succeeds sent exactly as its
+// description describes it.
+//
+// One request, before any value is generated. What it buys is attribution: a
+// finding that says "the server rejected a value your schema permits" is only
+// worth reading if the server would have accepted the documented value, and an
+// operation broken for its own reasons would otherwise blame every parameter it
+// has.
+func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compile.Transaction) bool {
+	reply, err := engine.Send(ctx, transaction)
+	if err != nil {
+		return false
+	}
+
+	status, err := strconv.Atoi(strings.TrimSpace(reply.StatusCode))
+	if err != nil {
+		return false
+	}
+	// Judged against what the description promised rather than against 2xx: an
+	// operation documented as returning 404 is working when it returns one.
+	expected, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
+	if err != nil {
+		return status < 400
+	}
+	return status == expected
 }
