@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"regexp"
 	"regexp/syntax"
 	"strings"
 )
@@ -37,7 +38,25 @@ func FromPattern(pattern string) (string, bool) {
 	if !writeMatch(&b, parsed.Simplify()) {
 		return "", false
 	}
-	return b.String(), true
+	candidate := b.String()
+
+	// Verified against the engine rather than trusted.
+	//
+	// The walk treats an anchor as contributing no characters, which is true of
+	// where it sits and says nothing about whether it can be satisfied at all.
+	// `a(^a)` puts a start-of-text anchor after a character and matches nothing;
+	// `\b\B` demands a word boundary and its absence at once. Both produced a
+	// confident specimen the pattern rejects — and a specimen that violates the
+	// constraint it came from is exactly what this function exists to prevent.
+	//
+	// Reasoning about satisfiability in general is a much harder problem than
+	// generating, and the engine has already solved it. One compile per schema
+	// is a small price for a guarantee rather than a hope.
+	compiled, err := regexp.Compile(pattern)
+	if err != nil || !compiled.MatchString(candidate) {
+		return "", false
+	}
+	return candidate, true
 }
 
 // maxPatternRepeat bounds an unbounded repetition.

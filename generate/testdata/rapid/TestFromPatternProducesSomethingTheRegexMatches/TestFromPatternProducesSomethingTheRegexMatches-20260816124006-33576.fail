@@ -1,0 +1,29 @@
+# 2026/08/16 12:40:06.857599 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw shape: 2
+# 2026/08/16 12:40:06.857623 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw shape: 0
+# 2026/08/16 12:40:06.857623 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw literal: "a"
+# 2026/08/16 12:40:06.857624 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw shape: 3
+# 2026/08/16 12:40:06.857625 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw shape: 3
+# 2026/08/16 12:40:06.857625 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw shape: 8
+# 2026/08/16 12:40:06.857625 [TestFromPatternProducesSomethingTheRegexMatches] [rapid] draw leaf: "a"
+# 2026/08/16 12:40:06.857629 [TestFromPatternProducesSomethingTheRegexMatches] pattern "a((^a$))" produced "aa", which it does not match
+# 
+v0.4.8#13568831899759623693
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x9867f1f40f739
+0x8
+0x0
+0x0
