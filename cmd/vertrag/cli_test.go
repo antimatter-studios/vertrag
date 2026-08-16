@@ -187,3 +187,90 @@ func TestDryRunSendsNothing(t *testing.T) {
 		t.Errorf("output does not say it was a dry run:\n%s", output)
 	}
 }
+
+// TestAConfigFileDrivesAWholeRun pins the path a project actually uses.
+//
+// A configured project runs `vertrag run` with no arguments, so everything —
+// which description, which endpoint, which reporters, where each writes — comes
+// from the file. Every flag being correct says nothing about that: the file is
+// read by different code, and a key that silently fails to reach its setting
+// looks exactly like a key that worked.
+//
+// The exit code is checked with several reporters configured at once, because
+// that is where an aggregation mistake would hide: one reporter disagreeing
+// about whether a run passed would fail every green build, and a single-reporter
+// test cannot see it.
+func TestAConfigFileDrivesAWholeRun(t *testing.T) {
+	binary := build(t)
+
+	write := func(t *testing.T, directory, endpoint string) {
+		t.Helper()
+
+		source, err := corpus.Load("widgets")
+		if err != nil {
+			t.Fatalf("loading: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "api.yml"), source, 0o600); err != nil {
+			t.Fatalf("writing the description: %v", err)
+		}
+
+		config := "blueprint: ./api.yml\n" +
+			"endpoint: " + endpoint + "\n" +
+			"color: false\n" +
+			"reporter: [cli, junit, html]\n" +
+			`output: ["", report.xml, report.html]` + "\n"
+		if err := os.WriteFile(filepath.Join(directory, "vertrag.yml"), []byte(config), 0o600); err != nil {
+			t.Fatalf("writing the config: %v", err)
+		}
+	}
+
+	runIn := func(t *testing.T, directory string) (string, int) {
+		t.Helper()
+
+		command := exec.Command(binary, "run")
+		command.Dir = directory
+		out, err := command.CombinedOutput()
+		if exit, isExit := err.(*exec.ExitError); isExit {
+			return string(out), exit.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("running: %v\n%s", err, out)
+		}
+		return string(out), 0
+	}
+
+	t.Run("a conforming server exits zero and writes every report", func(t *testing.T) {
+		endpoint, _ := serve(t, "widgets")
+		directory := t.TempDir()
+		write(t, directory, endpoint)
+
+		output, code := runIn(t, directory)
+		if code != 0 {
+			t.Errorf("exit = %d for a conforming server; every green build would fail\n%s", code, output)
+		}
+		if !strings.Contains(output, "passing") {
+			t.Errorf("the terminal reporter wrote nothing:\n%s", output)
+		}
+
+		// The empty output entry pairs the cli reporter with the terminal, and
+		// the other two with files. A mis-paired list would send a report to
+		// the wrong place or to none.
+		for _, name := range []string{"report.xml", "report.html"} {
+			written, err := os.ReadFile(filepath.Join(directory, name))
+			if err != nil || len(written) == 0 {
+				t.Errorf("%s was not written: %v", name, err)
+			}
+		}
+	})
+
+	t.Run("a faulty server exits non-zero", func(t *testing.T) {
+		endpoint, _ := serve(t, "widgets", corpus.FaultWrongStatus)
+		directory := t.TempDir()
+		write(t, directory, endpoint)
+
+		output, code := runIn(t, directory)
+		if code == 0 {
+			t.Errorf("exit = 0 for a server returning 500s\n%s", output)
+		}
+	})
+}
