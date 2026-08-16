@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -33,6 +34,8 @@ func runRun(args []string) error {
 	fs.Var(&only, "only", "run only the named transaction (repeatable)")
 	var methods stringList
 	fs.Var(&methods, "method", "run only transactions using this method (repeatable)")
+	reporterName := fs.String("reporter", "cli", "output format: cli or junit")
+	output := fs.String("output", "", "write the report to a file instead of stdout")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -68,7 +71,27 @@ func runRun(args []string) error {
 		return err
 	}
 
-	report := reporter.CLI{Out: os.Stdout, Color: settings.Color, Details: settings.Details}
+	// A report written to a file is for a machine to read, so it never carries
+	// colour, and progress still goes to the terminal.
+	destination := io.Writer(os.Stdout)
+	if *output != "" {
+		file, err := os.Create(*output)
+		if err != nil {
+			return fmt.Errorf("opening the report file: %w", err)
+		}
+		defer file.Close()
+		destination = file
+		settings.Color = false
+	}
+
+	report, err := newReporter(*reporterName, destination, settings)
+	if err != nil {
+		return err
+	}
+
+	// Diagnostics about the description go to the terminal whatever the report
+	// format is: they are about the document, not the run.
+	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color && *output == ""}
 
 	for _, key := range settings.Unsupported {
 		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
@@ -85,7 +108,7 @@ func runRun(args []string) error {
 	}
 	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Blueprint)
 
-	report.Annotations(toAnnotations(result.Annotations))
+	annotations.Annotations(toAnnotations(result.Annotations))
 	if hasErrors(result.Annotations) {
 		return fmt.Errorf("the API description could not be read; nothing was run")
 	}
@@ -142,6 +165,22 @@ func runRun(args []string) error {
 		return errFailed
 	}
 	return nil
+}
+
+// Reporter renders a run's results and says whether it passed.
+type Reporter interface {
+	Report(results []runner.Result) bool
+}
+
+func newReporter(name string, out io.Writer, settings config.Config) (Reporter, error) {
+	switch name {
+	case "cli", "":
+		return reporter.CLI{Out: out, Color: settings.Color, Details: settings.Details}, nil
+	case "junit", "xunit":
+		return reporter.JUnit{Out: out}, nil
+	default:
+		return nil, fmt.Errorf("unknown reporter %q; vertrag has cli and junit", name)
+	}
 }
 
 // errFailed reports a run whose tests failed, as opposed to one that could not

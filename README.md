@@ -50,6 +50,9 @@ Or point it at a description and an endpoint:
 vertrag run openapi.yml http://localhost:4000
 vertrag run --dry-run openapi.yml   # what would be sent, without sending it
 vertrag compile openapi.yml         # the transactions, as JSON
+
+# JUnit XML for CI — Jenkins, GitLab, GitHub Actions
+vertrag run --reporter junit --output report.xml
 ```
 
 ## Why
@@ -168,7 +171,7 @@ when it reproduces its pair.
 4. ~~Transaction runner~~ — done
 5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
-7. Reporters other than the CLI one (dot, markdown, xunit, HTML)
+7. ~~JUnit XML reporter~~ — done; dot, markdown and HTML still to come
 8. Adversarial input generation, with shrinking
 
 ## Not supported: API Blueprint
