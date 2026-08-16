@@ -3,6 +3,7 @@
 [![CI](https://github.com/antimatter-studios/vertrag/actions/workflows/ci.yml/badge.svg)](https://github.com/antimatter-studios/vertrag/actions/workflows/ci.yml)
 [![Release](https://github.com/antimatter-studios/vertrag/actions/workflows/release.yml/badge.svg)](https://github.com/antimatter-studios/vertrag/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/antimatter-studios/vertrag)](https://github.com/antimatter-studios/vertrag/releases/latest)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fantimatter-studios%2Fvertrag%2Fbadges%2Fcoverage.json)](https://github.com/antimatter-studios/vertrag/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/github/downloads/antimatter-studios/vertrag/total)](https://github.com/antimatter-studios/vertrag/releases)
 [![Go](https://img.shields.io/github/go-mod/go-version/antimatter-studios/vertrag)](go.mod)
 [![License](https://img.shields.io/github/license/antimatter-studios/vertrag)](LICENSE)

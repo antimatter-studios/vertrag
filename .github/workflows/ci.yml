@@ -28,15 +28,52 @@ jobs:
       # The unit tests run without Node. The oracle suite skips itself when the
       # reference is absent, so this job stays honest about what it covered:
       # it is the `oracle` job below that proves agreement with Dredd.
-      # The unit tests run without Node. The oracle suite skips itself when the
-      # reference is absent, so this job stays honest about what it covered:
-      # it is the `oracle` job below that proves agreement with Dredd.
       - run: go test ./...
 
       # A floor, not a target. It exists so the safety net that works without
       # Node cannot quietly rot while the oracle carries all the weight.
       - name: Enforce the coverage floor
         run: make cover
+
+      # Publish the figure as well as enforcing it. A floor says the number has
+      # not fallen below 70; it does not say what the number is, and a reader
+      # deciding whether to trust this tool deserves to see it without cloning.
+      #
+      # Only on a push to main, and only from one Go version — three matrix jobs
+      # racing to write the same file would publish whichever finished last.
+      - name: Publish the coverage figure
+        if: github.event_name == 'push' && matrix.go-version == '1.26'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          total="$(go tool cover -func=dist/coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+')"
+
+          # Shields' own thresholds would be arbitrary here; these match how the
+          # project talks about coverage: the floor is 70, and 80 is where the
+          # suite currently sits.
+          colour=red
+          awk "BEGIN{exit !($total >= 70)}" && colour=yellow
+          awk "BEGIN{exit !($total >= 80)}" && colour=brightgreen
+
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$total" "$colour" > /tmp/coverage.json
+
+          # An orphan branch, not main. The badge has to live somewhere a raw
+          # URL can reach, and committing a generated file back to main on every
+          # push would put CI in the history and — since CI runs on pushes to
+          # main — risk it triggering itself.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin badges 2>/dev/null && git checkout badges || git checkout --orphan badges
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          rm -rf dist
+          cp /tmp/coverage.json coverage.json
+          git add coverage.json
+          git diff --staged --quiet || {
+            git commit -m "coverage: ${total}%"
+            git push origin badges
+          }
 
   oracle:
     name: Differential test against Dredd
