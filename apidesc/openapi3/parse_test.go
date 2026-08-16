@@ -161,10 +161,19 @@ func TestBodyGeneration(t *testing.T) {
 		// object with no value: any specimen built without it would be one the
 		// document itself calls invalid. The same property, optional, is just
 		// left out.
+		// A reference to a schema the document never defines is the case that
+		// genuinely has no specimen: there is nothing to read, so nothing can
+		// be shown. An array of bare primitives used to stand in for this and
+		// no longer does, having a specimen now — the empty array.
+		//
+		// The propagation is the point of both cases: a REQUIRED property with
+		// no specimen sinks the whole object, because any body built without it
+		// is one the document itself calls invalid. The same property, optional,
+		// is simply left out.
 		{"required property without a value sinks the object",
-			`{type: object, required: [data], properties: {data: {type: array, items: {type: string}}}}`, ""},
+			`{type: object, required: [data], properties: {data: {$ref: "#/components/schemas/Loop"}}}`, ""},
 		{"optional property without a value is omitted",
-			`{type: object, properties: {data: {type: array, items: {type: string}}}}`, `{}`},
+			`{type: object, properties: {data: {$ref: "#/components/schemas/Loop"}}}`, `{}`},
 		{"a required property that does have a value is kept",
 			`{type: object, required: [name], properties: {name: {type: string}}}`, `{"name":""}`},
 
