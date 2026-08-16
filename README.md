@@ -66,6 +66,47 @@ vertrag run --reporter dot                          # one character per transact
 vertrag run --reporter html --output report.html    # a page to publish
 ```
 
+### Sequences
+
+A description lists operations in whatever order reads well, which is frequently
+the read before the create. Run flat, the read asks for something nothing has
+made and gets a 404 that says nothing about the server.
+
+OpenAPI's Link Object describes the dependency, and `--sequence` follows it:
+
+```console
+vertrag run --sequence openapi.yml http://localhost:4000
+```
+
+Links do not add tests. They reorder the ones that exist and fill in the values
+the description could not have known, so a run sends exactly as many requests as
+it did before. A step whose dependency failed is skipped rather than run and
+failed a second time — one root cause, one finding.
+
+### Generated input
+
+A description shows one request per operation, so a run establishes the happy
+path and asks nothing else. `vertrag fuzz` draws values from the schema instead:
+
+```console
+vertrag fuzz openapi.yml http://localhost:4000
+vertrag fuzz --cases 100 --seed 42 openapi.yml    # replay a previous run
+```
+
+Two properties, failing in opposite directions. A value the schema permits
+should be accepted, and a 4xx means the server and its description disagree
+about what is valid. A value it forbids should be rejected with a 4xx, and a
+2xx is a validation bypass. A 5xx is a finding either way, because refusing
+input is a decision and failing on it is not.
+
+Findings are shrunk to the smallest input that still fails, and the seed is
+reported so any finding replays exactly.
+
+It is a separate command rather than a flag on `run` because the two answer
+different questions. `run` is deterministic and belongs in CI as a regression
+gate; generation is exploratory, and a run that discovers something new on a
+Tuesday is a feature there and a broken build here.
+
 ## Configuration
 
 vertrag reads `vertrag.yml`, which is a **superset of `dredd.yml`**: every key
@@ -144,8 +185,8 @@ Currently agreeing, field for field:
 | Suite | Compared | Covers |
 | --- | --- | --- |
 | Compile | 59 fixtures | API Blueprint, OpenAPI 2 and OpenAPI 3 — transaction naming, URI expansion, bodies, diagnostics |
-| Parse | 38 documents | OpenAPI 3 and OpenAPI 2 end to end: source document to transactions |
-| Validate | 20 cases | Pass/fail verdicts and their error text, against Gavel |
+| Parse | 40 documents | OpenAPI 3 and OpenAPI 2 end to end: source document to transactions |
+| Validate | 27 cases | Pass/fail verdicts and their error text, against Gavel — both JSON Schema dialects |
 
 Agreement includes the generated request and response bodies, the JSON Schemas
 attached to responses, and the parser diagnostics down to their exact wording,
@@ -215,7 +256,9 @@ when it reproduces its pair.
 5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
 7. ~~Reporters~~ — done; cli, dot, markdown, html and JUnit XML
-8. Adversarial input generation, with shrinking
+8. ~~Adversarial input generation, with shrinking~~ — done; `vertrag fuzz`
+9. ~~Stateful sequences from OpenAPI links~~ — done; `vertrag run --sequence`
+10. Generated input across a sequence, rather than one operation at a time
 
 ## Not supported: API Blueprint
 
