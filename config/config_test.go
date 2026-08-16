@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -79,8 +80,14 @@ endpoint: 'http://localhost:4000'
 
 	// Keys written as null or empty are at their default and must not be
 	// reported as unsupported — that would warn about nothing on every run.
-	if len(config.Unsupported) != 0 {
-		t.Errorf("unsupported = %v, want none: those keys are all empty", config.Unsupported)
+	//
+	// `server` is the exception here, and only because this fixture sets it to
+	// a real command. vertrag does not start a server under test, and used to
+	// accept the key and do nothing, which meant a project relying on it got a
+	// run against a server that was never started and a wall of connection
+	// errors that named no cause.
+	if want := []string{"server"}; !slices.Equal(config.Unsupported, want) {
+		t.Errorf("unsupported = %v, want %v", config.Unsupported, want)
 	}
 }
 

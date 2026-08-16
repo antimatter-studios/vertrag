@@ -525,6 +525,15 @@ func apply(config *Config, parsed file) {
 		setBool(&config.Checks.HeaderSchema, parsed.Checks.HeaderSchema)
 	}
 
+	// Keys read into Config and then acted on by nobody. They were reported as
+	// supported because the field existed, which is the worst way to be wrong
+	// about it: `names: true` asked for a list of transaction names and got a
+	// test run instead, and `user` asked for credentials on every request and
+	// got none, both without a word.
+	//
+	// Listed by hand rather than derived, because "the field is never read" is
+	// not something the compiler will tell us — an unused struct field is legal.
+	// `require` and `custom` are `any`, so isSet can inspect them.
 	for key, value := range map[string]any{
 		"require": parsed.Require,
 		"custom":  parsed.Custom,
@@ -532,6 +541,34 @@ func apply(config *Config, parsed file) {
 		if isSet(value) {
 			config.Unsupported = append(config.Unsupported, key)
 		}
+	}
+
+	// The rest are typed pointers and slices, and must NOT go through isSet: a
+	// nil *string put in an `any` is not the untyped nil isSet tests for — the
+	// interface is non-nil and holds a nil pointer — so every one of them would
+	// read as set, and a config full of `server: null` would warn about all of
+	// it. Checked explicitly instead.
+	for _, unsupported := range []struct {
+		key string
+		set bool
+	}{
+		{"server", parsed.Server != nil && *parsed.Server != ""},
+		{"user", parsed.User != nil && *parsed.User != ""},
+		{"path", len(parsed.Path) > 0},
+		{"names", parsed.Names != nil && *parsed.Names},
+		{"inline-errors", parsed.InlineErrors != nil && *parsed.InlineErrors},
+	} {
+		if unsupported.set {
+			config.Unsupported = append(config.Unsupported, unsupported.key)
+		}
+	}
+
+	// `loglevel` is also not acted on, but nearly every configuration carries
+	// `loglevel: warning` — Dredd's own default, written out by its config
+	// generator — and warning about that on every run would be noise nobody
+	// reads. Only a level that was asked for on purpose is worth mentioning.
+	if parsed.LogLevel != nil && *parsed.LogLevel != "" && *parsed.LogLevel != Default().LogLevel {
+		config.Unsupported = append(config.Unsupported, "loglevel")
 	}
 }
 
