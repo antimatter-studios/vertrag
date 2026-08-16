@@ -161,9 +161,18 @@ func TestBodyGeneration(t *testing.T) {
 		{"a required property that does have a value is kept",
 			`{type: object, required: [name], properties: {name: {type: string}}}`, `{"name":""}`},
 
-		// A falsy value is treated as nothing to send.
-		{"bare string has no body", `{type: string}`, ""},
-		{"untyped schema has no body", `{properties: {a: {type: string}}}`, ""},
+		// Dredd tests the generated value for JavaScript truthiness before
+		// emitting a body, so "" — and with it false, null and 0 — produced no
+		// body at all. A documented response of `false` is a perfectly good
+		// response, and as a REQUEST body the omission means sending nothing to
+		// a server that requires one.
+		{"a bare string is demonstrated by the empty string", `{type: string}`, `""`},
+		{"an untyped schema permits everything, so the empty string will do",
+			`{properties: {a: {type: string}}}`, `""`},
+		{"a boolean is demonstrated by false", `{type: boolean}`, `false`},
+		{"a nullable schema is demonstrated by null", `{type: string, nullable: true}`, `null`},
+		{"a number whose minimum is zero is demonstrated by zero",
+			`{type: integer, minimum: 0}`, `0`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := compileSource(t, `

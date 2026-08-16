@@ -179,9 +179,11 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 			}
 		}
 
-		// Otherwise there is nothing to go on. The reference does not infer a
-		// type from the presence of `properties`, and inferring it here would
-		// produce bodies Dredd never sends.
+		// Otherwise there is nothing to go on: no type, no example, no
+		// composition. A schema that says nothing permits everything, so the
+		// empty string is as good a specimen as any — this is NOT a schema
+		// without a specimen, and treating it as one loses the body entirely
+		// for an array whose items are untyped.
 		return "", true
 	}
 }
@@ -243,10 +245,30 @@ func isValuelessPrimitiveSchema(schema node) bool {
 	}
 	switch declaredType(schema) {
 	case "string", "integer", "number", "boolean":
-		return true
+		// Dredd stops here: a bare primitive is treated as saying nothing about
+		// what would be in the array. But a constrained one says a great deal —
+		// a minLength, a pattern, a format or an enum each describe the
+		// contents exactly — and an array whose items carry any of those has a
+		// specimen worth sending.
+		return !hasContentConstraint(schema)
 	default:
 		return false
 	}
+}
+
+// hasContentConstraint reports whether a primitive schema says anything about
+// its values beyond their type.
+func hasContentConstraint(schema node) bool {
+	for _, keyword := range []string{
+		"enum", "const", "pattern", "format",
+		"minLength", "maxLength", "minimum", "maximum",
+		"exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+	} {
+		if schema.Get(keyword).Valid() {
+			return true
+		}
+	}
+	return false
 }
 
 // renderBody serialises a generated value for a media type.
@@ -255,9 +277,15 @@ func isValuelessPrimitiveSchema(schema node) bool {
 // one the reference generates for, or the value is falsy by JavaScript's rules,
 // which the reference treats as nothing to send.
 func renderBody(value any, mediaType string) (string, bool) {
-	if !truthy(value) {
-		return "", false
-	}
+	// Dredd tests the generated value for JavaScript truthiness here, so a
+	// documented body of `false`, `null`, `0` or `""` produces no body at all.
+	// That is a language's notion of emptiness leaking into a contract: false
+	// is a perfectly good response, and as a REQUEST body the omission means
+	// sending nothing to a server that requires one, which then answers 400 and
+	// is reported as broken.
+	//
+	// Whether a specimen exists is already answered by generateValue's second
+	// return, so there is nothing for this to second-guess.
 
 	switch {
 	case isJSONMediaType(mediaType):

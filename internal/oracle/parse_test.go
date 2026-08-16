@@ -110,6 +110,26 @@ var divergences = []divergence{
 	},
 	{
 		fixture: "composition",
+		path:    "transactions[2].response.body",
+		reason:  falsyValuesAreStillValues,
+	},
+	{
+		fixture: "composition",
+		path:    "transactions[4].response.body",
+		reason:  falsyValuesAreStillValues,
+	},
+	{
+		fixture: "proof-of-concept",
+		path:    "transactions[1].response.body",
+		reason:  falsyValuesAreStillValues,
+	},
+	{
+		fixture: "proof-of-concept",
+		path:    "transactions[3].response.body",
+		reason:  falsyValuesAreStillValues,
+	},
+	{
+		fixture: "composition",
 		path:    "transactions[3].response.body",
 		reason: "Dredd sends the zero value of the declared type whatever the " +
 			"schema says, so a string with a minLength is demonstrated by \"\" " +
@@ -149,6 +169,17 @@ const headerSchemasAreSupported = "Dredd reports `schema` in a Header Object " +
 	"as an unsupported key. vertrag decodes the header value to the type the " +
 	"schema declares and validates it, which is a check neither Dredd nor " +
 	"Gavel makes at all, so warning that the key does nothing would be false."
+
+// falsyValuesAreStillValues explains the bodies vertrag emits where Dredd
+// emits none.
+const falsyValuesAreStillValues = "Dredd tests a generated value for " +
+	"JavaScript truthiness before emitting a body, so a documented body of " +
+	"false, null, 0 or the empty string produces no body at all. That is a " +
+	"language's notion of emptiness leaking into a contract: false is a " +
+	"perfectly good response, and as a REQUEST body the omission means sending " +
+	"nothing to a server that requires one, which then answers 400 and is " +
+	"reported as broken. Whether a specimen exists is already answered " +
+	"separately, so there is nothing for truthiness to decide."
 
 // constraintsAreSupported explains the annotations vertrag does not emit.
 const constraintsAreSupported = "Dredd reports every JSON Schema constraint " +
