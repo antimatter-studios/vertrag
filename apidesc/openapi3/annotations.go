@@ -213,6 +213,7 @@ func (d *document) validate() []annotation {
 	}
 
 	out = append(out, d.validateKeys(root, specOpenAPI)...)
+	out = append(out, d.reportDanglingReferences()...)
 
 	out = append(out, d.validateObject(root.Get("info"), specInfo,
 		func(info node) []annotation {
@@ -328,6 +329,56 @@ func (d *document) reportCollidingParameters(parameters node) []annotation {
 					"a URI template expands both from one value, so the path will carry the query's",
 				name),
 		}, resolved.Get("name")))
+	}
+	return out
+}
+
+// reportDanglingReferences warns about a `$ref` pointing at nothing.
+//
+// An unresolvable reference was entirely silent: no error, no warning, and the
+// schema it should have supplied simply absent — so the response body was
+// validated against nothing at all and the run passed while checking less than
+// it appeared to. A typo in a pointer is a common thing to write and the worst
+// possible thing to swallow, because the result looks exactly like success.
+func (d *document) reportDanglingReferences() []annotation {
+	var out []annotation
+
+	for _, ref := range d.findReferences(d.Root) {
+		target := ref.Value
+		if !strings.HasPrefix(target, "#/") {
+			// A reference into another document. vertrag reads one file, so it
+			// cannot follow this, and saying it is dangling would be wrong.
+			continue
+		}
+		if d.Pointer(target).Valid() {
+			continue
+		}
+		out = append(out, d.at(annotation{
+			class: "warning",
+			message: fmt.Sprintf(
+				"'$ref' %q resolves to nothing, so whatever it described is missing", target),
+		}, ref))
+	}
+	return out
+}
+
+// findReferences collects every `$ref` scalar in the document.
+func (d *document) findReferences(n node) []node {
+	var out []node
+
+	switch {
+	case n.IsMapping():
+		for _, member := range n.Entries() {
+			if member.Key.Str() == "$ref" && member.Value.IsScalar() {
+				out = append(out, member.Value)
+				continue
+			}
+			out = append(out, d.findReferences(member.Value)...)
+		}
+	case n.IsSequence():
+		for _, item := range n.Items() {
+			out = append(out, d.findReferences(item)...)
+		}
 	}
 	return out
 }
