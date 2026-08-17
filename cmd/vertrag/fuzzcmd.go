@@ -73,6 +73,8 @@ func runFuzz(args []string) error {
 		return err
 	}
 
+	fmt.Fprintln(os.Stderr, signature(settings))
+
 	for _, key := range settings.Unsupported {
 		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
 	}

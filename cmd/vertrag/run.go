@@ -182,6 +182,8 @@ func runRun(args []string) error {
 	// format is: they are about the document, not the run.
 	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color && flags.output == ""}
 
+	fmt.Fprintln(os.Stderr, signature(settings))
+
 	for _, key := range settings.Unsupported {
 		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
 	}
