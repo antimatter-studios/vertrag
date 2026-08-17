@@ -4,12 +4,43 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/antimatter-studios/vertrag/auth"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/runner"
 )
+
+// signature names what is about to run, on stderr, before anything is sent.
+//
+// It is not optional and there is no flag for it, because the information is
+// worth exactly the runs nobody expected to have to explain. A flag would be
+// added after the confusing run rather than before it, which is when it is
+// needed: a CI log reporting 74 transactions where there should be 172 is
+// explained at a glance by the version that printed it, and nobody would have
+// asked for that line in advance.
+//
+// The endpoint and the configuration file are here for the same reason. Two
+// afternoons went into "which config was read" and "which server answered" on a
+// project where two hubs share a port and only one is the mock, and neither
+// question was answerable from the report.
+//
+// stderr rather than stdout so the report stays the only thing on stdout. That
+// is not the same as hidden — a consumer writing `2>&1 | …` sees it — but every
+// diagnostic vertrag already prints goes the same way, and a line that begins
+// with the program's name cannot be mistaken for a transaction line by anything
+// anchoring on `^pass: METHOD `.
+func signature(settings config.Config) string {
+	parts := []string{"vertrag " + version}
+	if settings.Spec != "" {
+		parts = append(parts, settings.Spec+" → "+settings.Endpoint)
+	}
+	if settings.Source != "" {
+		parts = append(parts, settings.Source)
+	}
+	return strings.Join(parts, " · ")
+}
 
 // applyConfiguredRules puts the settings that shape requests onto an engine: the
 // credential, the conditional headers and the skip list.
