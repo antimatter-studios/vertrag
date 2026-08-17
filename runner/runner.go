@@ -295,7 +295,7 @@ func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
 	// A hook may take the transaction out of the run, or fail it outright,
 	// without the server ever being asked.
 	if transaction.Skip {
-		return Result{Name: transaction.Name, Status: StatusSkip, Duration: time.Since(started)}
+		return transaction.hookSkippedResult(time.Since(started))
 	}
 	if transaction.Fail != "" {
 		return transaction.failResult([]string{transaction.Fail}, time.Since(started))
@@ -313,7 +313,7 @@ func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
 		}
 	}
 	if transaction.Skip {
-		return Result{Name: transaction.Name, Status: StatusSkip, Duration: time.Since(started)}
+		return transaction.hookSkippedResult(time.Since(started))
 	}
 
 	result := transaction.validated(r.Checks, time.Since(started))
@@ -620,6 +620,20 @@ func (t *Transaction) failResult(errors []string, elapsed time.Duration) Result 
 // that was never created — and report a second failure with no relation to the
 // first. One root cause should produce one finding, and a cascade of them is
 // how a reader is taught to ignore a report.
+// hookSkippedResult is a transaction a hook took out of the run.
+//
+// It carries the request, like every other result does. Without it the report
+// printed the name with no method — `skip:  /api/v1/thing > ...`, two spaces and
+// a gap where every pass and fail line has `GET` — and anything counting the
+// report by anchoring on the method, which is the only way to tell a
+// transaction line from a detail line, counted no skips at all.
+func (t *Transaction) hookSkippedResult(elapsed time.Duration) Result {
+	return Result{
+		Name: t.Name, Status: StatusSkip, Request: t.sentRequest(),
+		Expected: t.Expected, Duration: elapsed,
+	}
+}
+
 func (t *Transaction) skippedResult(reason string) Result {
 	return Result{
 		Name: t.Name, Status: StatusSkip, Request: t.sentRequest(),
