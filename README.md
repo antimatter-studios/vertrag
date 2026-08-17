@@ -35,6 +35,33 @@ brew install antimatter-studios/tap/vertrag
 Or download a binary from [releases](https://github.com/antimatter-studios/vertrag/releases).
 Node.js is needed only if you use hook files.
 
+### In CI, a VM or a machine image
+
+Install it the same way in every environment that runs the suite, from one
+script both your local provisioning and your pipeline call. Installing it in CI
+alone gives the pipeline a tester that a developer's machine does not have, and
+the suite then passes in CI and fails locally with `command not found` — which
+is worse than not having it, because it looks like the change broke something.
+
+Pin the version *and* the checksum. Every release publishes `checksums.txt` over
+the archives and `binaries.txt` over the binaries inside them:
+
+```sh
+VERTRAG_VERSION=0.3.1
+arch=$(uname -m); [ "$arch" = "aarch64" ] && arch=arm64
+base="https://github.com/antimatter-studios/vertrag/releases/download/v${VERTRAG_VERSION}"
+file="vertrag-${VERTRAG_VERSION}-linux-${arch}.tar.gz"
+
+curl -fsSL "${base}/${file}" -o "${file}"
+curl -fsSL "${base}/checksums.txt" | grep " ${file}\$" | sha256sum -c -
+tar -xzf "${file}" -C /usr/local/bin vertrag
+```
+
+The checksum matters more than it looks in a pipeline whose image tag is a
+content hash over its build scripts: a release re-pointed at different bytes
+would not change that tag, so two images could share a tag and hold different
+testers. A pinned checksum makes that impossible rather than unlikely.
+
 ## Use
 
 A project already configured for Dredd needs no arguments — vertrag reads the
