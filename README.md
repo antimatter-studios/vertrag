@@ -165,6 +165,7 @@ checks:
   server-error: true
   content-type: true
   header-schema: false             # off by default; see below
+  max-response-time: 750ms         # unset by default; nothing is timed
 ```
 
 Coming from Dredd, every key a `dredd.yml` understands means the same thing
@@ -189,6 +190,20 @@ It never reads a Header Object's schema at all. So no description has ever had
 this enforced, and yours may well carry a header schema that was never true. It
 is therefore the one check that starts off; turn it on here or with
 `--check-header-schema` when you are ready to read what it finds.
+
+`max-response-time` reports a transaction that took longer than the bound you
+give it — `--max-response-time 750ms` for a single run. It is the one check the
+description cannot ask for: OpenAPI has no way to write "this endpoint answers
+within 750ms", so the number can only come from you, and there is no default,
+because a bound vertrag invented would be green on the machine that mattered and
+red on somebody's laptop.
+
+Its finding is labelled like the others rather than reported as a contract error,
+since nothing the document promised was contradicted — the status, the headers
+and the body are all what it said they would be. It is measured over the whole
+transaction, which is why it does not mix with `transport.delay`: a run pausing
+between requests to spare a throttled server spends that pause against the bound
+it is then judged by.
 
 ### Setup without a hook file
 

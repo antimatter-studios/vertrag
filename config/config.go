@@ -158,6 +158,18 @@ type Checks struct {
 	// and reports an endpoint that answers it anyway. Off by default: it
 	// doubles the requests a run makes.
 	IgnoredAuth bool
+
+	// MaxResponseTime is how long a transaction may take before it is
+	// reported. Zero, the default, means nothing is timed.
+	//
+	// The only one of these the description cannot state: OpenAPI has no way to
+	// write "this endpoint answers within 750ms", so the number can only come
+	// from the project, and one vertrag chose for you would be wrong for every
+	// project. Read only from a vertrag file, like everything else that decides
+	// what a run reports — Dredd would ignore it without a word, and two
+	// testers disagreeing about whether the suite passes out of one file that
+	// looks shared is the exact confusion that rule exists to prevent.
+	MaxResponseTime time.Duration
 }
 
 // Auth describes how a run authenticates itself.
@@ -422,11 +434,17 @@ type loginFile struct {
 }
 
 // checksFile is the `checks` section, which Dredd has no equivalent of.
+//
+// MaxResponseTime is a Go duration string ("750ms", "2s"), as the transport's
+// durations are, so a reader never has to guess whether a bare number meant
+// seconds or milliseconds — a guess Dredd's own `server-wait` and
+// `hooks-worker-timeout` require, and which they disagree about.
 type checksFile struct {
-	ServerError  *bool `yaml:"server-error"`
-	ContentType  *bool `yaml:"content-type"`
-	HeaderSchema *bool `yaml:"header-schema"`
-	IgnoredAuth  *bool `yaml:"ignored-auth"`
+	ServerError     *bool   `yaml:"server-error"`
+	ContentType     *bool   `yaml:"content-type"`
+	HeaderSchema    *bool   `yaml:"header-schema"`
+	IgnoredAuth     *bool   `yaml:"ignored-auth"`
+	MaxResponseTime *string `yaml:"max-response-time"`
 }
 
 // Default returns the settings a run starts from.
@@ -523,6 +541,23 @@ func Load(path string) (Config, error) {
 			return config, fmt.Errorf("%s: max-failures must not be negative, got %d", path, *parsed.MaxFailures)
 		}
 		config.MaxFailures = *parsed.MaxFailures
+	}
+	if parsed.Checks != nil && parsed.Checks.MaxResponseTime != nil {
+		// Applied here rather than in apply(), which handles the rest of the
+		// `checks` section: alone among them this entry can be written
+		// unparseably, and apply returns nothing it could report that with.
+		// Refused rather than run at the default, as the transport's durations
+		// are — a bound nobody could parse means the operator asked to be told
+		// about slow responses and would never have been.
+		bound, err := time.ParseDuration(*parsed.Checks.MaxResponseTime)
+		if err != nil {
+			return config, fmt.Errorf("%s: checks: max-response-time %q: %w",
+				path, *parsed.Checks.MaxResponseTime, err)
+		}
+		if bound < 0 {
+			return config, fmt.Errorf("%s: checks: max-response-time must not be negative, got %s", path, bound)
+		}
+		config.Checks.MaxResponseTime = bound
 	}
 	config.ConditionalHeaders = append(config.ConditionalHeaders, toHeaderRules(parsed.Header)...)
 

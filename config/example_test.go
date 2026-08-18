@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/config"
 )
@@ -52,6 +53,12 @@ func TestExampleConfigLoads(t *testing.T) {
 	}
 	if len(settings.Header) == 0 {
 		t.Error("the example's plain header entry was not read")
+	}
+	// The response-time bound is the only `checks` entry with a value rather
+	// than a switch, so it is the only one the example can demonstrate wrongly:
+	// a renamed key or a unit misread leaves the file looking right.
+	if settings.Checks.MaxResponseTime != 750*time.Millisecond {
+		t.Errorf("the example's max-response-time read as %s, want 750ms", settings.Checks.MaxResponseTime)
 	}
 	if len(settings.Skip) < 2 {
 		t.Errorf("the example's skip list read as %d entries, want both forms", len(settings.Skip))

@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestAFlagWinsOverTheConfigFile pins the one rule the settings merge follows.
@@ -158,5 +159,44 @@ func TestNoConfigAtAllIsStillFine(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if _, err := settingsFor(runFlags{positional: []string{"api.yml", "http://x"}}); err != nil {
 		t.Errorf("no config file present should not be an error: %v", err)
+	}
+}
+
+// TestTheResponseTimeBoundIsCarriedFromTheCommandLine follows the one `run`
+// flag whose value is a duration rather than a switch, from the text somebody
+// typed to the setting the engine is built from.
+//
+// Both halves can fail silently. A duration the flag set does not parse would
+// have to be caught by flag.Parse, and a bound parsed but never merged looks
+// exactly like a server that answered in time — so the transaction it should
+// have reported passes, and nobody learns that the check did nothing.
+func TestTheResponseTimeBoundIsCarriedFromTheCommandLine(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	flags, err := parseRunFlags([]string{"api.yml", "http://example.com", "--max-response-time", "750ms"})
+	if err != nil {
+		t.Fatalf("parseRunFlags: %v", err)
+	}
+	if flags.maxResponseTime != 750*time.Millisecond {
+		t.Errorf("--max-response-time parsed as %s, want 750ms", flags.maxResponseTime)
+	}
+
+	flags.endpoint = "http://example.com"
+	settings, err := settingsFor(flags)
+	if err != nil {
+		t.Fatalf("settingsFor: %v", err)
+	}
+	if settings.Checks.MaxResponseTime != 750*time.Millisecond {
+		t.Errorf("bound = %s, want the flag's 750ms", settings.Checks.MaxResponseTime)
+	}
+
+	// Not given means not timed, rather than timed against zero — which would
+	// report every transaction in the suite and read as vertrag being broken.
+	unbounded, err := settingsFor(runFlags{endpoint: "http://example.com", positional: []string{"api.yml"}})
+	if err != nil {
+		t.Fatalf("settingsFor: %v", err)
+	}
+	if unbounded.Checks.MaxResponseTime != 0 {
+		t.Errorf("bound = %s, want none without the flag", unbounded.Checks.MaxResponseTime)
 	}
 }

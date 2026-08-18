@@ -117,6 +117,18 @@ checks:
   # for a single run.
   header-schema: false
 
+  # How long a transaction may take before it is reported. This is the one check
+  # the description cannot ask for: OpenAPI has no way to write "this endpoint
+  # answers within 750ms", so the number can only come from you, and there is no
+  # default — a bound vertrag invented would be green on the machine that
+  # mattered and red on somebody's laptop. Written as a Go duration so the unit
+  # is never a guess; no key at all, or 0, times nothing.
+  #
+  # Measured over the whole transaction, which is why it does not mix with
+  # `transport.delay`: a run pausing between requests to spare a throttled
+  # server spends that pause against the bound it is then judged by.
+  max-response-time: 750ms
+
 # --- Output ------------------------------------------------------------------
 
 color: true

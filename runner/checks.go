@@ -3,6 +3,7 @@ package runner
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/validate"
 )
@@ -47,10 +48,26 @@ type Checks struct {
 	// a suite whose auth is genuinely absent would light up entirely rather
 	// than usefully.
 	IgnoredAuth bool
+
+	// MaxResponseTime is how long a response may take before it is reported.
+	// Zero, the default, means nothing is timed.
+	//
+	// It is the only check here that judges something the description does not
+	// say. OpenAPI has no way to write "this endpoint answers within 750ms", so
+	// the bound can only come from the run — and any number vertrag picked for
+	// you would be wrong for every project, which is why there is no default
+	// bound rather than a generous one.
+	//
+	// What is measured is Result.Duration, the whole transaction: the pauses a
+	// run imposes on itself count towards it, so `--delay` and a retried
+	// network failure both spend a bound that the server is not responsible
+	// for. Pacing a run and timing it are therefore not a combination that
+	// says anything, and it is worth knowing which of the two you are doing.
+	MaxResponseTime time.Duration
 }
 
 // run performs the enabled checks and returns what they found.
-func (c Checks) run(expected, actual validate.Message) []string {
+func (c Checks) run(expected, actual validate.Message, elapsed time.Duration) []string {
 	var findings []string
 
 	if c.ServerError {
@@ -77,6 +94,13 @@ func (c Checks) run(expected, actual validate.Message) []string {
 	if c.HeaderSchema && statusMatches(expected, actual) {
 		findings = append(findings,
 			validate.AgainstHeaderSchemas(expected.HeaderSchemas, actual.Headers)...)
+	}
+	// Not gated on the status, unlike the two above it. A response that took
+	// four seconds took four seconds whichever of the documented responses it
+	// turned out to be, and an error path is where a timeout most often hides
+	// — the retry loop nobody bounded, the lookup that only misses.
+	if finding, found := checkResponseTime(c.MaxResponseTime, elapsed); found {
+		findings = append(findings, finding)
 	}
 	return findings
 }
@@ -127,6 +151,35 @@ func checkContentType(expected, actual validate.Message) (string, bool) {
 		return "the response is " + got + ", but the description promises " + want, true
 	}
 	return "", false
+}
+
+// checkResponseTime reports a transaction slower than the bound the run set.
+//
+// A bound of zero is not "answer instantly", it is "do not time this at all" —
+// there is no bound an unconfigured run could apply that would not be an
+// opinion vertrag invented, and a check that fires on a number nobody chose is
+// a check people switch off rather than read.
+//
+// The finding is deliberately not a contract error. Nothing in the description
+// was contradicted: the status, the headers and the body are all exactly what
+// was promised, and the only thing wrong is a bound that lives in the run's
+// configuration. Reporting it as though the document had been violated would
+// send the reader to edit a document that says nothing about time.
+func checkResponseTime(bound, elapsed time.Duration) (string, bool) {
+	if bound <= 0 || elapsed <= bound {
+		return "", false
+	}
+
+	// Rounded, because the microseconds vary run to run and nobody can act on
+	// them — except under a bound finer than a millisecond, where rounding
+	// would report "took 0s, longer than the 500µs bound" and read as a fault
+	// in the checker rather than a slow response.
+	took := elapsed.Round(time.Millisecond)
+	if bound < time.Millisecond {
+		took = elapsed
+	}
+	return "the response took " + took.String() +
+		", longer than the " + bound.String() + " this run allows", true
 }
 
 func headerValue(headers map[string]string, name string) string {
