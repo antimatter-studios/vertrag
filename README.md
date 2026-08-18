@@ -11,9 +11,9 @@
 Contract-test your HTTP API against its description document — a single static
 binary, no Node runtime, no `node_modules`.
 
-vertrag reads an API description (OpenAPI 3 or OpenAPI 2), derives the HTTP
-requests that description promises, sends them to a running server, and checks
-the responses against what was promised.
+vertrag reads an API description (OpenAPI 3, OpenAPI 2, or a GraphQL schema),
+derives the HTTP requests that description promises, sends them to a running
+server, and checks the responses against what was promised.
 
 It began as a Go implementation of [Dredd](https://github.com/antimatter-studios/dredd),
 whose upstream is archived, and stays compatible with the things a project
@@ -21,10 +21,12 @@ depends on — the configuration keys, hook files, and the names hooks address
 transactions by. Where Dredd is simply wrong, vertrag is not: see
 [Where vertrag differs](#where-vertrag-differs-from-dredd).
 
-> **Status: usable for OpenAPI 3 and OpenAPI 2.** vertrag reads a description,
-> sends the requests it promises, validates the responses and exits non-zero on
-> failure — with an existing Dredd configuration and Node.js hook files
-> working unchanged. See [Roadmap](#roadmap).
+> **Status: usable for OpenAPI 3, OpenAPI 2 and GraphQL.** vertrag reads a
+> description, sends the requests it promises, validates the responses and exits
+> non-zero on failure — with an existing Dredd configuration and Node.js hook
+> files working unchanged. A GraphQL schema is tested from its query root, with
+> [mutations withheld until they are asked for](#graphql). See
+> [Roadmap](#roadmap).
 
 ## Install
 
@@ -252,6 +254,53 @@ It is a separate command rather than a flag on `run` because the two answer
 different questions. `run` is deterministic and belongs in CI as a regression
 gate; generation is exploratory, and a run that discovers something new on a
 Tuesday is a feature there and a broken build here.
+
+## GraphQL
+
+A GraphQL schema is a description too, so vertrag tests one the same way:
+
+```console
+vertrag run ./schema.graphql http://localhost:4000
+```
+
+It builds one transaction per field of the query root, POSTs each as a query
+document, and judges what comes back. The transactions are named `Query >
+viewer` and `Mutation > createUser` — the same names `only`, `skip` and hook
+files address for an OpenAPI run, and they do not move when an unrelated part
+of the schema changes.
+
+**Mutations are not sent unless you ask.** A mutation is by definition the
+operation that changes something, and a schema offers `deleteAccount` on
+exactly the same terms as `viewer`: same path, same method, same shape. Nothing
+on the wire distinguishes them, so nothing but a setting can. A run that
+withholds them says how many it withheld, names them, and says what to write to
+include them — `graphql: {mutations: true}`, or `--graphql-mutations` for one
+run. This is the same reasoning as [`fuzz.pin`](#pointing-a-probing-phase-at-an-api-that-can-do-something-irreversible).
+
+**A GraphQL endpoint answers 200 to almost everything**, errors included, so a
+tester that checked the status would pass against a server answering every
+query with an error. What vertrag checks is the body: a non-empty `errors`
+array is a failure and its messages, paths and error codes go into the report;
+a response carrying neither `data` nor `errors` is not a GraphQL response at
+all; and `data` has to answer the question that was put — every field the
+selection asked for present, and non-null wherever the schema promised
+non-null.
+
+**The selection set is bounded.** `User.friends: [User!]!` is a cycle and every
+real schema has one, so an unbounded walk writes a query that never ends. The
+bound is `graphql: {max-depth: 4}`. A field the bound cuts is dropped from the
+selection rather than left bare, because an object field with no sub-selection
+is a syntax error that would take the whole request with it — and the run
+reports how many were dropped, so a bound that is costing coverage is visible
+rather than assumed. Interfaces and unions are selected with inline fragments,
+and a field that came from one is not required in the response: it is there
+only when the object turned out to be that type.
+
+Not built yet: argument values. A field whose arguments are required is
+withheld rather than sent bare, because a query missing an argument is one the
+server refuses — a failure report about vertrag's own query rather than about
+the API. `search(term: String = "x")` is sent, because an argument with a
+default is not required.
 
 ## Configuration
 
@@ -481,11 +530,21 @@ vertrag keeps that shape:
 | `uritemplate` | URI template expansion | Done, oracle-verified |
 | `apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified; 3.0, 3.1 and 3.2 |
 | `apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
+| `apidesc/graphql` | GraphQL schema → the schema model | Done |
 | `validate` | Response validation (Gavel) | Done, oracle-verified |
 | `runner` | Sending requests, judging responses | Done |
 | `hooks` | Running Node.js hook files | Done |
 | `config` | Reading `vertrag.yml` | Done |
 | `reporter` | cli, dot, markdown, html, JUnit, HAR and VCR output | Done |
+
+GraphQL is the one format that does not pass through API Elements, and that is
+a decision rather than an omission. A schema has no resources, no URIs and no
+methods; expressing it as API Elements would mean inventing an href per field,
+and those hrefs would then decide the transaction names — the names hook files
+and `--only` address. So the schema goes straight to `compile`, which produces
+the same transactions the API Elements path produces, and everything downstream
+of that point — filters, hooks, auth, transport, the runner, every reporter —
+is shared and unchanged.
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
 API Blueprint, OpenAPI 2 and OpenAPI 3 at once, and Dredd ships pre-parsed API
@@ -510,6 +569,10 @@ when it reproduces its pair.
 8. ~~Adversarial input generation, with shrinking~~ — done; `vertrag fuzz`
 9. ~~Stateful sequences from OpenAPI links~~ — done; `vertrag run --sequence`
 10. Generated input across a sequence, rather than one operation at a time
+11. ~~GraphQL schemas → transactions, sent and validated~~ — done; queries by
+    default, mutations on request
+12. Generated ARGUMENT values for GraphQL fields, which is what makes the
+    probing phases mean anything against a schema
 
 ## Not supported: API Blueprint
 

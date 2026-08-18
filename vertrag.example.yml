@@ -5,7 +5,7 @@
 
 # --- What to test ------------------------------------------------------------
 
-spec: ./openapi.json               # the API description: OpenAPI 2 or 3
+spec: ./openapi.json               # the API description: OpenAPI 2 or 3, or a GraphQL schema
 endpoint: http://localhost:4000    # the server under test
 
 # --- Which transactions ------------------------------------------------------
@@ -198,6 +198,44 @@ fuzz:
   # breaking rather than refusing, and it is the finding these phases exist to
   # produce — and nor can anything under 400, which is not a rejection.
   # accept: [409, 422]
+
+# --- GraphQL -----------------------------------------------------------------
+
+# Only read when the description is a GraphQL schema; ignored otherwise, so a
+# project testing both kinds can keep one file.
+#
+# A GraphQL schema yields one transaction per field of the query root, named
+# "Query > <field>" — the same names `only`, `skip` and the hook files above
+# address. There are no paths and no methods to narrow by: every request is a
+# POST of a query document to one path.
+graphql:
+  # Where the queries are POSTed, relative to `endpoint` above. It is `path`
+  # rather than `endpoint` because there is already an endpoint and it means
+  # something else.
+  path: /graphql
+
+  # How deeply a generated selection set nests. There has to be a bound,
+  # because `User.friends: [User!]!` is a cycle and every real schema has one —
+  # an unbounded walk writes a query that never ends. A field whose expansion
+  # this cuts is dropped from the selection entirely, since an object field
+  # with no sub-selection is a syntax error and would take the whole request
+  # with it; the run reports how many were dropped, so a bound that is costing
+  # you coverage is visible rather than assumed.
+  max-depth: 4
+
+  # Mutations are NOT sent unless you say so, and this is the setting this
+  # section exists for.
+  #
+  # A mutation is by definition the operation that changes something, and a
+  # schema offers `deleteAccount` on exactly the same terms as `viewer`: same
+  # path, same method, same shape. Nothing on the wire distinguishes them, so
+  # nothing but this can — the same argument as `fuzz.pin` above, in the same
+  # tool, for the same reason. A run that withholds them SAYS how many it
+  # withheld and how to include them, because a run that quietly tested eleven
+  # of nineteen operations reports eleven passes and reads as success.
+  #
+  # `--graphql-mutations` does the same for a single run.
+  # mutations: true
 
 # --- Output ------------------------------------------------------------------
 

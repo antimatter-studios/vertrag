@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/refract"
 )
 
@@ -68,7 +68,8 @@ func run(args []string) error {
 func usage() {
 	fmt.Printf(`vertrag %s (built %s)
 
-Contract-test an HTTP API against its description document.
+Contract-test an HTTP API against its description document: OpenAPI 3,
+OpenAPI 2, or a GraphQL schema.
 
 Usage:
   vertrag run [flags] [description] [endpoint]
@@ -101,14 +102,25 @@ func runCompile(args []string) error {
 	elements := fs.Bool("elements", false, "treat the input as pre-parsed API Elements")
 	mediaType := fs.String("media-type", "", "media type of the input, when it is API Elements")
 	filename := fs.String("filename", "", "name recorded as the transactions' origin")
-	if err := fs.Parse(args); err != nil {
+	var graphql graphqlFlags
+	addGraphQLFlags(fs, &graphql)
+	// Parsed the same way `run`, `fuzz` and `coverage` parse: flags may appear
+	// before, after or between the positional arguments. Go's flag package
+	// stops at the first non-flag, so a plain fs.Parse turned
+	// `compile api.yml --graphql-mutations` into two positional arguments and
+	// refused it with "compile takes exactly one file" — a message about the
+	// wrong thing entirely, for a command line that reads perfectly.
+	//
+	// It went unnoticed while compile's flags were all ones nobody writes last.
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
+	if len(positional) != 1 {
 		return fmt.Errorf("compile takes exactly one file")
 	}
 
-	path := fs.Arg(0)
+	path := positional[0]
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -119,25 +131,33 @@ func runCompile(args []string) error {
 		origin = filepath.Base(path)
 	}
 
-	var root *refract.Element
-	if *elements {
-		if root, err = refract.Load(data); err != nil {
-			return fmt.Errorf("reading API Elements: %w", err)
-		}
-	} else {
-		result, err := apidesc.Parse(data, origin)
-		if err != nil {
-			return fmt.Errorf("parsing %s: %w", path, err)
-		}
-		root, *mediaType = result.Elements, result.MediaType
-	}
-	*filename = origin
-
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	// Transaction names are built by joining parts with " > ", so the default
 	// HTML escaping would render every one of them as > — unreadable, and
 	// not what the reference emits.
 	encoder.SetEscapeHTML(false)
-	return encoder.Encode(compile.Compile(*mediaType, root, *filename))
+
+	if *elements {
+		root, err := refract.Load(data)
+		if err != nil {
+			return fmt.Errorf("reading API Elements: %w", err)
+		}
+		return encoder.Encode(compile.Compile(*mediaType, root, origin))
+	}
+
+	settings := config.Config{}
+	graphql.apply(&settings.GraphQL)
+	result, withheld, err := transactionsFor(data, origin, settings)
+	if err != nil {
+		return err
+	}
+	// To stderr, so that stdout still carries nothing but the JSON a pipeline
+	// reads. It is said here as well as on a run because this command is what
+	// people read to find out what a description yields, and an answer that
+	// quietly stopped at the query root would be the wrong one.
+	for _, note := range withheld {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
+	return encoder.Encode(result)
 }

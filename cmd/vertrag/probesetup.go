@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/fuzz"
@@ -138,11 +137,22 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 	if err != nil {
 		return nil, fmt.Errorf("reading the API description: %w", err)
 	}
-	parsed, err := apidesc.Parse(source, settings.Spec)
+	// The same two paths `run` reads: API Elements for the formats that have
+	// resources and methods, a schema straight to transactions for GraphQL.
+	// These commands cannot probe a GraphQL schema yet — see
+	// graphqlPhaseNotes — but they must still read one, or the answer to
+	// `vertrag fuzz schema.graphql` is a description that could not be read
+	// rather than a probe that has nothing to generate.
+	result, withheld, err := transactionsFor(source, settings.Spec, settings)
 	if err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", settings.Spec, err)
+		return nil, err
 	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
+	for _, note := range withheld {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
+	for _, note := range graphqlPhaseNotes(result.MediaType, []string{fs.Name()}) {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
 
 	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color}
 	annotations.Annotations(toAnnotations(result.Annotations))
