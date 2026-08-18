@@ -155,6 +155,50 @@ checks:
   # server spends that pause against the bound it is then judged by.
   max-response-time: 750ms
 
+# --- Probing phases ----------------------------------------------------------
+
+# `coverage` and `fuzz` generate request bodies and parameters rather than
+# sending only what the description shows. That is the point of them, and it is
+# also why this section exists: generation is only safe against an API where
+# every endpoint is safe, and that is not the API most people have.
+fuzz:
+  seed: 0                          # 0 picks one and prints it; set it to replay
+  cases: 50                        # distinct values per body and per parameter
+
+  # pin holds a generated body field at a fixed value, in every request both
+  # probing phases send. It is a safety interlock, not a generation hint.
+  #
+  # The case for it in one sentence: a trading API documents `POST /orders` with
+  # a `dry_run` flag, the schema permits false, so generation draws false, and
+  # the probe meant to test input handling places a real order. Nothing in
+  # OpenAPI marks that field as the one that matters.
+  #
+  # A pin naming a field no request body in the description declares STOPS THE
+  # RUN. A typo here would otherwise leave a configuration that reads exactly
+  # like a safety control and holds nothing. The run also reports how many
+  # bodies each pin held, because "configured" and "engaged" are different
+  # facts and only the second one is safety.
+  #
+  # It holds a field the body already has; it never invents one. The `examples`
+  # phase is not covered — that sends the description's own example, unchanged.
+  # pin:
+  #   dry_run: true
+
+  # accept lists statuses that are not findings.
+  #
+  # A description does not carry business rules, so a generated body can satisfy
+  # every documented constraint and still be refused — insufficient funds, a
+  # closed market, an idempotency key already used. Reporting that as "the
+  # server disagrees with its description" is true and useless.
+  #
+  # Every excused answer is COUNTED, and the run prints the count. That is the
+  # condition on which this is worth offering at all: a suite that quietly
+  # stopped testing anything then shows up as a number somebody can read,
+  # rather than as a clean run. 5xx cannot be accepted — that is the server
+  # breaking rather than refusing, and it is the finding these phases exist to
+  # produce — and nor can anything under 400, which is not a rejection.
+  # accept: [409, 422]
+
 # --- Output ------------------------------------------------------------------
 
 color: true

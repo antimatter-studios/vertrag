@@ -132,6 +132,38 @@ stops the run and names itself, and a value matching no transaction is reported
 test, and an exclude matching nothing sends every request it was written to
 prevent.
 
+### Pointing a probing phase at an API that can do something irreversible
+
+`coverage` and `fuzz` generate bodies, which is the point of them and also the
+reason a real project often cannot use them: a trading API documents
+`POST /orders` with a `dry_run` flag, the schema permits `false`, so generation
+draws `false`, and the probe meant to test input handling places a real order.
+Nothing in OpenAPI marks that field as the one that matters.
+
+```yaml
+fuzz:
+  pin:
+    dry_run: true      # held in every generated body, in both probing phases
+  accept: [409, 422]   # refusals that are business rules, not contract breaches
+```
+
+**A pin that names a field no request body declares stops the run.** That is the
+failure worth designing against — a typo, or a field renamed in the description
+since the pin was written, otherwise leaves a configuration that reads exactly
+like a safety control and holds nothing. The run also reports how many bodies
+each pin actually held, because *configured* and *engaged* are different facts
+and only the second one is safety.
+
+`accept` exists because a description does not carry business rules, so a
+generated body can satisfy every documented constraint and still be refused.
+**Every excused answer is counted and the count is printed** — that is the
+condition on which suppressing findings is worth offering at all, since a suite
+that quietly stopped testing anything then shows up as a number somebody can
+read. A 5xx can never be accepted: that is the server breaking rather than
+refusing, and it is the finding these phases exist to produce.
+
+Neither of these makes an unsafe API safe. They make the decision expressible.
+
 ### Recordings
 
 Every other reporter says whether the API agreed with its description. A

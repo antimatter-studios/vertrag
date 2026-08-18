@@ -110,6 +110,26 @@ type Options struct {
 	// probe that reaches it stops drawing and reports what it did; the caller
 	// reports what it did not get to. Zero means no budget.
 	Deadline time.Time
+
+	// Pin holds named body fields at fixed values, applied to every drawn
+	// value before it is rendered. See Pins: this is a safety interlock, not
+	// a generation hint.
+	Pin Pins
+
+	// Accept lists statuses that are not findings. See Accept for why this is
+	// counted rather than silent.
+	Accept Accept
+
+	// Suppression, when set, is where excused answers are counted. It is a
+	// pointer because the count has to be taken as each decision is made —
+	// after the fact an excused answer looks exactly like one that never
+	// happened.
+	Suppression *Suppression
+
+	// Engaged, when set, collects the names of pins that actually held a
+	// field on this probe, so a run can report where its interlock reached
+	// rather than only that it was configured.
+	Engaged map[string]int
 }
 
 // OutOfTime reports whether the deadline has passed.
@@ -267,6 +287,19 @@ func probe(
 
 		value := generate.Value(schema, mode).Draw(t, subject.label())
 
+		// Pins are applied here, between the draw and the render, because that
+		// is the only point every generated value passes through. Applying them
+		// inside the generator would leave the whole-request path uncovered,
+		// and applying them after rendering would mean parsing the wire form
+		// back to reach a field. A safety interlock with a path around it is
+		// not one — see Pins.
+		value, engaged := opts.Pin.Apply(schema, value)
+		for _, name := range engaged {
+			if opts.Engaged != nil {
+				opts.Engaged[name]++
+			}
+		}
+
 		rendered, ok := form.render(value)
 		if !ok {
 			// The value has no form this subject can carry — see the render
@@ -309,6 +342,15 @@ func probe(
 				Message: fmt.Sprintf("the request could not be completed: %v", err),
 			}
 			t.Fatalf("request failed: %v", err)
+		}
+
+		// An accepted status ends the case before the judge sees it, and is
+		// counted on the way past. The count is the whole reason this is safe
+		// to offer: see Accept.
+		if code, err := strconv.Atoi(strings.TrimSpace(reply.StatusCode)); err == nil && opts.Accept.Excuses(code) {
+			opts.Suppression.Record(code)
+			passed[key] = true
+			return
 		}
 
 		if message, bad := judge(mode, subject, reply.StatusCode); bad {

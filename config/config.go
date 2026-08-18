@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/antimatter-studios/vertrag/fuzz"
 )
 
 // Config is a test run's settings.
@@ -154,6 +156,17 @@ type FuzzSettings struct {
 	Cases int
 	// WholeRequest also draws every part together per case.
 	WholeRequest bool
+
+	// Pin holds named body fields at fixed values in every generated request.
+	// It is a safety interlock for an API where some generated value would do
+	// something irreversible — see fuzz.Pins.
+	Pin map[string]any
+
+	// Accept lists statuses that a generated request may be answered with
+	// without that being a finding, for the business rules a description
+	// cannot carry. Every excused answer is counted and reported — see
+	// fuzz.Accept.
+	Accept []int
 }
 
 // Checks selects the checks beyond Dredd's.
@@ -397,9 +410,11 @@ type file struct {
 
 // fuzzFile is the `fuzz` section as written.
 type fuzzFile struct {
-	Seed         *uint64 `yaml:"seed"`
-	Cases        *int    `yaml:"cases"`
-	WholeRequest *bool   `yaml:"whole-request"`
+	Seed         *uint64        `yaml:"seed"`
+	Cases        *int           `yaml:"cases"`
+	WholeRequest *bool          `yaml:"whole-request"`
+	Pin          map[string]any `yaml:"pin"`
+	Accept       []int          `yaml:"accept"`
 }
 
 // Transport is the `transport` section, resolved.
@@ -577,6 +592,17 @@ func Load(path string) (Config, error) {
 		}
 		if parsed.Fuzz.WholeRequest != nil {
 			config.Fuzz.WholeRequest = *parsed.Fuzz.WholeRequest
+		}
+		config.Fuzz.Pin = parsed.Fuzz.Pin
+		// Refused here rather than at the point of use, because the point of
+		// use is after the first request has gone out. An acceptance list that
+		// would hide a server failure has to stop the run before it sends
+		// anything — see fuzz.CheckAccept for which statuses those are.
+		if len(parsed.Fuzz.Accept) > 0 {
+			if err := fuzz.CheckAccept(parsed.Fuzz.Accept); err != nil {
+				return config, fmt.Errorf("%s: %w", path, err)
+			}
+			config.Fuzz.Accept = parsed.Fuzz.Accept
 		}
 	}
 	if parsed.Workers != nil {

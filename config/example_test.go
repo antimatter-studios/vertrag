@@ -13,9 +13,8 @@ import (
 // it being updated leaves the documentation quietly wrong, so it is loaded for
 // real rather than trusted.
 func TestExampleConfigLoads(t *testing.T) {
-	// Copied under a vertrag name: the loader honours vertrag's own keys only
-	// from a vertrag file, so reading it under its own name would skip exactly
-	// the part most worth checking.
+	// Copied under a vertrag name, which no longer changes how it is read but
+	// still matches how a project would hold it.
 	source, err := os.ReadFile(filepath.Join("..", "vertrag.example.yml"))
 	if err != nil {
 		t.Fatalf("reading the example: %v", err)

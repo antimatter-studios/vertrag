@@ -57,7 +57,7 @@ func TestBaselineDecidesWhetherAParameterCanBeBlamed(t *testing.T) {
 				Response: compile.Response{Status: test.documented},
 			}
 
-			got := baselineWorks(context.Background(), runner.New(server.URL), transaction)
+			got := baselineWorks(context.Background(), runner.New(server.URL), transaction, nil)
 			if got.ok != test.want {
 				t.Errorf("baselineWorks ok = %v, want %v (documented %q, answered %d)",
 					got.ok, test.want, test.documented, test.answers)
@@ -78,7 +78,7 @@ func TestAnUnreachableServerIsNotABaseline(t *testing.T) {
 		Response: compile.Response{Status: "200"},
 	}
 	// A port nothing is listening on.
-	got := baselineWorks(context.Background(), runner.New("http://127.0.0.1:1"), transaction)
+	got := baselineWorks(context.Background(), runner.New("http://127.0.0.1:1"), transaction, nil)
 	if got.ok {
 		t.Error("an unreachable server should not count as a working baseline")
 	}

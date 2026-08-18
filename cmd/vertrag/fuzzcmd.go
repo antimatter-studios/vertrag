@@ -43,6 +43,9 @@ func runFuzz(args []string) error {
 	if err != nil {
 		return err
 	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+
 	modes, err := parseModes(*mode)
 	if err != nil {
 		return err
@@ -54,6 +57,27 @@ func runFuzz(args []string) error {
 	}
 	defer set.stop()
 
+	// The `fuzz` section of the config file, for the flags that have one.
+	//
+	// This was missed when the section was added: `vertrag run --phases fuzz`
+	// honoured `seed`, `cases` and `whole-request`, and `vertrag fuzz` — the
+	// command named after them — silently did not. A pinned seed that only
+	// works through one of the two entry points is worse than none, because
+	// the run that ignores it still prints a seed and still looks reproducible.
+	//
+	// A flag that was given wins, which is the rule everywhere else: the file
+	// records what the project normally does, the flag what this run should do
+	// instead.
+	if !given["cases"] && set.settings.Fuzz.Cases > 0 {
+		*cases = set.settings.Fuzz.Cases
+	}
+	if !given["seed"] && set.settings.Fuzz.Seed != 0 {
+		*seed = set.settings.Fuzz.Seed
+	}
+	if !given["whole-request"] && set.settings.Fuzz.WholeRequest {
+		*whole = true
+	}
+
 	// rapid reports the seed it picks only through a log nothing surfaces, so a
 	// zero seed is chosen here instead — the printed value is then, by
 	// construction, the one every probe used.
@@ -62,7 +86,15 @@ func runFuzz(args []string) error {
 	}
 	fmt.Printf("seed: %d (replay with --seed %d)\n", *seed, *seed)
 
-	options := fuzz.Options{Cases: *cases, Seed: *seed}
+	options := fuzz.Options{
+		Cases: *cases, Seed: *seed,
+		// The safety settings come from the file only. There is deliberately no
+		// --pin flag: a pin is the difference between a probe and a live order,
+		// and that belongs in a file somebody reviews, not in a shell history
+		// where it can be dropped from one invocation.
+		Pin:    set.settings.Fuzz.Pin,
+		Accept: set.settings.Fuzz.Accept,
+	}
 	if *maxTime > 0 {
 		options.Deadline = time.Now().Add(*maxTime)
 	}
@@ -173,6 +205,31 @@ func probeAll(
 	whole bool,
 	refused *refusals,
 ) ([]runner.Result, error) {
+	// The pin is checked against every body in the run before the first request
+	// goes out. A pin that matches nothing is the failure this guards: it reads
+	// exactly like a safety control and holds nothing, so the run would send
+	// generated values into the field the caller believed was fixed. Checking
+	// after the first request would be checking too late.
+	if len(options.Pin) > 0 {
+		var bodies []generate.Schema
+		for _, transaction := range transactions {
+			targets, _ := probeTargets(transaction.Request)
+			for _, t := range targets {
+				if t.subject.In == fuzz.InBody {
+					bodies = append(bodies, t.schema)
+				}
+			}
+		}
+		if err := fuzz.CheckPins(options.Pin, bodies); err != nil {
+			return nil, err
+		}
+		options.Engaged = map[string]int{}
+		fmt.Printf("pinned in every generated body: %s\n", options.Pin.Describe())
+	}
+	if len(options.Accept) > 0 {
+		options.Suppression = &fuzz.Suppression{}
+	}
+
 	findings := 0
 	requests := 0
 	probed := 0
@@ -203,7 +260,7 @@ func probeAll(
 		// It only silences the VALID half. A server accepting input its own
 		// schema forbids is a validation bypass whether or not the operation
 		// works, and that is the finding generation exists for.
-		base := baselineWorks(ctx, engine, transaction)
+		base := baselineWorks(ctx, engine, transaction, options.Pin)
 		if base.refused {
 			refused.note(transaction)
 		}
@@ -382,6 +439,22 @@ func probeAll(
 	}
 	if skipped > 0 {
 		fmt.Printf(", %d transaction(s) skipped for having no schema to generate from", skipped)
+	}
+	// Both of these are reported unconditionally once configured, including
+	// when the count is zero, because zero is the answer that matters. A pin
+	// engaging nowhere and an acceptance list excusing nothing both look
+	// exactly like a clean run from the outside, and only one of those is what
+	// the caller thinks they configured.
+	if len(options.Pin) > 0 {
+		for _, name := range options.Pin.Names() {
+			fmt.Printf(", `%s` held on %d generated body(s)", name, options.Engaged[name])
+		}
+	}
+	if options.Suppression != nil {
+		fmt.Printf(", %d answer(s) excused by fuzz.accept", options.Suppression.Total)
+		if detail := options.Suppression.Describe(); detail != "" {
+			fmt.Printf(" (%s)", detail)
+		}
 	}
 	// Said last and said plainly: every other number above is close to
 	// meaningless when the server never let the probe in.
@@ -589,7 +662,18 @@ func parseModes(name string) ([]generate.Mode, error) {
 // probe of an authenticated API fails every baseline with 401, and reporting
 // that as "the operation fails as documented" sends the reader to look at their
 // handler when what they needed was a credential.
-func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compile.Transaction) baseline {
+//
+// The pin applies to this request too, and that is not a detail. This is a real
+// request the probing phase sends on its own initiative, one per operation, and
+// it carries the description's own example body. An end-to-end test caught it
+// leaking: with `dry_run` pinned, 170 of 171 requests were held and one was not
+// — the one that had never been generated, so nothing on the generation path
+// could have held it. A safety interlock is judged by the request that gets
+// through, not by the ones that do not.
+func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compile.Transaction, pin fuzz.Pins) baseline {
+	if pinned, ok := pinnedBody(transaction.Request, pin); ok {
+		transaction.Request = pinned
+	}
 	reply, err := engine.Send(ctx, transaction)
 	if err != nil {
 		return baseline{}
@@ -609,6 +693,49 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 	default:
 		return baseline{ok: status == expected, refused: refused(status, expected)}
 	}
+}
+
+// pinnedBody holds the pinned fields in a request's own body.
+//
+// Only JSON is handled, and anything that does not parse as a JSON object is
+// left exactly as it was rather than guessed at. A form-encoded or multipart
+// body edited by string substitution is a corrupt body, and sending one would
+// turn a safety feature into a source of findings about vertrag.
+//
+// The narrowness is worth stating plainly rather than hiding: a project whose
+// dangerous endpoint takes a non-JSON body does not get this protection on the
+// baseline request, and should keep that operation out of the probing phases
+// with `skip`.
+func pinnedBody(request compile.Request, pin fuzz.Pins) (compile.Request, bool) {
+	if len(pin) == 0 || strings.TrimSpace(request.Body) == "" {
+		return request, false
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(request.Body), &body); err != nil {
+		return request, false
+	}
+
+	held := false
+	for _, name := range pin.Names() {
+		// Only a field the body already carries, for the same reason Pins.Apply
+		// only sets a declared property: inventing one would make a documented
+		// example into something the description never described.
+		if _, present := body[name]; !present {
+			continue
+		}
+		body[name] = pin[name]
+		held = true
+	}
+	if !held {
+		return request, false
+	}
+
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return request, false
+	}
+	request.Body = string(encoded)
+	return request, true
 }
 
 // baseline is what one baseline request established.

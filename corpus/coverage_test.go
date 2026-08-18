@@ -51,7 +51,7 @@ func cover(t *testing.T, name string, faults ...corpus.Fault) []fuzz.CoverageFin
 					return engine.Send(ctx, attempt)
 				}
 				for _, outcome := range fuzz.Cover(context.Background(), fuzz.Subject{In: fuzz.InBody},
-					mediaOf(transaction.Request), schema, send) {
+					mediaOf(transaction.Request), schema, send, fuzz.Options{}) {
 					if outcome.Finding != nil {
 						findings = append(findings, *outcome.Finding)
 					}
@@ -80,7 +80,7 @@ func cover(t *testing.T, name string, faults ...corpus.Fault) []fuzz.CoverageFin
 				return engine.Send(ctx, attempt)
 			}
 			subject := fuzz.Subject{In: parameter.In, Name: parameter.Name, Style: parameter.Style}
-			for _, outcome := range fuzz.Cover(context.Background(), subject, "", schema, send) {
+			for _, outcome := range fuzz.Cover(context.Background(), subject, "", schema, send, fuzz.Options{}) {
 				if outcome.Finding != nil {
 					findings = append(findings, *outcome.Finding)
 				}
