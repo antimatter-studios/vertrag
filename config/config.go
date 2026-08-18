@@ -47,8 +47,11 @@ type Config struct {
 	Hookfiles []string
 	Language  string
 
-	// Server is a command to start before testing, and ServerWait how long to
-	// wait for it to listen.
+	// Server is a command line that starts the API under test, and ServerWait
+	// bounds how long it may take to answer. The endpoint is polled until it
+	// accepts a connection, so ServerWait is a limit on the wait rather than
+	// the length of it — see the `server` package, which runs the command and
+	// stops it again whatever the run did.
 	Server     string
 	ServerWait time.Duration
 
@@ -961,13 +964,15 @@ func apply(config *Config, parsed file) {
 	// The rest are typed pointers and slices, and must NOT go through isSet: a
 	// nil *string put in an `any` is not the untyped nil isSet tests for — the
 	// interface is non-nil and holds a nil pointer — so every one of them would
-	// read as set, and a config full of `server: null` would warn about all of
+	// read as set, and a config full of `user: null` would warn about all of
 	// it. Checked explicitly instead.
+	//
+	// `server` was on this list and has left it: the command is started, waited
+	// for and stopped now, so the key does what it says.
 	for _, unsupported := range []struct {
 		key string
 		set bool
 	}{
-		{"server", parsed.Server != nil && *parsed.Server != ""},
 		{"user", parsed.User != nil && *parsed.User != ""},
 		{"path", len(parsed.Path) > 0},
 		{"names", parsed.Names != nil && *parsed.Names},

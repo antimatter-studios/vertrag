@@ -18,6 +18,7 @@ alphabetical.
 | `runner` | Sends the transactions and judges what comes back |
 | `hooks` | Runs Node.js hook files and lets them rewrite transactions |
 | `reporter` | Renders results — a terminal log or dots, a Markdown or HTML document, JUnit XML for CI |
+| `server` | Starts the API under test from `server:`, waits for it, stops its process group |
 | `link` | Orders a run by the sequences its description declares |
 | `generate` | Values drawn from a schema, valid and invalid |
 | `fuzz` | Sends generated values and judges what the server did with them |

@@ -346,6 +346,9 @@ spec: ./openapi.json               # the API description: OpenAPI 2 or 3
 endpoint: http://localhost:4000
 hookfiles: ./hooks.js
 
+server: npm run test:api           # started before the run, stopped after it
+server-wait: 30                    # seconds it may take to answer
+
 reporter: [cli, junit]             # a readable log and a machine-readable file
 output: ["", report.xml]
 
@@ -372,6 +375,23 @@ told to rename it rather than run with no configuration at all.
 
 A file named with `--config` is read in full whatever it is called, including
 `--config dredd.yml`: naming a file says what finding one cannot.
+
+`server` starts the API under test before the suite runs and stops it after,
+and `server-wait` — in seconds, as Dredd wrote it — bounds how long it may take
+to come up. The endpoint is polled until it accepts a connection rather than
+slept on, so the bound costs its full length only when something is wrong, and
+a server that never comes up is reported by name with whatever it printed
+instead of becoming a screenful of connection errors that name no cause. What
+the server prints while it is up is kept rather than interleaved through the
+report, and shown if the command dies partway through the run.
+
+The command runs through `sh -c`, so pipes and `&&` work, and it is trusted the
+way `hookfiles` is already trusted. It is started in a process group of its own
+and the whole group is stopped — SIGTERM, then SIGKILL for anything left — on
+every way out of a run: a pass, a failure, `--max-failures` stopping early, and
+Ctrl-C. The group rather than the process, because `npm run test:api` is npm
+spawning node: killing npm leaves node holding the port, and the next run's
+"address already in use" gets blamed on anything but the test suite.
 
 `header-schema` validates a response header's value against the JSON Schema the
 description gave it — so an `X-Rate-Limit` documented as a non-negative integer
