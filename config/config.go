@@ -50,10 +50,28 @@ type Config struct {
 	Server     string
 	ServerWait time.Duration
 
-	Method       []string
-	Only         []string
-	Tag          []string
-	OperationID  []string
+	Method      []string
+	Only        []string
+	Tag         []string
+	OperationID []string
+
+	// The narrowing options that Dredd has no equivalent of. OnlyMatching keeps
+	// transactions whose name matches a regular expression; the Exclude* fields
+	// are the counterparts of Only,
+	// OnlyMatching, Method, Tag and OperationID, and drop what they match.
+	//
+	// Excludes exist because an include cannot express "everything except
+	// this". A suite wanting all of an API but for one destructive operation
+	// had to list every operation it did want, and then keep that list
+	// correct as the description grew — which nobody does, so the list rots
+	// and the run silently stops covering what was added.
+	OnlyMatching       []string
+	Exclude            []string
+	ExcludeMatching    []string
+	ExcludeMethod      []string
+	ExcludeTag         []string
+	ExcludeOperationID []string
+
 	Header       []string
 	Path         []string
 	Sorted       bool
@@ -357,6 +375,17 @@ type file struct {
 	Tag []string `yaml:"tag"`
 	// OperationID narrows the run to these operationIds.
 	OperationID []string `yaml:"operation-id"`
+	// OnlyMatching narrows the run to transactions whose name matches one of
+	// these regular expressions, and the Exclude* keys drop what they match.
+	// All six are vertrag's own, so all six are refused from a dredd.yml: a
+	// key that decides what is sent must not be read out of a file the other
+	// tester ignores it in.
+	OnlyMatching       []string `yaml:"only-matching"`
+	Exclude            []string `yaml:"exclude"`
+	ExcludeMatching    []string `yaml:"exclude-matching"`
+	ExcludeMethod      []string `yaml:"exclude-method"`
+	ExcludeTag         []string `yaml:"exclude-tag"`
+	ExcludeOperationID []string `yaml:"exclude-operation-id"`
 	// MaxFailures stops the run early.
 	MaxFailures *int `yaml:"max-failures"`
 	// Workers sends several transactions at once.
@@ -501,6 +530,23 @@ func Load(path string) (Config, error) {
 	// vertrag no longer discovers a `dredd.yml`, so no file reaches here except
 	// one that vertrag was pointed at, and refusing half the keys in a file
 	// someone named on the command line would be the surprising behaviour.
+
+	// The narrowing keys vertrag added to Dredd's `only` and `method`, in one
+	// table because the rule is identical for all six. Writing them out one at
+	// a time invites the copy that reads one key and applies another, which is
+	// a mistake nothing here would catch.
+	narrowing := []struct {
+		key    string
+		values []string
+		target *[]string
+	}{
+		{"only-matching", parsed.OnlyMatching, &config.OnlyMatching},
+		{"exclude", parsed.Exclude, &config.Exclude},
+		{"exclude-matching", parsed.ExcludeMatching, &config.ExcludeMatching},
+		{"exclude-method", parsed.ExcludeMethod, &config.ExcludeMethod},
+		{"exclude-tag", parsed.ExcludeTag, &config.ExcludeTag},
+		{"exclude-operation-id", parsed.ExcludeOperationID, &config.ExcludeOperationID},
+	}
 	if parsed.Auth != nil {
 		applyAuth(&config.Auth, *parsed.Auth)
 	}
@@ -512,6 +558,9 @@ func Load(path string) (Config, error) {
 	config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
 	config.Tag = append(config.Tag, parsed.Tag...)
 	config.OperationID = append(config.OperationID, parsed.OperationID...)
+	for _, narrow := range narrowing {
+		*narrow.target = append(*narrow.target, narrow.values...)
+	}
 	if len(parsed.Phases) > 0 {
 		phases, err := normalisePhases(parsed.Phases)
 		if err != nil {

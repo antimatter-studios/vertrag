@@ -8,6 +8,8 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -48,6 +50,14 @@ type runFlags struct {
 	methods      stringList
 	tags         stringList
 	operationIDs stringList
+
+	onlyMatching        stringList
+	exclude             stringList
+	excludeMatching     stringList
+	excludeMethods      stringList
+	excludeTags         stringList
+	excludeOperationIDs stringList
+
 	maxFailures  int
 	failFast     bool
 	noSanitize   bool
@@ -83,6 +93,12 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
 	fs.Var(&f.tags, "tag", "run only transactions whose operation carries this tag (repeatable)")
 	fs.Var(&f.operationIDs, "operation-id", "run only transactions of this operationId (repeatable)")
+	fs.Var(&f.onlyMatching, "only-matching", "run only transactions whose name matches this regular expression (repeatable)")
+	fs.Var(&f.exclude, "exclude", "leave out the named transaction, whatever else selected it (repeatable)")
+	fs.Var(&f.excludeMatching, "exclude-matching", "leave out transactions whose name matches this regular expression (repeatable)")
+	fs.Var(&f.excludeMethods, "exclude-method", "leave out transactions using this method (repeatable)")
+	fs.Var(&f.excludeTags, "exclude-tag", "leave out transactions whose operation carries this tag (repeatable)")
+	fs.Var(&f.excludeOperationIDs, "exclude-operation-id", "leave out transactions of this operationId (repeatable)")
 	fs.IntVar(&f.maxFailures, "max-failures", 0, "stop sending after this many failures or errors; the rest are reported as skipped (0 = never)")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
@@ -171,6 +187,12 @@ func settingsFor(f runFlags) (config.Config, error) {
 	settings.Method = append(settings.Method, f.methods...)
 	settings.Tag = append(settings.Tag, f.tags...)
 	settings.OperationID = append(settings.OperationID, f.operationIDs...)
+	settings.OnlyMatching = append(settings.OnlyMatching, f.onlyMatching...)
+	settings.Exclude = append(settings.Exclude, f.exclude...)
+	settings.ExcludeMatching = append(settings.ExcludeMatching, f.excludeMatching...)
+	settings.ExcludeMethod = append(settings.ExcludeMethod, f.excludeMethods...)
+	settings.ExcludeTag = append(settings.ExcludeTag, f.excludeTags...)
+	settings.ExcludeOperationID = append(settings.ExcludeOperationID, f.excludeOperationIDs...)
 	if f.maxFailures > 0 {
 		settings.MaxFailures = f.maxFailures
 	}
@@ -255,7 +277,15 @@ func runRun(args []string) error {
 		return fmt.Errorf("the API description could not be read; nothing was run")
 	}
 
-	transactions := sortTransactions(filterTransactions(stripAPIName(result.Transactions), settings), settings.Sorted)
+	selected, unmatched, err := filterTransactions(stripAPIName(result.Transactions), settings)
+	if err != nil {
+		return err
+	}
+	for _, report := range unmatched {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", report)
+	}
+
+	transactions := sortTransactions(selected, settings.Sorted)
 	if len(transactions) == 0 {
 		fmt.Fprintln(os.Stdout, "No transactions to run.")
 		return nil
@@ -617,56 +647,213 @@ func sortTransactions(transactions []compile.Transaction, sorted bool) []compile
 	return out
 }
 
-// filterTransactions applies the options that narrow a run.
-func filterTransactions(transactions []compile.Transaction, settings config.Config) []compile.Transaction {
-	names := toSet(settings.Only)
-	tags := toSet(settings.Tag)
-	operations := toSet(settings.OperationID)
-	methods := make(map[string]bool, len(settings.Method))
-	for _, method := range settings.Method {
-		methods[strings.ToUpper(method)] = true
+// filterTransactions applies the options that narrow a run, and reports every
+// filter value that matched nothing.
+//
+// There are two kinds of option here. An include — `only`, `method`, `tag`,
+// `operation-id`, `only-matching` — says what to keep; an exclude says what to
+// drop. A transaction survives when it satisfies every include that was given
+// and no exclude at all.
+//
+// Excludes win over includes, and it has to be that way round. The two are
+// meant to be written together — `--tag network --exclude-method DELETE` is the
+// ordinary case — and the exclude is always the more specific half: nobody
+// writes one meaning "unless something else selected it". Resolving the clash
+// the other way would make the narrower instruction the one with no effect,
+// and the whole point of an exclude is usually that a particular request must
+// not be sent.
+func filterTransactions(
+	transactions []compile.Transaction,
+	settings config.Config,
+) ([]compile.Transaction, []string, error) {
+	filters, err := narrowingFilters(settings)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	filtered := make([]compile.Transaction, 0, len(transactions))
 	for _, transaction := range transactions {
-		if len(names) > 0 && !names[transaction.Name] {
-			continue
+		keep := true
+		for i := range filters {
+			// Every filter is tested against every transaction even once the
+			// verdict is settled, rather than breaking out early, because the
+			// test is also what records that a value matched something. Short
+			// circuit here and `--only a --exclude-tag admin` reports the tag
+			// as matching nothing whenever `a` happens not to carry it — a
+			// false alarm about the filter that was working perfectly well.
+			if filters[i].test(transaction) == filters[i].exclude {
+				// An exclude that matched, or an include that did not.
+				keep = false
+			}
 		}
-		if len(methods) > 0 && !methods[strings.ToUpper(transaction.Request.Method)] {
-			continue
+		if keep {
+			filtered = append(filtered, transaction)
 		}
-		if len(tags) > 0 && !carriesAny(transaction.Tags, tags) {
-			continue
-		}
-		if len(operations) > 0 && !operations[transaction.OperationID] {
-			continue
-		}
-		filtered = append(filtered, transaction)
 	}
-	return filtered
+	return filtered, unmatchedFilters(filters), nil
 }
 
-// carriesAny reports whether any of the transaction's tags is one being asked
-// for. Any rather than all: `--tag a --tag b` widens a run the way `--method`
-// does, and an operation tagged with both should not be required.
-func carriesAny(tags []string, wanted map[string]bool) bool {
-	for _, tag := range tags {
-		if wanted[tag] {
-			return true
-		}
-	}
-	return false
+// narrowingFilter is one option that narrows a run: the key it is written
+// under, the values it was given, and what counts as a match.
+type narrowingFilter struct {
+	// key names the option in a diagnostic. It is the configuration key, which
+	// is the flag's name without the dashes, so one word finds both.
+	key string
+
+	// subject completes "has no transaction …" for a value that matched
+	// nothing. The filters match different things, and a message saying
+	// "named" about a tag would send somebody looking in the wrong place.
+	subject string
+
+	values  []string
+	matches func(value string, transaction compile.Transaction) bool
+
+	// exclude inverts the verdict: a transaction this filter matches is
+	// dropped rather than being the only kind kept.
+	exclude bool
+
+	// matched records, per value, whether any transaction matched it.
+	matched []bool
 }
 
-func toSet(values []string) map[string]bool {
-	if len(values) == 0 {
-		return nil
+// test reports whether a transaction matches any of the filter's values, and
+// records which of them it matched.
+//
+// Any rather than all: `--tag a --tag b` widens a run the way `--method` does,
+// and an operation tagged with both should not be required. Excludes read the
+// same way — `--exclude-tag a --exclude-tag b` drops anything carrying either,
+// because each entry is a thing the reader wants gone.
+func (f *narrowingFilter) test(transaction compile.Transaction) bool {
+	hit := false
+	for i, value := range f.values {
+		if f.matches(value, transaction) {
+			f.matched[i] = true
+			hit = true
+		}
 	}
-	set := make(map[string]bool, len(values))
-	for _, value := range values {
-		set[value] = true
+	return hit
+}
+
+// narrowingFilters builds the filters the settings ask for, in a fixed order so
+// the diagnostics of two identical runs are identical.
+//
+// Only filters that were given anything are returned, so the caller can treat
+// every filter it holds as one with an opinion.
+func narrowingFilters(settings config.Config) ([]narrowingFilter, error) {
+	byName := func(value string, transaction compile.Transaction) bool {
+		return value == transaction.Name
 	}
-	return set
+	byMethod := func(value string, transaction compile.Transaction) bool {
+		return strings.EqualFold(value, transaction.Request.Method)
+	}
+	byTag := func(value string, transaction compile.Transaction) bool {
+		return slices.Contains(transaction.Tags, value)
+	}
+	byOperationID := func(value string, transaction compile.Transaction) bool {
+		// An operation with no operationId matches no named one, rather than
+		// matching an empty value nobody can have typed.
+		return value != "" && value == transaction.OperationID
+	}
+
+	const (
+		named     = "named %q"
+		method    = "using the method %q"
+		tagged    = "carrying the tag %q"
+		operation = "whose operationId is %q"
+		matching  = "whose name matches %q"
+	)
+
+	filters := []narrowingFilter{
+		{key: "only", subject: named, values: settings.Only, matches: byName},
+		{key: "method", subject: method, values: settings.Method, matches: byMethod},
+		{key: "tag", subject: tagged, values: settings.Tag, matches: byTag},
+		{key: "operation-id", subject: operation, values: settings.OperationID, matches: byOperationID},
+		{key: "exclude", subject: named, values: settings.Exclude, matches: byName, exclude: true},
+		{key: "exclude-method", subject: method, values: settings.ExcludeMethod, matches: byMethod, exclude: true},
+		{key: "exclude-tag", subject: tagged, values: settings.ExcludeTag, matches: byTag, exclude: true},
+		{key: "exclude-operation-id", subject: operation, values: settings.ExcludeOperationID,
+			matches: byOperationID, exclude: true},
+	}
+
+	// The regular expression filters. A pattern is compiled once here rather
+	// than per transaction, and the compiled form is looked up by the pattern
+	// text so that the filter still matches by value like every other one and
+	// the unmatched report needs no special case.
+	for _, regex := range []struct {
+		key     string
+		values  []string
+		exclude bool
+	}{
+		{"only-matching", settings.OnlyMatching, false},
+		{"exclude-matching", settings.ExcludeMatching, true},
+	} {
+		compiled := make(map[string]*regexp.Regexp, len(regex.values))
+		for _, pattern := range regex.values {
+			expression, err := regexp.Compile(pattern)
+			if err != nil {
+				// A pattern that does not compile stops the run and names
+				// itself. The tempting alternative is to treat it as an
+				// expression that matches nothing, and that is the failure
+				// class this project keeps having to fix: an include matching
+				// nothing runs no transactions and reads as an API with
+				// nothing to test, while an exclude matching nothing sends
+				// every request the pattern was written to prevent. Neither
+				// says a word about the typo behind it, and the second is the
+				// one that reaches a real server.
+				return nil, fmt.Errorf(
+					"%s: %q is not a valid regular expression: %w", regex.key, pattern, err)
+			}
+			compiled[pattern] = expression
+		}
+		filters = append(filters, narrowingFilter{
+			key: regex.key, subject: matching, values: regex.values, exclude: regex.exclude,
+			matches: func(value string, transaction compile.Transaction) bool {
+				// A search, not a whole-name comparison: `--only-matching
+				// orders` finds "/orders > List > 200 > application/json"
+				// without anybody writing `.*orders.*`. A pattern that means
+				// the entire name says so with ^ and $, which is the shorter
+				// of the two things to type.
+				return compiled[value].MatchString(transaction.Name)
+			},
+		})
+	}
+
+	active := make([]narrowingFilter, 0, len(filters))
+	for _, filter := range filters {
+		if len(filter.values) == 0 {
+			continue
+		}
+		filter.matched = make([]bool, len(filter.values))
+		active = append(active, filter)
+	}
+	return active, nil
+}
+
+// unmatchedFilters describes every filter value that matched no transaction.
+//
+// This is the same reasoning as the unmatched `skip` and `auth.except` entries,
+// and it is worth as much noise as they get: a value that matches nothing is
+// nearly always a typo or a transaction that was renamed, and its effect is to
+// run something other than what the configuration reads as. The consequence is
+// stated per kind because the two are opposites — an include that matched
+// nothing quietly tests less than was asked for, while an exclude that matched
+// nothing quietly sends what somebody wrote it down to prevent.
+func unmatchedFilters(filters []narrowingFilter) []string {
+	var reports []string
+	for _, filter := range filters {
+		consequence := "it keeps nothing, so the run is narrower than it was meant to be"
+		if filter.exclude {
+			consequence = "it leaves nothing out, so the run is wider than it was meant to be"
+		}
+		for i, value := range filter.values {
+			if filter.matched[i] {
+				continue
+			}
+			reports = append(reports, fmt.Sprintf("%s has no transaction %s; %s",
+				filter.key, fmt.Sprintf(filter.subject, value), consequence))
+		}
+	}
+	return reports
 }
 
 func toAnnotations(annotations []compile.Annotation) []reporter.Annotation {

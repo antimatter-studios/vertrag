@@ -192,6 +192,93 @@ func TestFiltersNarrowTheRun(t *testing.T) {
 	}
 }
 
+// TestTheExcludeAndMatchingFlagsReachTheRun pins the narrowing flags at the
+// command line rather than at the function behind them.
+//
+// filterTransactions can be entirely right while the flag feeding it is
+// misspelled, registered on the wrong FlagSet or parsed into a field nothing
+// reads, and every unit test in the tree stays green. An exclude is the flag
+// where that failure costs the most: the one somebody typed to keep a
+// destructive operation out of a run is the one whose silence sends it.
+func TestTheExcludeAndMatchingFlagsReachTheRun(t *testing.T) {
+	binary := build(t)
+	endpoint, description := serve(t, "widgets")
+
+	listed := func(args ...string) (int, string) {
+		t.Helper()
+		out, code := runCommand(t, binary,
+			append([]string{"run", "--endpoint", endpoint, "--no-color", "--dry-run"},
+				append(args, description)...)...)
+		if code != 0 {
+			t.Fatalf("exit = %d for %v\n%s", code, args, out)
+		}
+		return strings.Count(out, "skip:"), out
+	}
+
+	full, _ := listed()
+	if full < 3 {
+		t.Fatalf("the widgets description should yield at least three transactions, got %d", full)
+	}
+
+	// Each of these leaves out exactly one of the three, so a flag that was
+	// dropped or read into the wrong field shows up as the full count.
+	for _, test := range []struct {
+		what string
+		args []string
+	}{
+		{"--exclude-method", []string{"--exclude-method", "POST"}},
+		{"--exclude-matching", []string{"--exclude-matching", "Create a widget"}},
+		{"--exclude", []string{"--exclude", "/widgets > Create a widget > 201 > application/json"}},
+	} {
+		if count, out := listed(test.args...); count != full-1 {
+			t.Errorf("%s listed %d of %d transactions, want one fewer\n%s", test.what, count, full, out)
+		}
+	}
+
+	// And the include half of the pair, which must keep only the one.
+	if count, out := listed("--only-matching", "Fetch a widget"); count != 1 {
+		t.Errorf("--only-matching listed %d transactions, want 1\n%s", count, out)
+	}
+
+	// An exclude wins over an include naming the same transaction, so the two
+	// together run nothing rather than the include's one.
+	out, _ := runCommand(t, binary, "run", "--endpoint", endpoint, "--no-color", "--dry-run",
+		"--only-matching", "Fetch a widget", "--exclude-matching", "Fetch", description)
+	if strings.Count(out, "skip:") != 0 {
+		t.Errorf("the exclude did not win over the include:\n%s", out)
+	}
+}
+
+// TestAnUnusableFilterIsReportedRatherThanIgnored pins the two ways a narrowing
+// option can be wrong, and that neither of them passes in silence.
+//
+// A pattern that does not compile stops the run and names itself. A value that
+// matches nothing lets the run continue and is reported, exactly as an unmatched
+// `skip` entry is: it is nearly always a typo or a transaction that was renamed,
+// and its effect is a run doing something other than what the command reads as.
+func TestAnUnusableFilterIsReportedRatherThanIgnored(t *testing.T) {
+	binary := build(t)
+	endpoint, description := serve(t, "widgets")
+
+	out, code := runCommand(t, binary, "run", "--endpoint", endpoint, "--no-color", "--dry-run",
+		"--only-matching", "widgets(unclosed", description)
+	if code == 0 {
+		t.Errorf("a pattern that does not compile should stop the run, exit = 0\n%s", out)
+	}
+	if !strings.Contains(out, "widgets(unclosed") || !strings.Contains(out, "only-matching") {
+		t.Errorf("the error should name the option and quote the pattern:\n%s", out)
+	}
+
+	out, code = runCommand(t, binary, "run", "--endpoint", endpoint, "--no-color", "--dry-run",
+		"--exclude", "a transaction by this name never existed", description)
+	if code != 0 {
+		t.Errorf("an unmatched exclude should not stop the run, exit = %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "a transaction by this name never existed") {
+		t.Errorf("an exclude matching nothing should be reported, naming the value:\n%s", out)
+	}
+}
+
 // TestDryRunSendsNothing pins that --dry-run is safe to point at anything.
 //
 // Its whole purpose is answering "what would this do" without doing it, and a

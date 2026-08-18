@@ -34,6 +34,14 @@ type probeFlags struct {
 	methods      stringList
 	tags         stringList
 	operationIDs stringList
+
+	onlyMatching        stringList
+	exclude             stringList
+	excludeMatching     stringList
+	excludeMethods      stringList
+	excludeTags         stringList
+	excludeOperationIDs stringList
+
 	sanitizeHdrs stringList
 	transport    transportFlags
 }
@@ -50,6 +58,19 @@ func addProbeFlags(fs *flag.FlagSet, f *probeFlags, verb string) {
 	fs.Var(&f.methods, "method", verb+" only transactions using this method (repeatable)")
 	fs.Var(&f.tags, "tag", verb+" only transactions whose operation carries this tag (repeatable)")
 	fs.Var(&f.operationIDs, "operation-id", verb+" only transactions of this operationId (repeatable)")
+	// The narrowing options are offered here as well as on `run`, and not
+	// because symmetry is tidy: the configuration keys behind them are read by
+	// every command, so an `exclude-tag` that holds a destructive operation out
+	// of a run must hold it out of a probe too — which sends far more requests
+	// at it. Having the key work and the flag not exist is the arrangement most
+	// likely to end with somebody reaching for the flag under time pressure and
+	// getting an "unknown flag" instead of a narrower probe.
+	fs.Var(&f.onlyMatching, "only-matching", verb+" only transactions whose name matches this regular expression (repeatable)")
+	fs.Var(&f.exclude, "exclude", "leave out the named transaction, whatever else selected it (repeatable)")
+	fs.Var(&f.excludeMatching, "exclude-matching", "leave out transactions whose name matches this regular expression (repeatable)")
+	fs.Var(&f.excludeMethods, "exclude-method", "leave out transactions using this method (repeatable)")
+	fs.Var(&f.excludeTags, "exclude-tag", "leave out transactions whose operation carries this tag (repeatable)")
+	fs.Var(&f.excludeOperationIDs, "exclude-operation-id", "leave out transactions of this operationId (repeatable)")
 	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in findings (repeatable)")
 	addTransportFlags(fs, &f.transport)
 }
@@ -90,6 +111,12 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 	settings.Method = append(settings.Method, f.methods...)
 	settings.Tag = append(settings.Tag, f.tags...)
 	settings.OperationID = append(settings.OperationID, f.operationIDs...)
+	settings.OnlyMatching = append(settings.OnlyMatching, f.onlyMatching...)
+	settings.Exclude = append(settings.Exclude, f.exclude...)
+	settings.ExcludeMatching = append(settings.ExcludeMatching, f.excludeMatching...)
+	settings.ExcludeMethod = append(settings.ExcludeMethod, f.excludeMethods...)
+	settings.ExcludeTag = append(settings.ExcludeTag, f.excludeTags...)
+	settings.ExcludeOperationID = append(settings.ExcludeOperationID, f.excludeOperationIDs...)
 	f.transport.apply(&settings.Transport)
 	reporter.SetSanitize(!f.noSanitize)
 	for _, name := range f.sanitizeHdrs {
@@ -123,7 +150,13 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 		return nil, fmt.Errorf("the API description could not be read; nothing was run")
 	}
 
-	transactions := filterTransactions(stripAPIName(result.Transactions), settings)
+	transactions, unmatched, err := filterTransactions(stripAPIName(result.Transactions), settings)
+	if err != nil {
+		return nil, err
+	}
+	for _, report := range unmatched {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", report)
+	}
 
 	// An operation whose body and parameters all lack schemas has nothing to
 	// probe. Saying how many were passed over, and why, is the difference

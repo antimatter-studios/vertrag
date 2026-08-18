@@ -15,6 +15,32 @@ endpoint: http://localhost:4000    # the server under test
 # setting below addresses one.
 only: []                           # run only these, by name
 method: []                         # run only these methods: GET, POST, …
+tag: []                            # run only operations carrying one of these tags
+operation-id: []                   # run only these operationIds
+
+# A generated name is long and changes whenever somebody edits a summary, so
+# whole families of them are addressed by pattern instead. The pattern is
+# searched for in the name rather than compared with all of it, so a word is
+# enough; anchor it with ^ and $ when you mean the entire name.
+only-matching: ['^/api/v1/']
+
+# The counterparts, which drop what they match. An include cannot say
+# "everything except this" — expressing it as an include means listing every
+# operation you do want and then keeping that list correct as the description
+# grows, which nobody does, so the list rots and the run quietly stops covering
+# what was added.
+exclude: []                        # by name
+exclude-matching: ['> 500 >']      # by pattern
+exclude-method: [TRACE]            # by method
+exclude-tag: [destructive]         # by tag
+exclude-operation-id: []           # by operationId
+
+# An exclude wins over every include, because the two are meant to be written
+# together and the exclude is the more specific half of the pair. A pattern that
+# does not compile stops the run and names itself, rather than becoming a filter
+# that matches nothing — an include matching nothing tests an API that looks
+# like it has nothing to test, and an exclude matching nothing sends every
+# request it was written to prevent.
 
 # Transactions to leave out of the run. The reason is optional and worth
 # giving: it is printed with the skip, so a report says why forty transactions
