@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/antimatter-studios/vertrag/runner"
+	"io"
 )
 
 // nodeWorker is embedded so a released binary carries everything it needs. A
@@ -154,7 +155,23 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 	}
 
 	client.command = exec.CommandContext(ctx, interpreter, args...)
-	client.command.Stderr = options.Stderr
+	// The worker's stderr is kept as well as passed on, because it is the only
+	// place that says WHY a worker died and it was being thrown away at exactly
+	// the moment it mattered.
+	//
+	// A hook file with a syntax error, a port already held by something else, a
+	// missing TypeScript loader — all of them end the worker before it
+	// announces itself, and all of them reported the same bare line: "the hooks
+	// worker exited before it was ready". The cause was one scroll away on a
+	// stream nobody was reading (Options.Stderr is nil unless a caller sets it,
+	// and a nil Stderr on exec.Cmd goes to /dev/null). A CI run failed this way
+	// and told us nothing.
+	notes := &tail{limit: 4096}
+	if options.Stderr != nil {
+		client.command.Stderr = io.MultiWriter(options.Stderr, notes)
+	} else {
+		client.command.Stderr = notes
+	}
 	stdout, err := client.command.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -176,7 +193,7 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 				return
 			}
 		}
-		ready <- fmt.Errorf("the hooks worker exited before it was ready")
+		ready <- fmt.Errorf("the hooks worker exited before it was ready%s", notes.suffix())
 	}()
 
 	select {
@@ -187,7 +204,7 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 		}
 	case <-time.After(10 * time.Second):
 		client.Stop()
-		return nil, fmt.Errorf("the hooks worker did not start within 10s")
+		return nil, fmt.Errorf("the hooks worker did not start within 10s%s", notes.suffix())
 	}
 
 	if options.ConnectWait > 0 {
@@ -337,4 +354,39 @@ func (c *Client) exchangeAll(event string, transactions []*runner.Transaction) e
 		}
 	}
 	return nil
+}
+
+// tail keeps the last of a stream, for a diagnostic that is only wanted when
+// something failed.
+//
+// Bounded because a chatty hook file could otherwise print megabytes into an
+// error message, and it is the END that carries the cause: a stack trace's
+// message comes after its frames, and a worker that logged happily for a while
+// before dying is best explained by what it said last.
+type tail struct {
+	mu    sync.Mutex
+	limit int
+	kept  []byte
+}
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.kept = append(t.kept, p...)
+	if len(t.kept) > t.limit {
+		t.kept = t.kept[len(t.kept)-t.limit:]
+	}
+	return len(p), nil
+}
+
+// suffix renders what was kept for appending to an error, or "" when the worker
+// died silently and there is nothing to add.
+func (t *tail) suffix() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	text := strings.TrimSpace(string(t.kept))
+	if text == "" {
+		return ""
+	}
+	return ":\n" + text
 }
