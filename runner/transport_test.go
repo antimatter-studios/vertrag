@@ -2,10 +2,12 @@ package runner
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -232,6 +234,133 @@ func TestBadCACertFailsBeforeAnyRequest(t *testing.T) {
 	}
 	if _, err := NewWithTransport("http://x", Transport{Proxy: "://bad"}); err == nil {
 		t.Error("an unparsable proxy URL should fail construction")
+	}
+}
+
+// TestAClientCertificateIsPresentedWhenTheServerAsksForOne is the whole point
+// of mutual TLS: the server decides who may speak to it at the handshake, so a
+// client with no certificate never reaches a single handler. Without the
+// certificate the run reports every request as a network failure — which is
+// true and useless — and with it the API is testable at all.
+//
+// The server here really does require one: RequireAndVerifyClientCert against
+// a CA that signed exactly one certificate, so the passing half of this test
+// cannot pass by accident.
+func TestAClientCertificateIsPresentedWhenTheServerAsksForOne(t *testing.T) {
+	ca := newAuthority(t)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	server.TLS = &tls.Config{
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:  ca.pool(),
+		MinVersion: tls.VersionTLS12,
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	// The server's own certificate is self-signed, so it is its own CA; trusting
+	// it here keeps the test about the CLIENT certificate rather than about
+	// --insecure.
+	serverCA := filepath.Join(t.TempDir(), "server-ca.pem")
+	if err := writePEM(serverCA, server.Certificate().Raw); err != nil {
+		t.Fatal(err)
+	}
+
+	anonymous, err := NewWithTransport(server.URL, Transport{CACert: serverCA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := anonymous.Send(context.Background(), transactionTo(server.URL)); err == nil {
+		t.Fatal("the server requires a client certificate, so a client without one must not get through")
+	}
+
+	certPath, keyPath, _ := ca.issue(t, t.TempDir())
+	engine, err := NewWithTransport(server.URL, Transport{
+		CACert:        serverCA,
+		ClientCert:    certPath,
+		ClientCertKey: keyPath,
+	})
+	if err != nil {
+		t.Fatalf("building the transport: %v", err)
+	}
+	reply, err := engine.Send(context.Background(), transactionTo(server.URL))
+	if err != nil {
+		t.Fatalf("the client certificate was not presented: %v", err)
+	}
+	if reply.StatusCode != "200" {
+		t.Errorf("status = %s, want 200", reply.StatusCode)
+	}
+}
+
+// TestOnePEMFileMayHoldTheCertificateAndItsKey: that is how openssl and every
+// tool around it hand a pair over, so --cert-key is optional rather than
+// something a user has to split a working file to satisfy.
+func TestOnePEMFileMayHoldTheCertificateAndItsKey(t *testing.T) {
+	ca := newAuthority(t)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	server.TLS = &tls.Config{
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:  ca.pool(),
+		MinVersion: tls.VersionTLS12,
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	serverCA := filepath.Join(t.TempDir(), "server-ca.pem")
+	if err := writePEM(serverCA, server.Certificate().Raw); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, bothPath := ca.issue(t, t.TempDir())
+	engine, err := NewWithTransport(server.URL, Transport{CACert: serverCA, ClientCert: bothPath})
+	if err != nil {
+		t.Fatalf("building the transport: %v", err)
+	}
+	reply, err := engine.Send(context.Background(), transactionTo(server.URL))
+	if err != nil {
+		t.Fatalf("a combined PEM file was not accepted: %v", err)
+	}
+	if reply.StatusCode != "200" {
+		t.Errorf("status = %s, want 200", reply.StatusCode)
+	}
+}
+
+// TestABadClientCertificateFailsBeforeAnyRequest: a certificate that cannot be
+// loaded is a mistake in the invocation, and it must be reported as one. Left
+// to the handshake it arrives as a connection error on every transaction, which
+// reads as an API that is down.
+func TestABadClientCertificateFailsBeforeAnyRequest(t *testing.T) {
+	ca := newAuthority(t)
+	certPath, keyPath, _ := ca.issue(t, t.TempDir())
+	_, otherKey, _ := ca.issue(t, t.TempDir())
+
+	if _, err := NewWithTransport("http://x", Transport{ClientCert: "/nonexistent.pem"}); err == nil {
+		t.Error("an unreadable client certificate should fail construction")
+	}
+	if _, err := NewWithTransport("http://x", Transport{ClientCert: certPath, ClientCertKey: "/nonexistent.key"}); err == nil {
+		t.Error("an unreadable client key should fail construction")
+	}
+	if _, err := NewWithTransport("http://x", Transport{ClientCert: certPath, ClientCertKey: otherKey}); err == nil {
+		t.Error("a key belonging to another certificate should fail construction")
+	}
+	garbage := filepath.Join(t.TempDir(), "garbage.pem")
+	writeFile(garbage, "not a certificate\n")
+	if _, err := NewWithTransport("http://x", Transport{ClientCert: garbage, ClientCertKey: keyPath}); err == nil {
+		t.Error("a certificate file holding no PEM should fail construction")
+	}
+
+	// A key on its own authenticates nobody: there is nothing to present it
+	// with, so the run would go out anonymous while its operator believed
+	// otherwise.
+	_, err := NewWithTransport("http://x", Transport{ClientCertKey: keyPath})
+	if err == nil {
+		t.Fatal("a client key with no certificate should fail construction")
+	}
+	if !strings.Contains(err.Error(), keyPath) {
+		t.Errorf("the error does not name the key it cannot use: %v", err)
 	}
 }
 

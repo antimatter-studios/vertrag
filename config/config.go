@@ -369,6 +369,12 @@ type Transport struct {
 	Insecure bool
 	CACert   string
 	Proxy    string
+
+	// ClientCert and ClientCertKey are the certificate a server that requires
+	// mutual TLS asks for. The key may live in the certificate file, in which
+	// case ClientCertKey is empty.
+	ClientCert    string
+	ClientCertKey string
 }
 
 // transportFile is the `transport` section as written. Durations are Go
@@ -380,6 +386,10 @@ type transportFile struct {
 	Insecure *bool   `yaml:"insecure"`
 	CACert   *string `yaml:"ca-cert"`
 	Proxy    *string `yaml:"proxy"`
+	// Cert is the client certificate and CertKey its key, in the spelling the
+	// flags use: `ca-cert` is what to trust, `cert` is what to present.
+	Cert    *string `yaml:"cert"`
+	CertKey *string `yaml:"cert-key"`
 }
 
 // authFile is the `auth` section. Dredd has no equivalent: authenticating a
@@ -663,6 +673,12 @@ func applyTransport(t *Transport, parsed transportFile) error {
 	}
 	if parsed.Proxy != nil {
 		t.Proxy = *parsed.Proxy
+	}
+	if parsed.Cert != nil {
+		t.ClientCert = *parsed.Cert
+	}
+	if parsed.CertKey != nil {
+		t.ClientCertKey = *parsed.CertKey
 	}
 	return nil
 }

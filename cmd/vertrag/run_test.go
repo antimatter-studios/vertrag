@@ -233,6 +233,50 @@ func TestTransportFlagsOverrideTheFile(t *testing.T) {
 	}
 }
 
+// TestTheClientCertificateFlagsReachEveryCommandThatSends: a certificate is
+// only of use to a command that opens a connection, and the three that do share
+// one definition of these flags so they cannot drift apart. Each is still asked
+// for itself, because a flag can be perfectly implemented in the runner and
+// misspelled, unwired, or parsed into the wrong variable by the command, with
+// every unit test in the tree staying green.
+//
+// The certificate named does not exist, which is the reply that arrives before
+// any request — so no server is needed to prove the flag was carried.
+func TestTheClientCertificateFlagsReachEveryCommandThatSends(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.pem")
+
+	commands := map[string]func([]string) error{
+		"run":      runRun,
+		"fuzz":     runFuzz,
+		"coverage": runCoverage,
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) {
+			description := filepath.Join(t.TempDir(), "api.yml")
+			if err := os.WriteFile(description, []byte(parameterisedAPI), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			real := os.Stdout
+			devNull, _ := os.Open(os.DevNull)
+			os.Stdout = devNull
+			err := command([]string{
+				"--endpoint", "https://127.0.0.1:1", "--no-color",
+				"--cert", missing, "--cert-key", missing, description,
+			})
+			os.Stdout = real
+			devNull.Close()
+
+			if err == nil {
+				t.Fatalf("%s accepted a certificate that cannot be read", name)
+			}
+			if !strings.Contains(err.Error(), "client certificate") {
+				t.Errorf("%s did not fail on the client certificate: %v", name, err)
+			}
+		})
+	}
+}
+
 // TestFailFastIsMaxFailuresOne pins the alias, and that an explicit
 // --max-failures is what a reader expects to win when both are given.
 func TestFailFastIsMaxFailuresOne(t *testing.T) {

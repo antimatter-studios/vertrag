@@ -18,6 +18,8 @@ type transportFlags struct {
 	delay    time.Duration
 	insecure bool
 	caCert   string
+	cert     string
+	certKey  string
 	proxy    string
 
 	// set records which flags were actually given, so a zero value written on
@@ -32,6 +34,8 @@ func addTransportFlags(fs *flag.FlagSet, f *transportFlags) {
 	fs.DurationVar(&f.delay, "delay", 0, "pause between requests, e.g. 200ms, for a server that throttles")
 	fs.BoolVar(&f.insecure, "insecure", false, "skip TLS certificate verification (self-signed test servers only)")
 	fs.StringVar(&f.caCert, "ca-cert", "", "PEM bundle to trust in addition to the system roots")
+	fs.StringVar(&f.cert, "cert", "", "PEM client certificate to present to a server that requires mutual TLS")
+	fs.StringVar(&f.certKey, "cert-key", "", "private key for --cert, when it is not in that file already")
 	fs.StringVar(&f.proxy, "proxy", "", "HTTP(S) proxy URL (default: the HTTP_PROXY/HTTPS_PROXY environment)")
 }
 
@@ -59,6 +63,12 @@ func (f transportFlags) apply(t *config.Transport) {
 	if f.set["ca-cert"] {
 		t.CACert = f.caCert
 	}
+	if f.set["cert"] {
+		t.ClientCert = f.cert
+	}
+	if f.set["cert-key"] {
+		t.ClientCertKey = f.certKey
+	}
 	if f.set["proxy"] {
 		t.Proxy = f.proxy
 	}
@@ -68,12 +78,14 @@ func (f transportFlags) apply(t *config.Transport) {
 // request when the transport itself cannot be built.
 func newEngine(settings config.Config) (*runner.Runner, error) {
 	engine, err := runner.NewWithTransport(settings.Endpoint, runner.Transport{
-		Timeout:  settings.Transport.Timeout,
-		Retries:  settings.Transport.Retries,
-		Delay:    settings.Transport.Delay,
-		Insecure: settings.Transport.Insecure,
-		CACert:   settings.Transport.CACert,
-		Proxy:    settings.Transport.Proxy,
+		Timeout:       settings.Transport.Timeout,
+		Retries:       settings.Transport.Retries,
+		Delay:         settings.Transport.Delay,
+		Insecure:      settings.Transport.Insecure,
+		CACert:        settings.Transport.CACert,
+		ClientCert:    settings.Transport.ClientCert,
+		ClientCertKey: settings.Transport.ClientCertKey,
+		Proxy:         settings.Transport.Proxy,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("transport: %w", err)
