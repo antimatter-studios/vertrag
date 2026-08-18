@@ -146,7 +146,12 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 	// authenticated API answers 401 to every case, no transaction passes the
 	// baseline check, and the report says nothing was worth probing rather than
 	// that the door was locked.
-	if err := applyConfiguredRules(ctx, engine, settings, probeable); err != nil {
+	//
+	// The rules are matched against EVERY transaction, not the probeable
+	// subset: an `except` or `skip` entry names a transaction by its full
+	// name — often an error variant like "> 401 >" — and would be reported
+	// as matching nothing if only the success variants were on the list.
+	if err := applyConfiguredRules(ctx, engine, settings, transactions); err != nil {
 		stop()
 		return nil, err
 	}

@@ -476,7 +476,7 @@ func sentAs(engine *runner.Runner, request compile.Request) runner.Request {
 func partitionBySchema(transactions []compile.Transaction) ([]compile.Transaction, int) {
 	var probeable []compile.Transaction
 	skipped := 0
-	for _, transaction := range transactions {
+	for _, transaction := range successVariants(transactions) {
 		targets, unreadable := probeTargets(transaction.Request)
 		if len(targets) == 0 && len(unreadable) == 0 {
 			skipped++
@@ -486,6 +486,67 @@ func partitionBySchema(transactions []compile.Transaction) ([]compile.Transactio
 	}
 	return probeable, skipped
 }
+
+// successVariants keeps one transaction per operation: the one that expects
+// success.
+//
+// A description yields a transaction per documented response — the 200, the
+// 400, the 404, the 500 — and a suite reaches each error variant by some
+// trigger of its own: a conditional header that tells a mock which failure
+// to stage, an `except` entry that withholds the credential. Those triggers
+// ride on the transaction, so a probe sent THROUGH the 500 variant goes out
+// with "please break" attached and the server dutifully breaks — and the
+// finding says the server returned 500 for a generated value, which is true
+// and means nothing. Probing asks how an operation handles input it did not
+// expect, and that question is only meaningful against the request that is
+// supposed to succeed. So: the lowest 2xx variant of each operation, or the
+// first variant when none is 2xx (an operation documented only as failing).
+//
+// Found the hard way against a real suite, whose mock is told which failure
+// to stage by a header keyed on the expected status: 94 of 105 findings were
+// the mock doing exactly as it was asked.
+func successVariants(transactions []compile.Transaction) []compile.Transaction {
+	type key struct{ method, template string }
+	best := map[key]int{} // index into out
+	var out []compile.Transaction
+
+	for _, transaction := range transactions {
+		k := key{transaction.Request.Method, operationKey(transaction)}
+		status := statusOf(transaction)
+		if i, seen := best[k]; seen {
+			// Prefer a 2xx over anything, and the lowest 2xx over a higher
+			// one; otherwise keep the first seen.
+			current := statusOf(out[i])
+			if isSuccess(status) && (!isSuccess(current) || status < current) {
+				out[i] = transaction
+			}
+			continue
+		}
+		best[k] = len(out)
+		out = append(out, transaction)
+	}
+	return out
+}
+
+// operationKey identifies an operation independently of which response
+// variant a transaction is: the URI template when there is one (it names the
+// operation, not the expanded example), else the URI.
+func operationKey(transaction compile.Transaction) string {
+	if transaction.Request.Template != "" {
+		return transaction.Request.Template
+	}
+	return transaction.Request.URI
+}
+
+func statusOf(transaction compile.Transaction) int {
+	n, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func isSuccess(status int) bool { return status >= 200 && status < 300 }
 
 func decodeSchema(raw string) (generate.Schema, error) {
 	var schema generate.Schema
