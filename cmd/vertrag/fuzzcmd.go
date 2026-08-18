@@ -38,6 +38,8 @@ func runFuzz(args []string) error {
 	cases := fs.Int("cases", 20, "values to try per body and per parameter")
 	seed := fs.Uint64("seed", 0, "replay a previous run (0 picks one and reports it)")
 	mode := fs.String("mode", "both", "which values to send: valid, invalid, or both")
+	reporterName := fs.String("reporter", "", "also emit the probe results through a reporter: cli, dot, markdown, html, or junit")
+	output := fs.String("output", "", "write the --reporter output to a file instead of stdout")
 	noColor := fs.Bool("no-color", false, "disable coloured output")
 	var headers stringList
 	fs.Var(&headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
@@ -148,10 +150,28 @@ func runFuzz(args []string) error {
 	}
 	fmt.Printf("seed: %d (replay with --seed %d)\n", *seed, *seed)
 
-	return probeAll(ctx, engine, probeable, modes, skipped, fuzz.Options{
+	results, runErr := probeAll(ctx, engine, probeable, modes, skipped, fuzz.Options{
 		Cases: *cases,
 		Seed:  *seed,
 	}, settings.Color)
+
+	// The narrative above is the fuzz report; a --reporter is for machines
+	// and pipelines, so it comes in addition rather than instead. The config
+	// file's reporter list is deliberately not consulted: it configures `run`,
+	// and a junit file of contract results silently replaced by probe results
+	// would be a surprise in the middle of someone's pipeline.
+	if *reporterName != "" {
+		emitSettings := settings
+		emitSettings.Reporters = []string{*reporterName}
+		emitSettings.Outputs = []string{*output}
+		emit, closeFiles, err := newReporter(emitSettings)
+		if err != nil {
+			return err
+		}
+		emit.Report(results)
+		closeFiles()
+	}
+	return runErr
 }
 
 // target is one part of a request generation can vary, with the way to put a
@@ -232,8 +252,9 @@ func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.
 	return targets, unreadable
 }
 
-// probeAll runs every target of every operation through every requested mode and
-// reports.
+// probeAll runs every target of every operation through every requested mode,
+// reports as it goes, and returns one result per probe so a --reporter can
+// render the run the way it renders a contract run.
 func probeAll(
 	ctx context.Context,
 	engine *runner.Runner,
@@ -242,13 +263,14 @@ func probeAll(
 	skipped int,
 	options fuzz.Options,
 	color bool,
-) error {
+) ([]runner.Result, error) {
 	findings := 0
 	requests := 0
 	probed := 0
 	unprobeable := 0
 	unattributable := 0
 	refusedBaselines := 0
+	var results []runner.Result
 
 	for _, transaction := range transactions {
 		targets, unreadable := probeTargets(transaction.Request)
@@ -281,12 +303,13 @@ func probeAll(
 
 			for _, mode := range modes {
 				if ctx.Err() != nil {
-					return ctx.Err()
+					return results, ctx.Err()
 				}
 				if mode == generate.Valid && !base.ok {
 					unattributable++
 					continue
 				}
+				probeName := transaction.Name + " · " + target.subject.Describe() + " · " + modeName(mode)
 
 				send := func(ctx context.Context, value any) (validate.Message, error) {
 					request, err := target.apply(transaction.Request, value)
@@ -309,14 +332,38 @@ func probeAll(
 
 				switch {
 				case !found:
+					results = append(results, runner.Result{
+						Name:    probeName,
+						Status:  runner.StatusPass,
+						Request: sentAs(engine, transaction.Request),
+					})
 				case finding.Unprobeable:
 					// Not a server mistake, so it does not fail the run — but it
 					// is counted, because a probe that sent nothing proves
 					// nothing and the summary would otherwise imply it did.
 					unprobeable++
+					results = append(results, runner.Result{
+						Name:   probeName,
+						Status: runner.StatusSkip,
+						Errors: []string{finding.Message},
+					})
 				default:
 					findings++
 					printFinding(engine, transaction, target, finding, color)
+
+					// The result carries the request that provoked the finding,
+					// the same one the narrative shows, so a junit consumer can
+					// repeat it without the terminal log.
+					failed := transaction.Request
+					if sent, err := target.apply(failed, finding.Value); err == nil {
+						failed = sent
+					}
+					results = append(results, runner.Result{
+						Name:    probeName,
+						Status:  runner.StatusFail,
+						Request: sentAs(engine, failed),
+						Errors:  []string{finding.Message},
+					})
 				}
 			}
 		}
@@ -344,9 +391,17 @@ func probeAll(
 	fmt.Println()
 
 	if findings > 0 {
-		return errFailed
+		return results, errFailed
 	}
-	return nil
+	return results, nil
+}
+
+// modeName is the mode as a probe's name says it.
+func modeName(mode generate.Mode) string {
+	if mode == generate.Valid {
+		return "valid"
+	}
+	return "invalid"
 }
 
 func printFinding(engine *runner.Runner, transaction compile.Transaction, target target, finding fuzz.Finding, color bool) {
