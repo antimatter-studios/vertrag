@@ -20,7 +20,7 @@ import (
 // name.
 var hookSource = map[string]string{
 	"nodejs": `
-const hooks = require('hooks');
+const hooks = require('vertrag-hooks');
 
 hooks.beforeEach((transaction) => {
   transaction.request.headers['X-Each'] = 'ran';
@@ -186,7 +186,7 @@ def by_glob(transaction):
 // languages: one bad hook must not stop the suite from reporting.
 func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 	source := map[string]string{
-		"nodejs": "require('hooks').beforeEach(() => { throw new Error('deliberate'); });",
+		"nodejs": "require('vertrag-hooks').beforeEach(() => { throw new Error('deliberate'); });",
 		"python": "import vertrag_hooks as hooks\n@hooks.before_each\ndef boom(t):\n    raise RuntimeError('deliberate')\n",
 	}
 
@@ -222,16 +222,15 @@ func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 	}
 }
 
-// TestBothModuleNamesWorkInNode: `vertrag-hooks` is the name to write here,
-// `vertrag_hooks` is Python's spelling of it — forced there, since a hyphen
-// is a syntax error in a Python import — and `hooks` is kept because hook
-// files in the world already say it. All three resolve, because the cost of
-// accepting a name is nothing and the cost of rejecting one is somebody's
-// afternoon.
+// TestBothModuleNamesWorkInNode: `vertrag-hooks` is the name to write here
+// and `vertrag_hooks` is Python's spelling of it, forced there because a
+// hyphen is a syntax error in a Python import. Both resolve so that nobody
+// moving between the two hook files is caught out by a character they had no
+// say in. The bare `hooks` Dredd used does not, and the next test says so.
 func TestBothModuleNamesWorkInNode(t *testing.T) {
 	interpreterFor(t, "nodejs")
 
-	for _, name := range []string{"vertrag-hooks", "vertrag_hooks", "hooks"} {
+	for _, name := range []string{"vertrag-hooks", "vertrag_hooks"} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "hooks.js")
@@ -292,4 +291,33 @@ func TestATypeScriptHookFileWithoutALoaderSaysWhatToInstall(t *testing.T) {
 	// exit; what matters is that the run stops rather than proceeding with no
 	// hooks loaded.
 	t.Logf("a TypeScript hook file without a loader stopped the run: %v", err)
+}
+
+// TestTheBareHooksNameIsGone pins a removal rather than a feature.
+//
+// Dredd's worker provided `require('hooks')`, and vertrag's did too while it
+// was aiming at drop-in compatibility. It no longer is: there is one Node
+// hook file in the world that says it, changing the line takes seconds, and
+// an alias named after an archived tool would otherwise sit in this worker
+// forever. A hook file that still says `hooks` fails loudly at load, which is
+// the right moment to find out.
+func TestTheBareHooksNameIsGone(t *testing.T) {
+	interpreterFor(t, "nodejs")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hooks.js")
+	if err := writeFile(path, "const hooks = require('hooks');\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := Start(t.Context(), Options{
+		Language: "nodejs", Hookfiles: []string{path},
+		Host: "127.0.0.1", Port: freePort(t),
+	})
+	if client != nil {
+		defer client.Stop()
+	}
+	if err == nil {
+		t.Error("require('hooks') should no longer resolve")
+	}
 }

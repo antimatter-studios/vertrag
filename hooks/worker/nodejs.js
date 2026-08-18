@@ -54,24 +54,19 @@ const hooks = {
 // Hook files ask for this module by name. Nothing on disk provides it, so it
 // is installed into the module cache before they load.
 //
-// Three names, for one reason each.
+// Two spellings of one name. `vertrag-hooks` is the one to write here, since
+// a hyphen is what every other module a JavaScript developer imports looks
+// like; `vertrag_hooks` is the same name as Python must spell it, because
+// `import vertrag-hooks` is a syntax error there — the hyphen parses as
+// subtraction. Node's resolver takes any string, so it accepts both and
+// nobody moving between the two hook files is caught out by a character they
+// had no say in.
 //
-// `vertrag-hooks` is the name to write here: it says whose hooks these are,
-// which is the thing a reader of a hook file cannot otherwise tell, and the
-// hyphen is what every other module a JavaScript developer imports looks
-// like.
-//
-// `vertrag_hooks` is the same name in Python's spelling, and resolves too. It
-// is not there for consistency's sake but because the difference is forced:
-// `import vertrag-hooks` is a SYNTAX ERROR in Python — the hyphen parses as
-// subtraction — so the Python worker has no choice, while Node's resolver
-// takes any string and can therefore accept both. Somebody moving between the
-// two hook files should not be caught out by a character they had no say in.
-//
-// `hooks` is kept because hook files in the world already say it — the bare
-// name is what Dredd used — and breaking a working file to tidy a name is a
-// poor trade.
-const MODULE_NAMES = ['vertrag-hooks', 'vertrag_hooks', 'hooks'];
+// The bare `hooks` that Dredd used is deliberately NOT among them. There is
+// one Node hook file in the world that says it, its owners can change the
+// line in seconds, and carrying an alias named after an archived tool forever
+// to save them that is the wrong trade.
+const MODULE_NAMES = ['vertrag-hooks', 'vertrag_hooks'];
 
 function installHooksModule() {
   const id = 'vertrag-hooks';

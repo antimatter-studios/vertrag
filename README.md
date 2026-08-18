@@ -467,7 +467,7 @@ def keep_token(transaction):
 ```
 
 ```javascript
-const hooks = require('vertrag-hooks');   // vertrag_hooks and hooks also work
+const hooks = require('vertrag-hooks');   // or vertrag_hooks, as Python spells it
 
 hooks.beforeEach((transaction) => {
   transaction.request.headers['X-Tenant'] = 'acme';
