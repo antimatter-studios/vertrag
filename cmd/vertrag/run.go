@@ -386,7 +386,8 @@ func runRun(args []string) error {
 			probeable, _ := partitionBySchema(transactions)
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
 				map[generate.Mode]bool{generate.Valid: true, generate.Invalid: true}, 0, settings.Color, refused,
-				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept})
+				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept,
+					Workers: settings.Workers})
 			results = append(results, prefixed("coverage", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr

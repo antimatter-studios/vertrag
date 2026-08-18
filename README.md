@@ -132,6 +132,21 @@ stops the run and names itself, and a value matching no transaction is reported
 test, and an exclude matching nothing sends every request it was written to
 prevent.
 
+### Probing several operations at once
+
+The `coverage` phase takes `--workers` (or the run-wide `workers:` key), and the
+`fuzz` phase does not. That is a library limit rather than a decision: `rapid`
+takes its case count and seed from **process-global flags**, so two probes at
+once would overwrite each other's seed and neither would replay. Coverage draws
+nothing at random — it sends the boundaries a schema implies, which are computed
+— so nothing is shared between two operations being probed at the same time.
+
+**The report is identical whatever the worker count**, which is the property
+that makes turning it up safe: each operation accumulates its own results and
+output and they are merged in description order afterwards, so concurrency
+changes how long the phase takes and nothing else. There is a test that runs the
+same suite at 1, 2, 4 and 8 workers and requires byte-identical output.
+
 ### Pointing a probing phase at an API that can do something irreversible
 
 `coverage` and `fuzz` generate bodies, which is the point of them and also the
