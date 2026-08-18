@@ -349,6 +349,11 @@ hookfiles: ./hooks.js
 reporter: [cli, junit]             # a readable log and a machine-readable file
 output: ["", report.xml]
 
+transport:
+  timeout: 30s                     # per request; the default
+  retries: 2                       # network failures only, never a response
+  delay: 200ms                     # pace the run for a server that throttles
+
 checks:
   server-error: true
   content-type: true
@@ -379,8 +384,8 @@ this enforced, and yours may well carry a header schema that was never true. It
 is therefore the one check that starts off; turn it on here or with
 `--check-header-schema` when you are ready to read what it finds.
 
-`max-response-time` reports a transaction that took longer than the bound you
-give it — `--max-response-time 750ms` for a single run. It is the one check the
+`max-response-time` reports a response that took longer than the bound you give
+it — `--max-response-time 750ms` for a single run. It is the one check the
 description cannot ask for: OpenAPI has no way to write "this endpoint answers
 within 750ms", so the number can only come from you, and there is no default,
 because a bound vertrag invented would be green on the machine that mattered and
@@ -388,10 +393,85 @@ red on somebody's laptop.
 
 Its finding is labelled like the others rather than reported as a contract error,
 since nothing the document promised was contradicted — the status, the headers
-and the body are all what it said they would be. It is measured over the whole
-transaction, which is why it does not mix with `transport.delay`: a run pausing
-between requests to spare a throttled server spends that pause against the bound
-it is then judged by.
+and the body are all what it said they would be.
+
+What it measures is the exchange alone: the request going out, the response
+coming back, its body read. The waits a run takes on its own account are not in
+it — `transport.delay`'s pacing, the backoff before a retried network failure,
+the hooks — because a bound on a response is a statement about the server, and a
+run that paced itself to spare a throttled one was being told it had found a slow
+one. The two settings compose. How long the whole transaction took, waiting and
+all, is the duration every reporter already prints.
+
+### Reaching the server
+
+`transport` is the network between vertrag and the API. None of it changes what
+is sent or how a response is judged; it is what a CI job turns when the server
+under test is slow, self-signed, behind a proxy, or shared with somebody else.
+Every key has a `--flag` of the same name, on `run` and on the probing commands
+alike, for a single run. Only `timeout` has a default; leave the rest out and
+vertrag sends the way it always has.
+
+```yaml
+transport:
+  timeout: 30s                     # one request: connect, wait, read the body
+  retries: 2                       # network failures only — never a response
+  delay: 200ms                     # pace the run for a server that throttles
+  insecure: false                  # certificate verification; see below
+  ca-cert: ./ca.pem                # trusted IN ADDITION to the system roots
+  cert: ./client.pem               # presented when the server wants mutual TLS
+  cert-key: ./client.key           # only when the key is not in `cert` already
+  proxy: http://proxy.internal:3128
+```
+
+`timeout` bounds one request — connecting, waiting, and reading the body —
+rather than the run, and defaults to 30s. A hung endpoint otherwise hangs
+everything queued behind it, and a suite that never finishes tells you less than
+one that reports the timeout.
+
+`retries` retries **network failures only**: connection refused, reset, a
+timeout. A response is never retried, whatever its status. That distinction is
+deliberate and worth stating plainly, because `retries: 3` reads as though it
+would paper over a flaky 500 and it will not — a 5xx is the finding the run
+exists to report, and retrying until the server happened to answer 200 would
+hide exactly the thing somebody ran the suite to find. What it fixes is a link
+that drops connections, so the report is a verdict about the API rather than
+about the network. The wait is 250ms before the second attempt, doubling
+thereafter, and none of it is charged to the server. There are none unless you
+ask: a run that retried on its own would be one whose report depended on how
+many times it happened to have tried.
+
+`delay` paces the run, for a server that throttles or an environment shared with
+somebody else. It bounds the request *stream* rather than each worker, so
+`--delay 200ms --workers 8` still sends one request every 200ms rather than
+eight; the first request never waits. Since `checks.max-response-time` times the
+exchange alone, the pause costs nothing against it.
+
+`ca-cert` adds a PEM bundle to the system roots, for a private authority the
+machine has never heard of. Verification stays on — it simply learns who you
+trust. A file that cannot be read, or that holds no certificates, stops the run
+before the first request rather than turning every transaction into a connection
+error that reads like an API being down.
+
+`cert` and `cert-key` are the certificate vertrag *presents*, for an API that
+requires mutual TLS. Without one such a server refuses the handshake, every
+transaction is a network failure, and the run says nothing at all about the
+contract. `cert-key` is only needed when the key is not in the certificate file
+already, since openssl and the tools around it hand the pair over in one file
+often enough that splitting it to satisfy vertrag would be a chore. A key given
+with no certificate is refused before any request, because a handshake would
+otherwise go out anonymous while whoever passed it believed otherwise.
+
+`proxy` overrides the `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` environment, which is
+otherwise honoured as usual — normally what a CI runner has already arranged.
+
+`insecure` switches certificate verification off. It exists for the ordinary case
+of a staging server with a self-signed certificate, where the alternative is not
+testing it at all. What it costs is worth being explicit about: vertrag will then
+talk to whatever answers on that address and cannot tell your API from something
+sitting in front of it, so the credential in `auth` and every request body go to
+whoever picks up. Wherever there is a private authority to point at, `ca-cert` is
+the better answer; `insecure` is for when there is not.
 
 ### Setup without a hook file
 

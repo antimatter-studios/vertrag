@@ -51,6 +51,23 @@ type Result struct {
 	Validation validate.Result
 	Duration   time.Duration
 
+	// ResponseTime is how long the server took: the request going out, the
+	// response coming back, its body read. Duration is the whole transaction
+	// and answers "how long did this cost me"; this answers "how long did the
+	// server take", and only the second of those is a fact about the API.
+	//
+	// They are separate because the bound in `checks.max-response-time` is
+	// judged against this one. Judged against Duration, a run pacing itself
+	// with `transport.delay` to spare a throttled server spent that courtesy
+	// against the bound and reported the server as slow when the server had
+	// answered at once — so the two settings could not be used together at all.
+	// A retry's backoff and the hooks are excluded for the same reason: none of
+	// them is time the server spent.
+	//
+	// Zero when no response arrived: a transaction a hook skipped, one the plan
+	// never reached, a request that failed before it went out.
+	ResponseTime time.Duration
+
 	// Started is when the transaction began. A cassette needs a timestamp per
 	// exchange, and a HAR viewer draws its waterfall from this one — every
 	// entry stamped with the moment the report was written renders as a single
@@ -345,7 +362,8 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 		}
 	}
 
-	return r.send(ctx, transaction)
+	reply, _, err := r.send(ctx, transaction)
+	return reply, err
 }
 
 // ErrSkippedByHook reports that a hook took a generated request out of the
@@ -368,7 +386,8 @@ func (r *Runner) Prepare(source compile.Transaction) *Transaction {
 // validating it, running hooks, or recording a result. Send is the same thing
 // from an unprepared source; this is for a caller that had to prepare first.
 func (r *Runner) Deliver(ctx context.Context, transaction *Transaction) (validate.Message, error) {
-	return r.send(ctx, transaction)
+	reply, _, err := r.send(ctx, transaction)
+	return reply, err
 }
 
 // SentRequest is the request as it actually went out — see sentRequest.
@@ -609,12 +628,26 @@ func (r *Runner) attempt(ctx context.Context, transaction *Transaction, started 
 		return transaction.failResult([]string{transaction.Fail}, time.Since(started))
 	}
 
-	response, err := r.send(ctx, transaction)
+	response, exchange, err := r.send(ctx, transaction)
 	if err != nil {
 		return transaction.errorResult(err.Error(), time.Since(started))
 	}
 	transaction.Real = response
 
+	// Stamped here rather than inside each constructor judge returns through,
+	// for the reason runOne stamps Started: several paths lead out of it, and
+	// one that forgot would report a transaction the server did answer as one
+	// it never answered — a zero that reads as a fact rather than an omission.
+	result := r.judge(transaction, started, exchange)
+	result.ResponseTime = exchange
+	return result
+}
+
+// judge is everything after the response arrives: the validation hooks, the
+// comparison against the description, and the after hook that may overrule it.
+// It is split out so that the exchange can be stamped on whichever result comes
+// back, in one place instead of at each of its exits.
+func (r *Runner) judge(transaction *Transaction, started time.Time, exchange time.Duration) Result {
 	if r.Hooks != nil {
 		if err := r.Hooks.BeforeEachValidation(transaction); err != nil {
 			return transaction.errorResult(fmt.Sprintf("beforeValidation hook: %v", err), time.Since(started))
@@ -624,7 +657,7 @@ func (r *Runner) attempt(ctx context.Context, transaction *Transaction, started 
 		return transaction.hookSkippedResult(time.Since(started))
 	}
 
-	result := transaction.validated(r.Checks, time.Since(started))
+	result := transaction.validated(r.Checks, time.Since(started), exchange)
 
 	if r.Hooks != nil {
 		if err := r.Hooks.AfterEach(transaction); err != nil {
@@ -641,8 +674,10 @@ func (r *Runner) attempt(ctx context.Context, transaction *Transaction, started 
 	return result
 }
 
-// send performs the request and records the response.
-func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.Message, error) {
+// send performs the request and records the response, with how long the
+// exchange itself took — see Result.ResponseTime for why that is measured apart
+// from the transaction it sits in.
+func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.Message, time.Duration, error) {
 	var body io.Reader
 	if transaction.Request.Body != "" {
 		body = strings.NewReader(transaction.Request.Body)
@@ -651,7 +686,7 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 	request, err := http.NewRequestWithContext(ctx,
 		transaction.Request.Method, transaction.FullURL(), body)
 	if err != nil {
-		return validate.Message{}, fmt.Errorf("building the request: %w", err)
+		return validate.Message{}, 0, fmt.Errorf("building the request: %w", err)
 	}
 	for name, value := range transaction.Request.Headers {
 		// Host is not a normal header: net/http ignores it in the header map
@@ -663,20 +698,29 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 		request.Header.Set(name, value)
 	}
 
+	// Pacing happens before the clock starts. The pause is the run's, not the
+	// server's, and timing it would be timing a decision the operator made.
 	if err := r.pace(ctx); err != nil {
-		return validate.Message{}, err
+		return validate.Message{}, 0, err
 	}
-	response, err := r.do(request)
+	response, exchange, err := r.do(request)
 	if err != nil {
-		return validate.Message{}, fmt.Errorf("%s %s: %w",
+		return validate.Message{}, 0, fmt.Errorf("%s %s: %w",
 			transaction.Request.Method, transaction.FullURL(), err)
 	}
 	defer response.Body.Close()
 
+	// Reading the body is part of how long the answer took. A server that
+	// sends its status line at once and then dribbles a megabyte out over four
+	// seconds is slow, and a clock stopped at the headers would call it
+	// instant — which is the reading of "response time" nobody waiting on the
+	// response would recognise.
+	reading := time.Now()
 	payload, err := readBody(response)
 	if err != nil {
-		return validate.Message{}, fmt.Errorf("reading the response body: %w", err)
+		return validate.Message{}, 0, fmt.Errorf("reading the response body: %w", err)
 	}
+	exchange += time.Since(reading)
 
 	headers := make(map[string]string, len(response.Header))
 	for name, values := range response.Header {
@@ -689,7 +733,7 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 		StatusCode: strconv.Itoa(response.StatusCode),
 		Headers:    headers,
 		Body:       payload,
-	}, nil
+	}, exchange, nil
 }
 
 // Bounds on reading a streaming response.
@@ -878,7 +922,7 @@ func (t *Transaction) sentRequest() Request {
 // Endpoint is the server the transaction is aimed at.
 func (t *Transaction) Endpoint() string { return t.endpoint }
 
-func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
+func (t *Transaction) validated(checks Checks, elapsed, exchange time.Duration) Result {
 	expected := t.Expected
 
 	// A response that cannot carry a body is not checked for one, however the
@@ -906,7 +950,7 @@ func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
 		Validation: validation,
 		Duration:   elapsed,
 	}
-	result.Beyond = checks.run(expected, t.Real, elapsed)
+	result.Beyond = checks.run(expected, t.Real, exchange)
 	if len(result.Beyond) > 0 {
 		result.Status = StatusFail
 	}
@@ -955,7 +999,7 @@ func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transactio
 	// The same transaction, prepared without the credential.
 	prepared := newTransaction(source, r.Endpoint, r.headers(source, false))
 
-	reply, err := r.send(ctx, prepared)
+	reply, _, err := r.send(ctx, prepared)
 	if err != nil {
 		// The server refusing to talk is not an authentication finding.
 		return "", false
