@@ -40,6 +40,7 @@ type runFlags struct {
 	headers stringList
 	only    stringList
 	methods stringList
+	tags    stringList
 
 	// positional are the arguments left after the flags: a description and an
 	// endpoint, either of which a config file may supply instead.
@@ -63,6 +64,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
 	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
+	fs.Var(&f.tags, "tag", "run only transactions whose operation carries this tag (repeatable)")
 
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -133,6 +135,7 @@ func settingsFor(f runFlags) (config.Config, error) {
 	settings.Header = append(settings.Header, f.headers...)
 	settings.Only = append(settings.Only, f.only...)
 	settings.Method = append(settings.Method, f.methods...)
+	settings.Tag = append(settings.Tag, f.tags...)
 
 	// A reporter named on the command line replaces the file's list rather than
 	// adding to it: someone asking for one format wants that format, not it and
@@ -484,6 +487,7 @@ func sortTransactions(transactions []compile.Transaction, sorted bool) []compile
 // filterTransactions applies the options that narrow a run.
 func filterTransactions(transactions []compile.Transaction, settings config.Config) []compile.Transaction {
 	names := toSet(settings.Only)
+	tags := toSet(settings.Tag)
 	methods := make(map[string]bool, len(settings.Method))
 	for _, method := range settings.Method {
 		methods[strings.ToUpper(method)] = true
@@ -497,9 +501,24 @@ func filterTransactions(transactions []compile.Transaction, settings config.Conf
 		if len(methods) > 0 && !methods[strings.ToUpper(transaction.Request.Method)] {
 			continue
 		}
+		if len(tags) > 0 && !carriesAny(transaction.Tags, tags) {
+			continue
+		}
 		filtered = append(filtered, transaction)
 	}
 	return filtered
+}
+
+// carriesAny reports whether any of the transaction's tags is one being asked
+// for. Any rather than all: `--tag a --tag b` widens a run the way `--method`
+// does, and an operation tagged with both should not be required.
+func carriesAny(tags []string, wanted map[string]bool) bool {
+	for _, tag := range tags {
+		if wanted[tag] {
+			return true
+		}
+	}
+	return false
 }
 
 func toSet(values []string) map[string]bool {

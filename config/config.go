@@ -44,6 +44,7 @@ type Config struct {
 
 	Method       []string
 	Only         []string
+	Tag          []string
 	Header       []string
 	Path         []string
 	Sorted       bool
@@ -261,6 +262,8 @@ type file struct {
 	Auth   *authFile   `yaml:"auth"`
 	// Skip is `any` because an entry may be written either way — see toSkipRules.
 	Skip []any `yaml:"skip"`
+	// Tag narrows the run to operations carrying one of these tags.
+	Tag []string `yaml:"tag"`
 }
 
 // authFile is the `auth` section. Dredd has no equivalent: authenticating a
@@ -346,6 +349,9 @@ func Load(path string) (Config, error) {
 	if len(parsed.Skip) > 0 {
 		own = append(own, "`skip`")
 	}
+	if len(parsed.Tag) > 0 {
+		own = append(own, "`tag`")
+	}
 	conditional := toHeaderRules(parsed.Header)
 	if len(conditional) > 0 {
 		own = append(own, "the conditional entries in `header`")
@@ -366,6 +372,7 @@ func Load(path string) (Config, error) {
 			applyAuth(&config.Auth, *parsed.Auth)
 		}
 		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
+		config.Tag = append(config.Tag, parsed.Tag...)
 		config.ConditionalHeaders = append(config.ConditionalHeaders, conditional...)
 	}
 

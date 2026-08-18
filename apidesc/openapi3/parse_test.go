@@ -363,8 +363,9 @@ paths:
 	}
 }
 
-// TestUnsupportedKeysAreCollapsed pins the occurrence counting, misspelling
-// included — it reaches users through Dredd's output today.
+// TestUnsupportedKeysAreCollapsed pins the occurrence counting. The count used
+// to keep Dredd's misspelling ("occurances") for output parity; that parity is
+// no longer a goal, so the word is spelled the way a reader expects.
 func TestUnsupportedKeysAreCollapsed(t *testing.T) {
 	result := compileSource(t, `
 openapi: "3.0.0"
@@ -373,13 +374,13 @@ paths:
   /a:
     get:
       summary: A
-      tags: [x]
+      callbacks: {}
       responses:
         "200": {description: OK}
   /b:
     get:
       summary: B
-      tags: [y]
+      callbacks: {}
       responses:
         "200": {description: OK}
 `)
@@ -387,7 +388,94 @@ paths:
 	if len(result.Annotations) != 1 {
 		t.Fatalf("annotations = %d, want 1 collapsed warning: %v", len(result.Annotations), result.Annotations)
 	}
-	want := "'Operation Object' contains unsupported key 'tags' (2 occurances)"
+	want := "'Operation Object' contains unsupported key 'callbacks' (2 occurrences)"
+	if result.Annotations[0].Message != want {
+		t.Errorf("annotation = %q, want %q", result.Annotations[0].Message, want)
+	}
+}
+
+// TestTagsAreReadNotWarnedAbout pins both halves of tag support: a tagged
+// document parses without a word — the old "unsupported key 'tags'" line told
+// sixty-operation documents sixty times that a core key did nothing — and the
+// tags come through to the compiled transactions, where `--tag` filters by
+// them.
+func TestTagsAreReadNotWarnedAbout(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+tags:
+  - name: network
+paths:
+  /a:
+    get:
+      summary: A
+      tags: [network, admin]
+      responses:
+        "200": {description: OK}
+`)
+
+	for _, annotation := range result.Annotations {
+		t.Errorf("a tagged document produced %q", annotation.Message)
+	}
+	if len(result.Transactions) != 1 {
+		t.Fatalf("transactions = %d, want 1", len(result.Transactions))
+	}
+	got := result.Transactions[0].Tags
+	if len(got) != 2 || got[0] != "network" || got[1] != "admin" {
+		t.Errorf("Tags = %v, want [network admin]", got)
+	}
+}
+
+// TestRequiredBodyIsAccepted: `required` on a Request Body Object is core
+// OpenAPI and was warned about on every occurrence. With a schema present the
+// key asks for nothing vertrag does not already do, so a document using it is
+// clean.
+func TestRequiredBodyIsAccepted(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /a:
+    post:
+      summary: A
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        "200": {description: OK}
+`)
+
+	for _, annotation := range result.Annotations {
+		t.Errorf("a required body with a schema produced %q", annotation.Message)
+	}
+}
+
+// TestRequiredBodyWithNothingToFillIt is the one thing a tester can do with
+// `required`: every body vertrag sends is built from a schema or an example,
+// so a required body offering neither means every request goes out empty
+// against an operation that promises empty is refused.
+func TestRequiredBodyWithNothingToFillIt(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /a:
+    post:
+      summary: A
+      requestBody:
+        required: true
+        content:
+          application/json: {}
+      responses:
+        "200": {description: OK}
+`)
+
+	if len(result.Annotations) != 1 {
+		t.Fatalf("annotations = %d, want 1: %v", len(result.Annotations), result.Annotations)
+	}
+	want := "'Request Body Object' is required, but no media type carries a schema or example to build a body from"
 	if result.Annotations[0].Message != want {
 		t.Errorf("annotation = %q, want %q", result.Annotations[0].Message, want)
 	}

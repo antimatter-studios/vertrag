@@ -143,7 +143,29 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		OperationID: element.FindParent("transition").Attr("operationId").String(),
 		Links:       compileLinks(element.Child("httpResponse")),
 		Security:    compileSecurity(element.FindParent("transition")),
+		Tags:        compileTags(element.FindParent("transition")),
 	}, annotations
+}
+
+// compileTags reads the operation's tags off the transition, where the parser
+// left them. They sit there rather than on the transaction because every
+// exchange an operation describes shares them.
+func compileTags(transition *refract.Element) []string {
+	if transition == nil {
+		return nil
+	}
+	container := transition.Attr("tags")
+	if container == nil {
+		return nil
+	}
+
+	var out []string
+	for _, child := range container.ContentChildren() {
+		if tag := child.String(); tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
 }
 
 // compileRequest builds the request, or nil when no concrete URI could be

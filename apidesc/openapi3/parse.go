@@ -123,6 +123,21 @@ func (d *document) parseOperation(path string, member entry, pathParameters *par
 		transition.SetAttr("operationId", refract.String(id))
 	}
 
+	// The operation's tags, carried so `--tag` can narrow a run to them.
+	// Grouping metadata cannot change what is sent or validated, so nothing
+	// else reads them.
+	if tags := operation.Get("tags"); tags.IsSequence() {
+		var names []*refract.Element
+		for _, tag := range tags.Items() {
+			if name := tag.Str(); name != "" {
+				names = append(names, refract.String(name))
+			}
+		}
+		if len(names) > 0 {
+			transition.SetAttr("tags", refract.Array(names...))
+		}
+	}
+
 	// What the operation requires a caller to prove. vertrag cannot invent a
 	// credential and does not try; carrying the requirement is what lets a run
 	// say WHICH scheme is missing instead of returning a wall of 401s that

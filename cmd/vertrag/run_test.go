@@ -50,8 +50,8 @@ func TestStripAPIName(t *testing.T) {
 
 func TestFilterTransactions(t *testing.T) {
 	transactions := []compile.Transaction{
-		{Name: "a", Request: compile.Request{Method: "GET"}},
-		{Name: "b", Request: compile.Request{Method: "POST"}},
+		{Name: "a", Request: compile.Request{Method: "GET"}, Tags: []string{"network"}},
+		{Name: "b", Request: compile.Request{Method: "POST"}, Tags: []string{"network", "admin"}},
 		{Name: "c", Request: compile.Request{Method: "GET"}},
 	}
 
@@ -65,6 +65,11 @@ func TestFilterTransactions(t *testing.T) {
 		{"method", config.Config{Method: []string{"get"}}, []string{"a", "c"}},
 		{"both", config.Config{Only: []string{"a", "b"}, Method: []string{"POST"}}, []string{"b"}},
 		{"no matches", config.Config{Only: []string{"absent"}}, nil},
+		{"tag", config.Config{Tag: []string{"admin"}}, []string{"b"}},
+		// Two tags widen the run the way two methods do; an untagged
+		// transaction matches no tag and is left out.
+		{"tags widen", config.Config{Tag: []string{"network", "admin"}}, []string{"a", "b"}},
+		{"tag and method narrow together", config.Config{Tag: []string{"network"}, Method: []string{"GET"}}, []string{"a"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got := filterTransactions(transactions, test.settings)
