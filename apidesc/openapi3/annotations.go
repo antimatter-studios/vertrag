@@ -108,8 +108,8 @@ var (
 		// `style` and `explode` are read: they decide how a list or an object
 		// value is laid out on the wire, which both URI expansion and generation
 		// follow.
-		supported:   []string{"name", "in", "description", "required", "schema", "example", "explode", "style"},
-		unsupported: []string{"deprecated", "allowEmptyValue", "allowReserved", "examples", "content"},
+		supported:   []string{"name", "in", "description", "required", "schema", "example", "examples", "explode", "style"},
+		unsupported: []string{"deprecated", "allowEmptyValue", "allowReserved", "content"},
 		required:    []string{"name", "in"},
 	}
 	specRequestBody = objectSpec{
@@ -184,7 +184,13 @@ var (
 		// constraint does nothing when it is the very thing being checked, and
 		// the natural response to that is to delete it. Each was measured
 		// against the validator rather than assumed.
-		supported: []string{"$ref", "type", "enum", "const", "properties", "items", "required",
+		supported: []string{
+			// Read, not ignored: a readOnly property is one the server sets,
+			// so it is left out of a request and its requiredness with it; a
+			// writeOnly one is left out of a response the same way. Reporting
+			// them as unsupported told authors a constraint did nothing while
+			// it was deciding what vertrag sent.
+			"readOnly", "writeOnly", "$ref", "type", "enum", "const", "properties", "items", "required",
 			"nullable", "oneOf", "allOf", "anyOf", "not", "additionalProperties",
 			"default", "title", "description", "example",
 			"multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum",
@@ -192,7 +198,7 @@ var (
 			"maxItems", "minItems", "uniqueItems", "maxProperties", "minProperties"},
 		// These genuinely are not acted on: they describe presentation, lineage
 		// or intent rather than what a valid body looks like.
-		unsupported: []string{"discriminator", "readOnly", "writeOnly", "xml",
+		unsupported: []string{"discriminator", "xml",
 			"externalDocs", "deprecated"},
 	}
 	specParameterSchema = objectSpec{
@@ -212,7 +218,7 @@ var (
 			"maxItems", "minItems", "uniqueItems", "maxProperties", "minProperties",
 			"properties", "items", "required", "nullable", "default",
 			"oneOf", "allOf", "anyOf", "not", "additionalProperties"},
-		unsupported: []string{"discriminator", "readOnly", "writeOnly",
+		unsupported: []string{"discriminator",
 			"xml", "externalDocs", "deprecated"},
 	}
 )

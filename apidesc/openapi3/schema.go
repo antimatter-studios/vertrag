@@ -74,7 +74,39 @@ func schemaExample(schema node) (any, bool) {
 // declared type yields the empty string, which downstream is falsy and so
 // produces no body. A reference that leads back to itself has no value, which
 // is what stops a recursive schema from generating forever.
+// direction says which half of an exchange a schema describes, which decides
+// what `readOnly` and `writeOnly` mean.
+//
+// The specification is precise about them and they are not decoration: a
+// readOnly property is one the SERVER sets, so a client must not send it, and
+// if it is also in `required` the requirement applies to the response only.
+// Sending one anyway is not merely untidy — a server that validates its input
+// strictly answers 400, and vertrag would report a failure it caused itself.
+// writeOnly is the mirror: the server will not return it, so a response is not
+// wrong for omitting it however `required` reads.
+type direction int
+
+const (
+	inResponse direction = iota
+	inRequest
+)
+
+// omits reports whether a property is one this half of the exchange must not
+// carry.
+func (d direction) omits(schema node) bool {
+	if d == inRequest {
+		return schema.Get("readOnly").Bool()
+	}
+	return schema.Get("writeOnly").Bool()
+}
+
 func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) {
+	return d.generateValueFor(schema, seen, inRequest)
+}
+
+// generateValueFor is generateValue told which half of the exchange it is
+// building for, so it can leave out what that half must not carry.
+func (d *document) generateValueFor(schema node, seen map[string]bool, dir direction) (any, bool) {
 	if !schema.Valid() {
 		return nil, false
 	}
@@ -88,7 +120,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		for k := range seen {
 			next[k] = true
 		}
-		return d.generateValue(d.Pointer(ref.Value), next)
+		return d.generateValueFor(d.Pointer(ref.Value), next, dir)
 	}
 
 	if value, ok := schemaExample(schema); ok {
@@ -123,7 +155,7 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 
 		items := schema.Get("items")
 
-		value, ok := d.generateValue(items, seen)
+		value, ok := d.generateValueFor(items, seen, dir)
 		if !ok || isValuelessPrimitiveSchema(items) {
 			// Dredd treats an array of a bare primitive as having no specimen,
 			// on the grounds that the document said nothing about what would be
@@ -158,7 +190,16 @@ func (d *document) generateValue(schema node, seen map[string]bool) (any, bool) 
 		out := newOrderedMap()
 		for _, property := range schema.Get("properties").Entries() {
 			name := property.Key.Str()
-			value, ok := d.generateValue(property.Value, seen)
+
+			// A property this half of the exchange must not carry is left
+			// out, and its requiredness with it: the specification says a
+			// readOnly property in `required` is required of the response
+			// only, and writeOnly the other way round.
+			if dir.omits(d.Resolve(property.Value)) {
+				continue
+			}
+
+			value, ok := d.generateValueFor(property.Value, seen, dir)
 			if !ok {
 				if required[name] {
 					return nil, false
@@ -384,6 +425,14 @@ const jsonSchemaDraft = "http://json-schema.org/draft-04/schema#"
 // block gathered alongside, which keeps a recursive schema finite — inlining a
 // type that refers to itself would not terminate.
 func (d *document) convertSchema(schema node) (string, bool) {
+	return d.convertSchemaFor(schema, inResponse)
+}
+
+// convertSchemaFor is convertSchema told which half of the exchange the schema
+// describes, so a property that half must not carry is dropped from the JSON
+// Schema — and from `required`, since the specification makes a readOnly
+// requirement apply to the response only, and writeOnly to the request only.
+func (d *document) convertSchemaFor(schema node, dir direction) (string, bool) {
 	// Deliberately NOT resolved: the reference a document wrote is what gets
 	// rewritten into the definitions block, so following it here would inline
 	// the target and lose the reference the output is built around.
@@ -392,7 +441,7 @@ func (d *document) convertSchema(schema node) (string, bool) {
 	}
 
 	var references []string
-	result, ok := d.convertSubSchema(schema, &references)
+	result, ok := d.convertSubSchemaFor(schema, &references, dir)
 	if !ok {
 		return "", false
 	}
@@ -418,7 +467,7 @@ func (d *document) convertSchema(schema node) (string, bool) {
 			definitions.Set(id, newOrderedMap())
 
 			referenced := d.Pointer(reference)
-			if converted, ok := d.convertSubSchema(referenced, &references); ok {
+			if converted, ok := d.convertSubSchemaFor(referenced, &references, dir); ok {
 				definitions.Set(id, converted)
 			}
 		}
@@ -454,6 +503,10 @@ func (d *document) convertSchema(schema node) (string, bool) {
 
 // convertSubSchema converts one schema node, collecting the references it makes.
 func (d *document) convertSubSchema(schema node, references *[]string) (*orderedMap, bool) {
+	return d.convertSubSchemaFor(schema, references, inResponse)
+}
+
+func (d *document) convertSubSchemaFor(schema node, references *[]string, dir direction) (*orderedMap, bool) {
 	if !schema.IsMapping() {
 		return nil, false
 	}
@@ -468,6 +521,13 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 	}
 
 	out := newOrderedMap()
+	// omitted collects the properties dropped for this half of the exchange,
+	// so they can be taken out of `required` too: the specification makes a
+	// readOnly requirement apply to the response only, and writeOnly to the
+	// request only, so requiring one of the other half would reject a
+	// perfectly correct message.
+	var omitted []string
+
 	for _, member := range schema.Entries() {
 		key := member.Key.Str()
 
@@ -481,14 +541,14 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 		case "allOf", "anyOf", "oneOf":
 			var list []any
 			for _, item := range member.Value.Items() {
-				if converted, ok := d.convertSubSchema(item, references); ok {
+				if converted, ok := d.convertSubSchemaFor(item, references, dir); ok {
 					list = append(list, converted)
 				}
 			}
 			out.Set(key, list)
 
 		case "not":
-			if converted, ok := d.convertSubSchema(member.Value, references); ok {
+			if converted, ok := d.convertSubSchemaFor(member.Value, references, dir); ok {
 				out.Set(key, converted)
 			}
 
@@ -497,21 +557,27 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 			if member.Value.IsSequence() {
 				var list []any
 				for _, item := range member.Value.Items() {
-					if converted, ok := d.convertSubSchema(item, references); ok {
+					if converted, ok := d.convertSubSchemaFor(item, references, dir); ok {
 						list = append(list, converted)
 					}
 				}
 				out.Set(key, list)
 				continue
 			}
-			if converted, ok := d.convertSubSchema(member.Value, references); ok {
+			if converted, ok := d.convertSubSchemaFor(member.Value, references, dir); ok {
 				out.Set(key, converted)
 			}
 
 		case "properties", "patternProperties":
 			properties := newOrderedMap()
 			for _, property := range member.Value.Entries() {
-				if converted, ok := d.convertSubSchema(property.Value, references); ok {
+				// A property this half of the exchange must not carry is not
+				// part of the schema for it — see direction.omits.
+				if key == "properties" && dir.omits(d.Resolve(property.Value)) {
+					omitted = append(omitted, property.Key.Str())
+					continue
+				}
+				if converted, ok := d.convertSubSchemaFor(property.Value, references, dir); ok {
 					properties.Set(property.Key.Str(), converted)
 				}
 			}
@@ -519,7 +585,7 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 
 		case "additionalProperties", "additionalItems":
 			if member.Value.IsMapping() {
-				if converted, ok := d.convertSubSchema(member.Value, references); ok {
+				if converted, ok := d.convertSubSchemaFor(member.Value, references, dir); ok {
 					out.Set(key, converted)
 				}
 				continue
@@ -565,7 +631,43 @@ func (d *document) convertSubSchema(schema node, references *[]string) (*ordered
 		applyNullable(out)
 	}
 
+	pruneRequired(out, omitted)
+
 	return out, true
+}
+
+// pruneRequired removes the omitted properties from a schema's `required`,
+// and the keyword itself when nothing is left of it.
+func pruneRequired(out *orderedMap, omitted []string) {
+	if len(omitted) == 0 {
+		return
+	}
+	value, ok := out.Get("required")
+	if !ok {
+		return
+	}
+	names, ok := value.([]any)
+	if !ok {
+		return
+	}
+
+	dropped := make(map[string]bool, len(omitted))
+	for _, name := range omitted {
+		dropped[name] = true
+	}
+
+	kept := make([]any, 0, len(names))
+	for _, name := range names {
+		if text, ok := name.(string); ok && dropped[text] {
+			continue
+		}
+		kept = append(kept, name)
+	}
+	if len(kept) == 0 {
+		out.Delete("required")
+		return
+	}
+	out.Set("required", kept)
 }
 
 // applyNullable widens a schema so null validates against it.

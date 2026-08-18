@@ -50,13 +50,11 @@ func (d *document) parseParameters(n node) *parameters {
 		}
 		p.style, p.explode = serialisation(in, resolved)
 
-		// Only the Parameter Object's own `example` supplies a value. A schema
-		// sitting inside a parameter contributes its `enum` and nothing else:
-		// the reference does not read `example` or `default` from there, and a
-		// parameter that relied on one would be expanded by vertrag into a URI
-		// Dredd never requests.
-		if p.example.Valid() {
-			p.value = scalarValue(p.example)
+		// Where the document demonstrates a value, in any of the three places
+		// it is allowed to put one. See parameterExample.
+		if value, example, found := d.parameterExample(resolved); found {
+			p.value = value
+			p.example = example
 			p.hasValue = true
 		}
 
@@ -70,6 +68,49 @@ func (d *document) parseParameters(n node) *parameters {
 		params.ordered = append(params.ordered, p)
 	}
 	return params
+}
+
+// parameterExample finds the value a document demonstrates for a parameter.
+//
+// There are three places it may be, and vertrag read only the first — which
+// meant that for a required path parameter it usually found nothing, could
+// not build a URI, and produced NO TRANSACTION at all. That is the failure
+// direction that flatters a tester: an untestable route is not reported as a
+// gap, it is simply absent, and coverage reads as complete.
+//
+//  1. The Parameter Object's own `example`.
+//  2. Its `examples`, a MAP of Example Objects, each with a `value`.
+//  3. The schema's `examples`, an ARRAY — JSON Schema 2020-12's keyword, and
+//     the form OpenAPI 3.1 documents use.
+//
+// The last is the one that matters in practice: it is what FastAPI emits, and
+// its only non-deprecated spelling, so every document that generator produces
+// depended on vertrag reading a keyword it did not. Two keywords share the
+// name `examples` with different shapes — a map at the parameter, an array in
+// the schema — and are told apart by where they sit, which is the whole
+// reason to read them separately rather than guessing.
+func (d *document) parameterExample(parameter node) (value any, source node, found bool) {
+	if example := parameter.Get("example"); example.Valid() {
+		return scalarValue(example), example, true
+	}
+
+	// A map of Example Objects; the first in document order stands in, the
+	// way the first enum value does elsewhere.
+	for _, member := range parameter.Get("examples").Entries() {
+		example := d.Resolve(member.Value)
+		if inner := example.Get("value"); inner.Valid() {
+			return scalarValue(inner), inner, true
+		}
+	}
+
+	// The schema's own array. Resolved, because a parameter's schema is
+	// frequently a reference.
+	schema := d.Resolve(parameter.Get("schema"))
+	for _, item := range schema.Get("examples").Items() {
+		return scalarValue(item), item, true
+	}
+
+	return nil, node{}, false
 }
 
 // serialisation resolves a parameter's style and explode, applying the
