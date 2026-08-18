@@ -67,7 +67,12 @@
       "request": {
         "method": "GET",
         "uri": "/cookie-param",
-        "headers": [],
+        "headers": [
+          {
+            "name": "Cookie",
+            "value": "session=abc"
+          }
+        ],
         "body": ""
       },
       "response": {
@@ -142,7 +147,6 @@
   "annotations": [
     "warning: 'Operation Object' contains unsupported key 'deprecated'",
     "warning: 'Operation Object' contains unsupported key 'externalDocs'",
-    "warning: 'Parameter Object' 'in' 'cookie' is unsupported",
     "warning: 'Schema Object' contains invalid key 'x-custom-schema-key'",
     "warning: 'Security Scheme Object' contains unsupported key 'bearerFormat'"
   ]

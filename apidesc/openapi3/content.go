@@ -6,10 +6,17 @@ import (
 	"strings"
 )
 
-// statusCodePattern matches an exact HTTP status code. A range such as `2XX`
-// deliberately does not match: the reference gives ranges no status code, so
-// they fall through to the compiler's default of 200.
-var statusCodePattern = regexp.MustCompile(`^\d{3}$`)
+// statusCodePattern matches an exact HTTP status code, and statusRangePattern
+// one of the five bands OpenAPI defines as Response Object keys.
+//
+// Only `1XX` to `5XX` are ranges. `22X` and `XXX` are neither a code nor a
+// band, and were accepted as ranges until now — which gave a typo a meaning
+// its author never wrote, in the one place where getting it wrong means
+// expecting the wrong response.
+var (
+	statusCodePattern  = regexp.MustCompile(`^\d{3}$`)
+	statusRangePattern = regexp.MustCompile(`^[1-5]XX$`)
+)
 
 // parseRequestBody turns a Request Body Object into one message per media type.
 //
@@ -53,10 +60,20 @@ func (d *document) parseResponses(n node) []message {
 		links := d.parseLinks(response.Get("links"))
 
 		for _, msg := range messages {
-			// A range or `default` carries no status code of its own. Leaving
-			// it unset is what makes the compiler fall back to 200, which is
-			// the behaviour being reproduced.
-			if statusCodePattern.MatchString(key) {
+			// A range travels as itself, `2XX` and all. It used to be dropped
+			// here, which left the compiler to fall back to 200 — so a
+			// document saying "some success" was tested as though it had said
+			// "exactly 200", and a server answering the 201 its own document
+			// permits was reported as wrong. The band is carried through to
+			// the runner, which knows how to judge one.
+			//
+			// `default` is still dropped, and deliberately. It is not a band:
+			// it means "every code not described here", a set that depends on
+			// the operation's other keys and that no status expectation can
+			// state. Leaving it to the compiler's 200 is what vertrag has
+			// always done and what the reference does, and changing it is a
+			// separate decision from this one.
+			if statusCodePattern.MatchString(key) || isStatusCodeRange(key) {
 				msg.statusCode = key
 			}
 			msg.headers = headers
@@ -68,16 +85,7 @@ func (d *document) parseResponses(n node) []message {
 }
 
 func isStatusCodeRange(key string) bool {
-	if len(key) != 3 {
-		return false
-	}
-	for i := 0; i < len(key); i++ {
-		c := key[i]
-		if (c < '0' || c > '9') && c != 'X' {
-			return false
-		}
-	}
-	return true
+	return statusRangePattern.MatchString(key)
 }
 
 // parseResponseHeaders reads a Headers Object.

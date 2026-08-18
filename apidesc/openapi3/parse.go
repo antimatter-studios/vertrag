@@ -182,7 +182,7 @@ func (d *document) parseOperation(path, method string, operation node, pathParam
 	requests := d.parseRequestBody(operation.Get("requestBody"))
 	responses := d.parseResponses(operation.Get("responses"))
 
-	for _, transaction := range buildTransactions(method, requests, responses, params.headers()) {
+	for _, transaction := range buildTransactions(method, requests, responses, params.headers(), params.cookies()) {
 		transition.Append(transaction)
 	}
 
@@ -231,7 +231,7 @@ type header struct {
 // The product is deliberate: a document offering two request content types and
 // three responses describes six exchanges, and each is a separate test. Named
 // examples narrow it — see pairs.
-func buildTransactions(method string, requests, responses []message, headerParams []header) []*refract.Element {
+func buildTransactions(method string, requests, responses []message, headerParams, cookieParams []header) []*refract.Element {
 	if len(requests) == 0 {
 		requests = []message{{}}
 	}
@@ -265,7 +265,21 @@ func buildTransactions(method string, requests, responses []message, headerParam
 					headers = append(headers, param)
 				}
 			}
+			// The cookies come last, and so lose to a `Cookie` declared as a
+			// header parameter in the same operation. A document that spells
+			// the whole header out has said what it wants sent, down to the
+			// separators; assembling one over the top of it would send
+			// something nobody wrote.
+			if line, carried := cookieLine(cookieParams); carried && !containsHeader(headers, "Cookie") {
+				headers = append(headers, header{name: "Cookie", value: line})
+			}
 			setHeaders(httpRequest, headers)
+			// Carried beside the header, not instead of it: the header is what
+			// goes on the wire, and this is what says which part of it belongs
+			// to which parameter.
+			if cookies := cookieParameters(cookieParams); cookies != nil {
+				httpRequest.SetAttr(refract.CookiesAttribute, cookies)
+			}
 			if request.hasBody {
 				httpRequest.Append(bodyAsset(request.body, request.contentType))
 			}
@@ -328,6 +342,27 @@ func containsHeader(headers []header, name string) bool {
 		}
 	}
 	return false
+}
+
+// cookieParameters renders the cookie parameters as the element the compiler
+// reads them back off, one member per cookie carrying its value and schema.
+//
+// Shaped like the header list rather than like hrefVariables, because that is
+// what it is: a name, a demonstrated value and a schema. hrefVariables feeds
+// URI expansion, and a cookie is expanded into nothing.
+func cookieParameters(cookies []header) *refract.Element {
+	if len(cookies) == 0 {
+		return nil
+	}
+	element := refract.Named("httpCookies")
+	for _, cookie := range cookies {
+		value := refract.String(cookie.value)
+		if cookie.schema != "" {
+			value.SetAttr(refract.SchemaAttribute, refract.String(cookie.schema))
+		}
+		element.Append(refract.Member(cookie.name, value))
+	}
+	return element
 }
 
 func setHeaders(element *refract.Element, headers []header) {

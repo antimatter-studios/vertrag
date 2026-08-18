@@ -852,9 +852,16 @@ func newTransaction(source compile.Transaction, endpoint string, extraHeaders []
 		headers[header.Name] = header.Value
 	}
 	for _, line := range extraHeaders {
-		if name, value, ok := strings.Cut(line, ":"); ok {
-			headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
+		name, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
 		}
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+		if strings.EqualFold(name, "Cookie") {
+			addCookies(headers, name, value)
+			continue
+		}
+		headers[name] = value
 	}
 
 	expectedHeaders := make(map[string]string, len(source.Response.Headers))
@@ -887,6 +894,76 @@ func newTransaction(source compile.Transaction, endpoint string, extraHeaders []
 		endpoint: endpoint,
 		fullURL:  endpoint + source.Request.URI,
 	}
+}
+
+// addCookies merges a Cookie header line into the ones a transaction already
+// carries, instead of replacing it.
+//
+// Every other header a run adds replaces what was there, which is right: two
+// Authorization lines are not both meant. A Cookie header is different — it is
+// a LIST of independent cookies sharing one line, and the two sources of that
+// list mean different things. The description's cookies are parameters of the
+// operation; the run's are the credential a login produced, or a `--header
+// 'Cookie: …'` the tester supplied. Replacing the line dropped whichever came
+// first: a run that logged in silently stopped sending every documented cookie
+// parameter, and a description with cookie parameters silently deauthenticated
+// every request. Neither is a choice anybody made.
+//
+// On a name collision the ADDED cookie wins, and the order of the run's
+// headers decides the rest: run-wide `--header`, then conditional headers,
+// then the credential, so the credential beats everything. That is the right
+// way round. The description's value for a session cookie is an example — a
+// string somebody typed into a YAML file — while the credential is the live
+// session the whole run depends on; sending the example instead would log the
+// run out at the first operation that happened to document its own session
+// cookie.
+func addCookies(headers map[string]string, name, added string) {
+	existing, key := "", name
+	for candidate, value := range headers {
+		if strings.EqualFold(candidate, "Cookie") {
+			existing, key = value, candidate
+			break
+		}
+	}
+	if existing == "" {
+		headers[key] = added
+		return
+	}
+
+	pairs := splitCookies(existing)
+	for _, pair := range splitCookies(added) {
+		replaced := false
+		for i := range pairs {
+			if cookieName(pairs[i]) == cookieName(pair) {
+				pairs[i] = pair
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			pairs = append(pairs, pair)
+		}
+	}
+	headers[key] = strings.Join(pairs, "; ")
+}
+
+// splitCookies breaks a Cookie header into its pairs. Empty segments are
+// dropped, so a trailing separator does not become a nameless cookie.
+func splitCookies(line string) []string {
+	var pairs []string
+	for _, pair := range strings.Split(line, ";") {
+		if pair = strings.TrimSpace(pair); pair != "" {
+			pairs = append(pairs, pair)
+		}
+	}
+	return pairs
+}
+
+// cookieName is the part of a pair before the `=`. Cookie names are
+// case-sensitive, unlike header names, so they are compared as written.
+func cookieName(pair string) string {
+	name, _, _ := strings.Cut(pair, "=")
+	return strings.TrimSpace(name)
 }
 
 // FullURL is the address the request is sent to.

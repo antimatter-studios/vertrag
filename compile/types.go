@@ -60,23 +60,30 @@ const (
 	InPath   = "path"
 	InQuery  = "query"
 	InHeader = "header"
+
+	// InCookie travels in the Cookie request header, one `name=value` pair
+	// among however many others that header carries. It is the only location
+	// whose parameters SHARE a header, which is why setting one has to rebuild
+	// the line rather than overwrite it — see SetParameter.
+	InCookie = "cookie"
 )
 
-// Parameter is one path, query or header parameter of a request, with the
-// schema the description said its value must satisfy.
+// Parameter is one path, query, header or cookie parameter of a request, with
+// the schema the description said its value must satisfy.
 //
 // A body carries its constraints in one schema; a parameter carries its own,
 // and they are the ones most often left unchecked — a path parameter typed as
 // an integer, handed a word, is the classic way to get a 500 out of an
 // otherwise careful handler.
 type Parameter struct {
-	// In is where the value travels: "path", "query" or "header". It is read
-	// from the URI template rather than from the description, so a query
-	// parameter a format parser folded into the href is still recognised as one.
+	// In is where the value travels: "path", "query", "header" or "cookie".
+	// Path and query are read from the URI template rather than from the
+	// description, so a query parameter a format parser folded into the href is
+	// still recognised as one.
 	In string
 
-	// Name is the parameter's name as the URI template or the header list
-	// spells it.
+	// Name is the parameter's name as the URI template, the header list or the
+	// Cookie header spells it.
 	Name string
 
 	// Schema is the JSON Schema its value must satisfy, empty when the

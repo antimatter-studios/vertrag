@@ -30,13 +30,20 @@ func (s Security) Supplier() string {
 	switch {
 	case s.Type == "apiKey" && s.In == "header":
 		return "--header '" + s.Parameter + ": <value>'"
+	case s.Type == "apiKey" && s.In == "cookie":
+		// This used to be grouped with the query key below, as something no
+		// flag could supply. It is not, now that a run merges Cookie headers
+		// rather than replacing them: the credential joins whatever cookies
+		// the description already declares instead of wiping them out, which
+		// is what made the advice unusable before.
+		return "--header 'Cookie: " + s.Parameter + "=<value>'"
 	case s.Type == "http" && s.Scheme == "bearer":
 		return "--header 'Authorization: Bearer <token>'"
 	case s.Type == "http" && s.Scheme == "basic":
 		return "--header 'Authorization: Basic <base64>'"
 	case s.Type == "apiKey":
-		// A key travelling in the query or a cookie cannot be supplied by
-		// --header, and saying "use --header" would send someone in circles.
+		// A key travelling in the query cannot be supplied by --header, and
+		// saying "use --header" would send someone in circles.
 		return "no flag supplies a credential in the " + s.In + "; a hook can set it"
 	default:
 		return "a hook can set the credential this scheme needs"

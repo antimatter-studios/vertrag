@@ -11,6 +11,7 @@ import (
 	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // The stateful phase runs each documented chain of operations end to end —
@@ -155,7 +156,10 @@ func runChain(ctx context.Context, engine *runner.Runner, transactions []compile
 			Status:  runner.StatusPass,
 		}
 		status, _ := strconv.Atoi(strings.TrimSpace(reply.StatusCode))
-		documented, _ := strconv.Atoi(strings.TrimSpace(source.Response.Status))
+		// The band's lowest code stands in for a documented range, so the
+		// "was this step meant to succeed" questions below can be asked of an
+		// operation whose author wrote `2XX` rather than `201`.
+		documented := validate.StatusBandBase(source.Response.Status)
 
 		// The sequence's own questions, asked before the ordinary verdict:
 		// they are about what the server should now hold, not about whether

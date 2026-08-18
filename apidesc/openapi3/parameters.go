@@ -1,6 +1,10 @@
 package openapi3
 
-import "github.com/antimatter-studios/vertrag/refract"
+import (
+	"strings"
+
+	"github.com/antimatter-studios/vertrag/refract"
+)
 
 // parameter is one Parameter Object.
 type parameter struct {
@@ -199,6 +203,17 @@ func (p *parameters) queryNames() []string {
 	return names
 }
 
+// sendableParameterLocation reports whether vertrag puts a parameter of this
+// location into the request it builds. Everything else is warned about, since
+// the alternative is a documented input that silently never travels.
+func sendableParameterLocation(in string) bool {
+	switch in {
+	case "path", "query", "header", "cookie":
+		return true
+	}
+	return false
+}
+
 // headers returns the parameters that travel as HTTP headers.
 func (p *parameters) headers() []header {
 	var out []header
@@ -210,6 +225,48 @@ func (p *parameters) headers() []header {
 		out = append(out, header{name: param.name, value: value, schema: param.converted})
 	}
 	return out
+}
+
+// cookies returns the parameters that travel in the Cookie header, in
+// declaration order.
+//
+// They are kept as a list of their own rather than folded straight into the
+// header list, because they are not one header each: they SHARE a header, and
+// the pieces downstream need them separately — the compiler to record each as
+// a parameter a generator can vary, the request builder to lay them out as one
+// line. A parameter the document gave no value is left out of the line and
+// still listed here, exactly as an example-less query parameter is absent from
+// the URI but present in the parameter list.
+func (p *parameters) cookies() []header {
+	var out []header
+	for _, param := range p.in("cookie") {
+		value := ""
+		if param.hasValue {
+			value = stringifyScalar(param.value)
+		}
+		out = append(out, header{name: param.name, value: value, schema: param.converted})
+	}
+	return out
+}
+
+// cookieLine renders the cookie parameters as a Cookie header value.
+//
+// RFC 6265: `name=value` pairs separated by "; ". A parameter with no
+// demonstrated value contributes nothing rather than an empty pair — `x=` says
+// the cookie was sent and is blank, which is a different request from the one
+// a document that named no value described.
+func cookieLine(cookies []header) (string, bool) {
+	pairs := make([]string, 0, len(cookies))
+	for _, cookie := range cookies {
+		if cookie.value == "" {
+			continue
+		}
+		pairs = append(pairs, cookie.name+"="+cookie.value)
+	}
+	if len(pairs) == 0 {
+		return "", false
+	}
+	return strings.Join(pairs, "; "), true
 }
 
 // hrefVariables renders the path and query parameters as the element the

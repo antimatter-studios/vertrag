@@ -34,6 +34,8 @@ func (r Request) SetParameter(parameter Parameter, value any) (Request, error) {
 	case InHeader:
 		r.Headers = setHeader(r.Headers, parameter.Name, headerText(value))
 		return r, nil
+	case InCookie:
+		return r.setCookie(parameter, value), nil
 	case InPath, InQuery:
 	default:
 		return r, fmt.Errorf("parameter %q travels in %q, which is nowhere this can put it",
@@ -85,6 +87,50 @@ func (r Request) SetParameter(parameter Parameter, value any) (Request, error) {
 
 	r.URI = parsed.Expand(values)
 	return r, nil
+}
+
+// setCookie returns a copy of the request carrying a different value for one
+// cookie parameter.
+//
+// The Cookie header is rebuilt from the whole parameter list rather than
+// edited in place, which is the same answer the URI gets a few lines above and
+// for the same reason: several parameters share one piece of the request, so
+// substituting text into it means reproducing the layout rules beside the code
+// that owns them. Rebuilding is also what makes two sequential sets compose —
+// the defect SetParameter already had to fix for query parameters, where
+// setting `limit` and then `offset` silently reverted `limit` to its example
+// and a probe meaning to vary two parameters varied one.
+func (r Request) setCookie(parameter Parameter, value any) Request {
+	updated := make([]Parameter, len(r.Parameters))
+	copy(updated, r.Parameters)
+
+	recorded := false
+	for i := range updated {
+		if updated[i].In == InCookie && updated[i].Name == parameter.Name {
+			updated[i].Value, updated[i].HasValue = value, true
+			recorded = true
+		}
+	}
+	if !recorded {
+		set := parameter
+		set.In = InCookie
+		set.Value, set.HasValue = value, true
+		updated = append(updated, set)
+	}
+	r.Parameters = updated
+
+	pairs := make([]string, 0, len(updated))
+	for _, existing := range updated {
+		if existing.In != InCookie || !existing.HasValue {
+			continue
+		}
+		pairs = append(pairs, existing.Name+"="+headerText(existing.Value))
+	}
+	if len(pairs) == 0 {
+		return r
+	}
+	r.Headers = setHeader(r.Headers, "Cookie", strings.Join(pairs, "; "))
+	return r
 }
 
 // styled pre-renders a value whose serialisation style RFC 6570 cannot

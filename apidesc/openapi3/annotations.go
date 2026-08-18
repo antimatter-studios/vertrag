@@ -596,19 +596,35 @@ func (d *document) validateParameter(parameter node) []annotation {
 	return d.validateObject(parameter, specParameter, func(p node) []annotation {
 		var out []annotation
 
-		// A parameter travels in the path, the query string or a header.
-		// Anything else is a place this implementation does not put values, so
-		// the parameter would silently not be sent: a cookie, or 3.2's
+		// A parameter travels in the path, the query string, a header or a
+		// cookie. Anything else is a place this implementation does not put
+		// values, so the parameter would silently not be sent: 3.2's
 		// `querystring`, which is not one parameter among others but the entire
 		// query string given as a single value to be serialised through a media
 		// type. Building one means form-encoding an object through its Encoding
 		// Objects, which is work the request builder does for bodies and not
 		// for URLs.
-		if in := p.Get("in"); in.IsScalar() && in.Value != "path" && in.Value != "query" && in.Value != "header" {
+		if in := p.Get("in"); in.IsScalar() && !sendableParameterLocation(in.Value) {
 			out = append(out, d.at(annotation{
 				class:   "warning",
 				message: fmt.Sprintf("'Parameter Object' 'in' '%s' is unsupported", in.Value),
 			}, in))
+		}
+
+		// `form` is the only style OpenAPI defines for a cookie, because a
+		// Cookie header is a list of `name=value` pairs and has no syntax for
+		// anything else. A document choosing another one is describing bytes
+		// vertrag will not produce, and sending the form serialisation anyway
+		// would be a test of a request the description did not ask for.
+		if p.Get("in").Str() == "cookie" {
+			if style := p.Get("style"); style.IsScalar() && style.Str() != "" && style.Str() != "form" {
+				out = append(out, d.at(annotation{
+					class: "warning",
+					message: fmt.Sprintf(
+						"'Parameter Object' style '%s' is unsupported on a cookie parameter, "+
+							"where only 'form' is defined", style.Str()),
+				}, style))
+			}
 		}
 
 		// A header value carrying a carriage return or a line feed cannot be
@@ -693,13 +709,11 @@ func (d *document) validateResponses(responses node) []annotation {
 		}
 
 		switch {
-		case statusCodePattern.MatchString(key) || key == "default":
-			// A response proper.
-		case isStatusCodeRange(key):
-			out = append(out, d.at(annotation{
-				class:   "warning",
-				message: "'Responses Object' response status code ranges are unsupported",
-			}, member.Key))
+		case statusCodePattern.MatchString(key) || isStatusCodeRange(key) || key == "default":
+			// A response proper. A range is one of these now: it carries its
+			// band through to the runner, so warning that it is unsupported
+			// would be false — and would invite deleting the very key that
+			// says what the operation returns.
 		default:
 			out = append(out, d.invalidKey("Responses Object", member.Key))
 			continue

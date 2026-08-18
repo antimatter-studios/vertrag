@@ -914,8 +914,7 @@ func (l *stringList) Set(value string) error {
 // everything and the report is a wall of failures that say nothing about the
 // contract. Saying which scheme is wanted, and how to supply it, is the
 // difference between that and a run someone can fix in one command — and for a
-// key travelling in the query or a cookie, it is how they learn no flag will do
-// it at all.
+// key travelling in the query, it is how they learn no flag will do it at all.
 //
 // Said once per scheme rather than per transaction: an API where every
 // operation is secured would otherwise bury its own results.
@@ -950,6 +949,15 @@ func missingCredentials(transactions []compile.Transaction, headers []string) []
 			switch {
 			case security.Type == "apiKey" && security.In == "header" &&
 				supplied[strings.ToLower(security.Parameter)]:
+				seen[security.Name] = true
+				continue
+			// A cookie scheme is satisfied by a Cookie header, however many
+			// cookies it carries: the run merges them, so the credential is
+			// still sent alongside the description's own. Which cookie inside
+			// the line is the credential is not checked, for the same reason
+			// the header case does not check its value — the point is to stop
+			// nagging a run that has clearly been configured.
+			case security.Type == "apiKey" && security.In == "cookie" && supplied["cookie"]:
 				seen[security.Name] = true
 				continue
 			case security.Type == "http" && supplied["authorization"]:
