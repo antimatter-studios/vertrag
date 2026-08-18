@@ -345,3 +345,165 @@ func fuzzOutput(t *testing.T, endpoint string, extra ...string) (string, error) 
 	write.Close()
 	return <-captured, runErr
 }
+
+// styledAPI declares the parameter styles a form-only prober used to skip: a
+// deepObject filter (an object, which had no wire form at all) and a
+// pipe-delimited list. Both carry constraints a handler can forget.
+const styledAPI = `openapi: 3.0.3
+info:
+  title: Styled
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      summary: List
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          example: {size: 5}
+          schema:
+            type: object
+            properties:
+              size:
+                type: integer
+                minimum: 1
+                maximum: 10
+        - name: ids
+          in: query
+          style: pipeDelimited
+          example: [1, 2]
+          schema:
+            type: array
+            items:
+              type: integer
+              minimum: 1
+      responses:
+        '200':
+          description: items
+          content:
+            application/json:
+              schema:
+                type: object
+`
+
+// carelessStyled parses filter[size] and each pipe-separated id without
+// checking bounds and 500s on anything that is not a number — the classic
+// unvalidated-parameter handler, but reached through deepObject and pipe
+// syntax that the prober could not previously speak.
+func carelessStyled() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if size := r.URL.Query().Get("filter[size]"); size != "" {
+			if _, err := strconv.Atoi(size); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+		if ids := r.URL.Query().Get("ids"); ids != "" {
+			for _, id := range strings.Split(ids, "|") {
+				if _, err := strconv.Atoi(id); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+}
+
+// carefulStyled enforces every bound and answers 400, so a correct server
+// must produce no findings however the values are laid out on the wire.
+func carefulStyled() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if size := r.URL.Query().Get("filter[size]"); size != "" {
+			n, err := strconv.Atoi(size)
+			if err != nil || n < 1 || n > 10 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+		if ids := r.URL.Query().Get("ids"); ids != "" {
+			for _, id := range strings.Split(ids, "|") {
+				n, err := strconv.Atoi(id)
+				if err != nil || n < 1 {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+}
+
+func fuzzStyledOutput(t *testing.T, endpoint string, extra ...string) (string, error) {
+	t.Helper()
+	description := filepath.Join(t.TempDir(), "styled.yml")
+	if err := os.WriteFile(description, []byte(styledAPI), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"--endpoint", endpoint, "--no-color", "--seed", "9"}, extra...)
+	args = append(args, description)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	defer func() { os.Stdout = real }()
+	captured := make(chan string, 1)
+	go func() {
+		text, _ := io.ReadAll(read)
+		captured <- string(text)
+	}()
+	runErr := runFuzz(args)
+	write.Close()
+	return <-captured, runErr
+}
+
+// TestFuzzProbesDeepObjectAndPipeDelimitedParameters is the milestone in one
+// test: parameters that were skipped for want of a wire form are now sent in
+// the layout the description chose, and a handler careless about them is
+// caught — named by parameter, so the reader knows which of two inputs.
+func TestFuzzProbesDeepObjectAndPipeDelimitedParameters(t *testing.T) {
+	server := httptest.NewServer(carelessStyled())
+	defer server.Close()
+
+	output, err := fuzzStyledOutput(t, server.URL, "--cases", "40", "--mode", "invalid")
+	if !errors.Is(err, errFailed) {
+		t.Fatalf("err = %v, want findings; output:\n%s", err, output)
+	}
+	for _, want := range []string{`query parameter "filter"`, `query parameter "ids"`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("no finding names %s:\n%s", want, output)
+		}
+	}
+	// The request shown must carry the style's own syntax, or the finding
+	// cannot be repeated by hand.
+	if !strings.Contains(output, "filter%5B") && !strings.Contains(output, "filter[") {
+		t.Errorf("the deepObject request is not shown in deepObject syntax:\n%s", output)
+	}
+}
+
+// TestFuzzStyledParametersAgainstACarefulServer is the half that keeps the
+// other honest: laying values out by style must not invent findings against
+// a server that enforces its description.
+func TestFuzzStyledParametersAgainstACarefulServer(t *testing.T) {
+	server := httptest.NewServer(carefulStyled())
+	defer server.Close()
+
+	output, err := fuzzStyledOutput(t, server.URL, "--cases", "60")
+	if err != nil {
+		t.Fatalf("a correct server produced findings:\n%s", output)
+	}
+	if !strings.Contains(output, "0 finding(s)") {
+		t.Errorf("summary does not report a clean run:\n%s", output)
+	}
+	if strings.Contains(output, " 0 request(s) sent") {
+		t.Errorf("nothing was sent, so nothing was tested:\n%s", output)
+	}
+	// Both parameters must actually have been probed — a clean run that
+	// skipped them proves nothing.
+	if !strings.Contains(output, "2 body and parameter target(s)") {
+		t.Errorf("both styled parameters should be probed:\n%s", output)
+	}
+}

@@ -95,7 +95,7 @@ func probeParameters(t *testing.T, engine *runner.Runner, transaction compile.Tr
 		if json.Unmarshal([]byte(parameter.Schema), &schema) != nil {
 			continue
 		}
-		if !fuzz.Probeable(schema) {
+		if !fuzz.Probeable(schema, parameter.Style) {
 			continue
 		}
 

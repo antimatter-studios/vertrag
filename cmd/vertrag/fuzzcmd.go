@@ -246,14 +246,14 @@ func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.
 		if strings.TrimSpace(parameter.Schema) == "" {
 			continue
 		}
-		subject := fuzz.Subject{In: parameter.In, Name: parameter.Name}
+		subject := fuzz.Subject{In: parameter.In, Name: parameter.Name, Style: parameter.Style}
 
 		schema, err := decodeSchema(parameter.Schema)
 		if err != nil {
 			unreadable = append(unreadable, subject)
 			continue
 		}
-		if !fuzz.Probeable(schema) {
+		if !fuzz.Probeable(schema, parameter.Style) {
 			continue
 		}
 

@@ -257,27 +257,30 @@ func TestAWellFormedIdentifierNamingNothingIsNotAFinding(t *testing.T) {
 func TestProbeableRejectsSchemasWithNoSingleWireForm(t *testing.T) {
 	for _, test := range []struct {
 		schema generate.Schema
+		style  string
 		want   bool
 	}{
-		{generate.Schema{"type": "string"}, true},
-		{generate.Schema{"type": "integer"}, true},
-		{generate.Schema{"type": "boolean"}, true},
-		{generate.Schema{"type": []any{"string", "null"}}, true},
-		{generate.Schema{"enum": []any{"a", "b"}}, true},
-		// An array IS probeable now: the URI template already records whether
-		// its members repeat the key or share one, so the expander renders it
-		// by the description's own rule rather than a guess. Only the default
-		// `form` style is expressible that way — spaceDelimited, pipeDelimited
-		// and deepObject are not parsed at all, so a document using one is
-		// rendered by the wrong rule and is a gap, not a capability.
-		{generate.Schema{"type": "array", "items": map[string]any{"type": "string"}}, true},
-		// An object still is not: which of comma or a repeated key separates
-		// its members is decided by a style the compiled request does not
-		// record.
-		{generate.Schema{"type": "object"}, false},
+		{generate.Schema{"type": "string"}, "", true},
+		{generate.Schema{"type": "integer"}, "", true},
+		{generate.Schema{"type": "boolean"}, "", true},
+		{generate.Schema{"type": []any{"string", "null"}}, "", true},
+		{generate.Schema{"enum": []any{"a", "b"}}, "", true},
+		// An array is probeable under every style: the compiled request lays
+		// it out by the description's own rule — form exploded or not,
+		// spaceDelimited, pipeDelimited — so the server is judged on the
+		// shape it documented, never on a guess.
+		{generate.Schema{"type": "array", "items": map[string]any{"type": "string"}}, "", true},
+		{generate.Schema{"type": "array", "items": map[string]any{"type": "string"}}, "spaceDelimited", true},
+		{generate.Schema{"type": "array", "items": map[string]any{"type": "string"}}, "pipeDelimited", true},
+		// An object has a wire form only under deepObject (`x[a]=1&x[b]=2`).
+		// Under any other style there is no agreed layout, so it is left out
+		// rather than sent as something the description never described.
+		{generate.Schema{"type": "object"}, "", false},
+		{generate.Schema{"type": "object"}, "spaceDelimited", false},
+		{generate.Schema{"type": "object"}, "deepObject", true},
 	} {
-		if got := Probeable(test.schema); got != test.want {
-			t.Errorf("Probeable(%v) = %v, want %v", test.schema, got, test.want)
+		if got := Probeable(test.schema, test.style); got != test.want {
+			t.Errorf("Probeable(%v, %q) = %v, want %v", test.schema, test.style, got, test.want)
 		}
 	}
 }

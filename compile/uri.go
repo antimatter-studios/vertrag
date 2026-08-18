@@ -26,6 +26,8 @@ type param struct {
 	// not carry one. Nothing in URI expansion reads it; it is carried through
 	// for generation.
 	schema string
+	// style is the non-default serialisation style, if any — see Parameter.Style.
+	style string
 }
 
 // paramSet preserves declaration order.
@@ -83,6 +85,7 @@ func compileParams(hrefVariables *refract.Element) *paramSet {
 
 		if value != nil {
 			p.schema = value.Attr(refract.SchemaAttribute).String()
+			p.style = value.Attr(refract.StyleAttribute).String()
 			if def := value.Attr("default"); def != nil {
 				p.defaultVal = def.ToValue()
 				p.hasDefault = p.defaultVal != nil
@@ -92,7 +95,7 @@ func compileParams(hrefVariables *refract.Element) *paramSet {
 			// An element with no content means the description gave no example.
 			// The first enumeration then stands in for one, which is what makes
 			// an enum parameter usable without an explicit example.
-			if v := value.ToValue(); v != nil {
+			if v := parameterValue(value); v != nil {
 				p.example = v
 				p.hasExample = true
 			} else if len(p.values) > 0 {
@@ -104,6 +107,36 @@ func compileParams(hrefVariables *refract.Element) *paramSet {
 		params.set(p)
 	}
 	return params
+}
+
+// parameterValue reads a parameter's example the way expansion needs it. An
+// object element collapses, minim-style, to a list of {key, value} maps —
+// the shape Dredd's header code destructures — which is no use to a template
+// expander wanting name→value. Only a parameter example is reshaped here;
+// ToValue itself stays minim-faithful for everything else that reads it.
+func parameterValue(value *refract.Element) any {
+	if value == nil {
+		return nil
+	}
+	if value.Name == "object" && value.Kind == refract.ContentArray {
+		object := make(map[string]any, len(value.Children))
+		for _, member := range value.Children {
+			if member.Kind != refract.ContentMember || member.Value == nil {
+				continue
+			}
+			key, _ := member.Key.StringValue()
+			object[key] = parameterValue(member.Value)
+		}
+		return object
+	}
+	if value.Name == "array" && value.Kind == refract.ContentArray {
+		list := make([]any, 0, len(value.Children))
+		for _, child := range value.Children {
+			list = append(list, parameterValue(child))
+		}
+		return list
+	}
+	return value.ToValue()
 }
 
 func hasRequiredTypeAttribute(member *refract.Element) bool {
@@ -273,6 +306,7 @@ func uriParameters(template string, params *paramSet, values map[string]any) []P
 				In:       in,
 				Name:     name,
 				Schema:   declared.schema,
+				Style:    declared.style,
 				Value:    value,
 				HasValue: hasValue,
 			})
@@ -340,9 +374,9 @@ func expandURITemplate(template string, params *paramSet) (uri string, values ma
 		}
 		switch {
 		case isUsable(p.example, p.hasExample):
-			toExpand[name] = p.example
+			toExpand[name] = styled(Parameter{Name: name, Style: p.style}, p.example)
 		case isUsable(p.defaultVal, p.hasDefault):
-			toExpand[name] = p.defaultVal
+			toExpand[name] = styled(Parameter{Name: name, Style: p.style}, p.defaultVal)
 		case p.required:
 			ambiguous = true
 			warnings = append(warnings, fmt.Sprintf(

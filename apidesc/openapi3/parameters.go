@@ -8,6 +8,7 @@ type parameter struct {
 	in       string
 	required bool
 	explode  bool
+	style    string
 	schema   node
 	example  node
 	hasValue bool
@@ -44,10 +45,10 @@ func (d *document) parseParameters(n node) *parameters {
 			name:     name,
 			in:       in,
 			required: resolved.Get("required").Bool(),
-			explode:  resolved.Get("explode").Bool(),
 			schema:   d.Resolve(resolved.Get("schema")),
 			example:  resolved.Get("example"),
 		}
+		p.style, p.explode = serialisation(in, resolved)
 
 		// Only the Parameter Object's own `example` supplies a value. A schema
 		// sitting inside a parameter contributes its `enum` and nothing else:
@@ -69,6 +70,36 @@ func (d *document) parseParameters(n node) *parameters {
 		params.ordered = append(params.ordered, p)
 	}
 	return params
+}
+
+// serialisation resolves a parameter's style and explode, applying the
+// specification's defaults where the document is silent: query and cookie
+// parameters are `form` and exploded (a list is `a=1&a=2`), path and header
+// parameters are `simple` and not (a list is `1,2`). Reading `explode` as a
+// bare boolean, as this once did, made every absent explode false — which is
+// the wrong default for the commonest case, a query list.
+func serialisation(in string, resolved node) (style string, explode bool) {
+	style = resolved.Get("style").Str()
+	if style == "" {
+		switch in {
+		case "query", "cookie":
+			style = "form"
+		default:
+			style = "simple"
+		}
+	}
+	// The default for explode is "true for form, false otherwise", per spec.
+	explode = style == "form"
+	if e := resolved.Get("explode"); e.Valid() {
+		explode = e.Bool()
+	}
+	// deepObject is only defined exploded — `x[a]=1&x[b]=2` IS the explosion
+	// — so it is exploded whatever the document says, and the template's `*`
+	// is what lets the expander lay the object out as pairs.
+	if style == "deepObject" {
+		explode = true
+	}
+	return style, explode
 }
 
 // merge layers operation parameters over path parameters.
@@ -186,6 +217,12 @@ func (p parameter) member() *refract.Element {
 	// pattern a generated value has to respect and a server has to enforce.
 	if p.converted != "" {
 		value.SetAttr(refract.SchemaAttribute, refract.String(p.converted))
+	}
+	// The style travels only when it is not the RFC 6570 default the template
+	// already expresses, so a document that never mentions style produces
+	// exactly the elements it did before.
+	if p.style != "form" && p.style != "simple" {
+		value.SetAttr(refract.StyleAttribute, refract.String(p.style))
 	}
 
 	member := refract.Member(p.name, value)

@@ -103,9 +103,12 @@ var (
 		unsupported: []string{"externalDocs", "callbacks", "deprecated"},
 	}
 	specParameter = objectSpec{
-		name:        "Parameter Object",
-		supported:   []string{"name", "in", "description", "required", "schema", "example", "explode"},
-		unsupported: []string{"deprecated", "allowEmptyValue", "style", "allowReserved", "examples", "content"},
+		name: "Parameter Object",
+		// `style` and `explode` are read: they decide how a list or an object
+		// value is laid out on the wire, which both URI expansion and generation
+		// follow.
+		supported:   []string{"name", "in", "description", "required", "schema", "example", "explode", "style"},
+		unsupported: []string{"deprecated", "allowEmptyValue", "allowReserved", "examples", "content"},
 		required:    []string{"name", "in"},
 	}
 	specRequestBody = objectSpec{
