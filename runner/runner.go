@@ -151,6 +151,39 @@ type Credential struct {
 	// Except names transactions to send without the credential. A login
 	// endpoint's own 401 case is untestable while holding a valid one.
 	Except map[string]bool
+
+	// LoginMethod and LoginPath identify the operation that GRANTED the
+	// credential, which never receives it.
+	//
+	// Sending a freshly minted cookie back to the request that minted it is
+	// at best noise and at worst a different exchange from the one the
+	// description documents: a server may take the cookie as "already
+	// authenticated" and answer a login it never performed. It was harmless
+	// on the suite that found it — the server ignored the cookie — but the
+	// suite had to spell the exclusion out in `except`, and it should not
+	// have to. This is definitional, not configuration.
+	LoginMethod string
+	LoginPath   string
+}
+
+// grantedBy reports whether this transaction is the one that obtained the
+// credential.
+func (c Credential) grantedBy(transaction compile.Transaction) bool {
+	if c.LoginPath == "" {
+		return false
+	}
+	uri := transaction.Request.URI
+	if i := strings.IndexByte(uri, '?'); i >= 0 {
+		uri = uri[:i]
+	}
+	if uri != c.LoginPath {
+		return false
+	}
+	method := c.LoginMethod
+	if method == "" {
+		method = http.MethodPost
+	}
+	return strings.EqualFold(transaction.Request.Method, method)
 }
 
 // configuredSkipReason labels a skip as the configuration's doing.
@@ -167,7 +200,9 @@ func configuredSkipReason(reason string) string {
 // headersFor returns the extra headers for one transaction: the run-wide ones,
 // plus the credential unless this transaction is one that must go without.
 func (r *Runner) headersFor(transaction compile.Transaction) []string {
-	authenticated := r.Auth.Header != "" && !r.Auth.Except[transaction.Name]
+	authenticated := r.Auth.Header != "" &&
+		!r.Auth.Except[transaction.Name] &&
+		!r.Auth.grantedBy(transaction)
 
 	var conditional []string
 	for _, header := range r.ConditionalHeaders {
@@ -314,6 +349,13 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 		}
 
 		result := r.runOne(ctx, transaction)
+		// Asked after the transaction's own verdict, and only of one that
+		// succeeded: the question is whether the credential mattered, which
+		// a failed request cannot answer.
+		if finding, open := r.checkIgnoredAuth(ctx, transactions[index], result); open {
+			result.Beyond = append(result.Beyond, finding)
+			result.Status = StatusFail
+		}
 		if r.Plan != nil {
 			r.Plan.Record(index, transaction, result)
 		}
@@ -661,6 +703,48 @@ func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
 		}
 	}
 	return result
+}
+
+// checkIgnoredAuth re-sends a request without the credential and reports an
+// endpoint that answered it anyway.
+//
+// Only for a request that carried a credential and succeeded: a transaction
+// documented as failing, or one already excluded from authentication, says
+// nothing about whether the credential mattered. The bare attempt must be
+// refused — 401 or 403 — and anything else means the endpoint is open.
+func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transaction, sent Result) (string, bool) {
+	if !r.Checks.IgnoredAuth || r.Auth.Header == "" {
+		return "", false
+	}
+	if r.Auth.Except[source.Name] || r.Auth.grantedBy(source) {
+		return "", false
+	}
+	status, err := strconv.Atoi(strings.TrimSpace(sent.Actual.StatusCode))
+	if err != nil || status < 200 || status > 299 {
+		return "", false
+	}
+
+	// The same transaction, prepared without the credential: headersFor is
+	// asked for a name the Except set holds, which is how a run already says
+	// "send this one bare".
+	bare := *r
+	bare.Auth = Credential{}
+	prepared := bare.Prepare(source)
+
+	reply, err := r.send(ctx, prepared)
+	if err != nil {
+		// The server refusing to talk is not an authentication finding.
+		return "", false
+	}
+	bareStatus, err := strconv.Atoi(strings.TrimSpace(reply.StatusCode))
+	if err != nil {
+		return "", false
+	}
+	if bareStatus == http.StatusUnauthorized || bareStatus == http.StatusForbidden {
+		return "", false
+	}
+	return fmt.Sprintf("the same request without the credential was answered %d, so this endpoint is not authenticated "+
+		"however the description describes it (it answered %d with the credential)", bareStatus, status), true
 }
 
 func (t *Transaction) failResult(errors []string, elapsed time.Duration) Result {

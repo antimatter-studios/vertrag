@@ -140,3 +140,28 @@ phases: [examples, fuzzing]
 		t.Errorf("Load err = %v, want the unknown phase named", err)
 	}
 }
+
+func TestOAuth2FromVertragFile(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", `
+spec: ./api.yml
+endpoint: http://localhost:4210
+auth:
+  oauth2:
+    token-url: https://id.example.com/oauth/token
+    client-id: suite
+    client-secret-env: SUITE_SECRET
+    scopes: [read, write]
+`)
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !settings.Auth.Configured() {
+		t.Error("an oauth2 block is authentication being configured")
+	}
+	o := settings.Auth.OAuth2
+	if o.TokenURL != "https://id.example.com/oauth/token" || o.ClientID != "suite" ||
+		o.ClientSecretEnv != "SUITE_SECRET" || len(o.Scopes) != 2 {
+		t.Errorf("OAuth2 = %+v", o)
+	}
+}

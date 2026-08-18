@@ -87,7 +87,11 @@ func applyConfiguredRules(
 			fmt.Fprintf(os.Stderr,
 				"vertrag: auth.except has no transaction named %q; it will be sent authenticated\n", name)
 		}
-		engine.Auth = runner.Credential{Header: credential, Except: except}
+		engine.Auth = runner.Credential{
+			Header: credential, Except: except,
+			LoginMethod: settings.Auth.Login.Method,
+			LoginPath:   settings.Auth.Login.Path,
+		}
 	}
 
 	for _, rule := range settings.ConditionalHeaders {

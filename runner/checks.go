@@ -35,6 +35,18 @@ type Checks struct {
 	// contain one nobody ever checked. Turning that into red on the first run
 	// after adopting vertrag would be a poor trade.
 	HeaderSchema bool
+
+	// IgnoredAuth re-sends each authenticated request WITHOUT the credential
+	// and requires the server to refuse it.
+	//
+	// An endpoint that answers the same whether or not a credential is
+	// present is not authenticated, however carefully the description says it
+	// is — and nothing in an ordinary run can tell, because every request
+	// carries the credential and every response is therefore correct. It is
+	// off by default because it doubles the requests a run makes, and because
+	// a suite whose auth is genuinely absent would light up entirely rather
+	// than usefully.
+	IgnoredAuth bool
 }
 
 // run performs the enabled checks and returns what they found.

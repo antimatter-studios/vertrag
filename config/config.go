@@ -141,6 +141,11 @@ type Checks struct {
 	// day it adopts vertrag teaches people to distrust the tool rather than the
 	// description.
 	HeaderSchema bool
+
+	// IgnoredAuth re-sends each authenticated request without the credential
+	// and reports an endpoint that answers it anyway. Off by default: it
+	// doubles the requests a run makes.
+	IgnoredAuth bool
 }
 
 // Auth describes how a run authenticates itself.
@@ -156,6 +161,10 @@ type Auth struct {
 	// Login is the request that obtains the credential. Zero value means the
 	// credential is static and Header carries it directly.
 	Login Login
+
+	// OAuth2 obtains the credential by the client credentials grant, which is
+	// the one OAuth2 flow a suite can perform unattended.
+	OAuth2 OAuth2
 
 	// Carry is how the credential is sent back: "cookie" or "bearer".
 	Carry string
@@ -173,6 +182,29 @@ type Auth struct {
 	// credential, so this is needed by any suite that documents one.
 	Except []string
 }
+
+// OAuth2 is the client credentials grant: a service asking for a token in its
+// own name. The interactive grants need a browser and a human, so no headless
+// suite performs them and none is offered here.
+type OAuth2 struct {
+	// TokenURL is the token endpoint, absolute when the identity provider is
+	// not the API under test, or a path on the endpoint when it is.
+	TokenURL string
+
+	ClientID string
+
+	// ClientSecretEnv names an environment variable holding the secret, which
+	// is the documented way: a secret in a configuration file is a secret in
+	// version control. ClientSecret takes it literally, for the CI systems
+	// that generate their config with it already inside.
+	ClientSecretEnv string
+	ClientSecret    string
+
+	Scopes []string
+}
+
+// Configured reports whether the grant was asked for.
+func (o OAuth2) Configured() bool { return o.TokenURL != "" }
 
 // HeaderRule adds a header to the transactions it matches.
 //
@@ -209,7 +241,7 @@ type Login struct {
 
 // Configured reports whether any authentication was asked for.
 func (a Auth) Configured() bool {
-	return a.Login.Path != "" || a.Header != ""
+	return a.Login.Path != "" || a.Header != "" || a.OAuth2.Configured()
 }
 
 // Filenames are tried in order. A vertrag file wins over a Dredd one, so a
@@ -338,11 +370,21 @@ type transportFile struct {
 // it in, to do what is nearly always the same three steps — log in once, keep
 // what came back, send it on everything after.
 type authFile struct {
-	Login  *loginFile `yaml:"login"`
-	Carry  *string    `yaml:"carry"`
-	Cookie *string    `yaml:"cookie"`
-	Header *string    `yaml:"header"`
-	Except []string   `yaml:"except"`
+	Login  *loginFile  `yaml:"login"`
+	OAuth2 *oauth2File `yaml:"oauth2"`
+	Carry  *string     `yaml:"carry"`
+	Cookie *string     `yaml:"cookie"`
+	Header *string     `yaml:"header"`
+	Except []string    `yaml:"except"`
+}
+
+// oauth2File is the `auth.oauth2` section as written.
+type oauth2File struct {
+	TokenURL        *string  `yaml:"token-url"`
+	ClientID        *string  `yaml:"client-id"`
+	ClientSecretEnv *string  `yaml:"client-secret-env"`
+	ClientSecret    *string  `yaml:"client-secret"`
+	Scopes          []string `yaml:"scopes"`
 }
 
 // loginFile is the request that obtains the credential.
@@ -357,6 +399,7 @@ type checksFile struct {
 	ServerError  *bool `yaml:"server-error"`
 	ContentType  *bool `yaml:"content-type"`
 	HeaderSchema *bool `yaml:"header-schema"`
+	IgnoredAuth  *bool `yaml:"ignored-auth"`
 }
 
 // Default returns the settings a run starts from.
@@ -663,6 +706,14 @@ func applyAuth(auth *Auth, parsed authFile) {
 		}
 	}
 
+	if parsed.OAuth2 != nil {
+		setString(&auth.OAuth2.TokenURL, parsed.OAuth2.TokenURL)
+		setString(&auth.OAuth2.ClientID, parsed.OAuth2.ClientID)
+		setString(&auth.OAuth2.ClientSecretEnv, parsed.OAuth2.ClientSecretEnv)
+		setString(&auth.OAuth2.ClientSecret, parsed.OAuth2.ClientSecret)
+		auth.OAuth2.Scopes = append(auth.OAuth2.Scopes, parsed.OAuth2.Scopes...)
+	}
+
 	// A login that captures a cookie is carrying a cookie. Making the config say
 	// so twice is a chance to say it inconsistently.
 	if auth.Carry == "" && auth.Cookie != "" {
@@ -721,6 +772,7 @@ func apply(config *Config, parsed file) {
 		setBool(&config.Checks.ServerError, parsed.Checks.ServerError)
 		setBool(&config.Checks.ContentType, parsed.Checks.ContentType)
 		setBool(&config.Checks.HeaderSchema, parsed.Checks.HeaderSchema)
+		setBool(&config.Checks.IgnoredAuth, parsed.Checks.IgnoredAuth)
 	}
 
 	// Keys read into Config and then acted on by nobody. They were reported as
