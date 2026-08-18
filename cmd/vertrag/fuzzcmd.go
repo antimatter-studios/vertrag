@@ -613,6 +613,14 @@ func successVariants(transactions []compile.Transaction) []compile.Transaction {
 // variant a transaction is: the URI template when there is one (it names the
 // operation, not the expanded example), else the URI.
 func operationKey(transaction compile.Transaction) string {
+	// A GraphQL transaction's operation is its root field, not its path.
+	// Every one of them is a POST to the same path, so keying on the path
+	// collapses a whole schema into a single operation — which showed up as
+	// `vertrag fuzz` reporting that it had passed over one transaction where
+	// the schema had offered several.
+	if transaction.GraphQL != nil {
+		return transaction.Name
+	}
 	if transaction.Request.Template != "" {
 		return transaction.Request.Template
 	}

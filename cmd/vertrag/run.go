@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/fuzz"
@@ -65,6 +64,7 @@ type runFlags struct {
 	phases       string
 
 	transport transportFlags
+	graphql   graphqlFlags
 
 	// positional are the arguments left after the flags: a description and an
 	// endpoint, either of which a config file may supply instead.
@@ -105,6 +105,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in reports (repeatable)")
 	fs.StringVar(&f.phases, "phases", "", "what to run, comma-separated: examples (always), coverage, fuzz, stateful — e.g. examples,stateful")
 	addTransportFlags(fs, &f.transport)
+	addGraphQLFlags(fs, &f.graphql)
 
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -200,6 +201,7 @@ func settingsFor(f runFlags) (config.Config, error) {
 		settings.MaxFailures = 1
 	}
 	f.transport.apply(&settings.Transport)
+	f.graphql.apply(&settings.GraphQL)
 	reporter.SetSanitize(!f.noSanitize)
 	for _, name := range f.sanitizeHdrs {
 		reporter.AddRedactedHeader(name)
@@ -266,11 +268,20 @@ func runRun(args []string) error {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
 
-	parsed, err := apidesc.Parse(source, settings.Spec)
+	result, withheld, err := transactionsFor(source, settings.Spec, settings)
 	if err != nil {
-		return fmt.Errorf("parsing %s: %w", settings.Spec, err)
+		return err
 	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
+	// What a GraphQL schema offered and this run is not sending. Said before
+	// the results rather than after them, and on every run rather than only
+	// when something fails: a run that quietly tested eleven of nineteen
+	// operations reports eleven passes, and reads as success.
+	for _, note := range withheld {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
+	for _, note := range graphqlPhaseNotes(result.MediaType, settings.Phases) {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
 
 	annotations.Annotations(toAnnotations(result.Annotations))
 	if hasErrors(result.Annotations) {

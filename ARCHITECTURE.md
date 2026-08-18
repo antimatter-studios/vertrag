@@ -9,8 +9,8 @@ alphabetical.
 | Package | Responsibility |
 | --- | --- |
 | `refract` | The API Elements object model — the shape every format is read into |
-| `apidesc` | Format detection, and the parsers (`apidesc/openapi3`, `apidesc/openapi2`) |
-| `compile` | API Elements → the HTTP transactions to test |
+| `apidesc` | Format detection, and the parsers (`apidesc/openapi3`, `apidesc/openapi2`, `apidesc/graphql`) |
+| `compile` | API Elements, or a GraphQL schema → the HTTP transactions to test |
 | `validate` | Whether a response matches what was promised |
 | `uritemplate` | URI template expansion |
 | `yamldoc` | YAML/JSON navigation that keeps source positions |
@@ -28,6 +28,26 @@ The command lives under `cmd/` rather than at the root. Go allows a `main`
 package anywhere, and putting it beside the libraries meant `main.go`, `run.go`
 and their tests sat in the same directory listing as every package — so the
 first thing anyone saw of the project was its wiring rather than its parts.
+
+## Two paths into `compile`, one type out of it
+
+Everything that describes resources and methods — OpenAPI 2, OpenAPI 3, API
+Blueprint — reaches `compile` as API Elements, which is what makes the rules for
+naming a transaction and expanding a URI worth writing once.
+
+A GraphQL schema does not, and forcing it to would cost the thing the shared
+pipe exists to protect. API Elements is resources and methods; a schema has one
+endpoint, one method, and operations that are fields of a type. Expressing it
+there means inventing an href per field, and `compile` derives transaction names
+from hrefs — so the names hook files and `--only` address would come out of a
+URI nothing can be requested at. So `apidesc` hands a schema over as a schema
+and `compile.CompileGraphQL` turns it into the same `[]Transaction` the other
+path produces.
+
+The boundary that matters is therefore the OUTPUT type, not the input one:
+filters, hooks, auth, the runner and every reporter work on `Transaction` and
+are shared unchanged. What is not shared is one intermediate representation
+that would have carried no GraphQL information.
 
 The first ten are stages, not layers: each has one input type and one output type, and
 each is tested against a reference implementation on its own. That is what lets

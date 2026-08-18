@@ -91,4 +91,15 @@ func TestExampleConfigLoads(t *testing.T) {
 	if withReason == 0 || bare == 0 {
 		t.Errorf("skip forms read: %d with a reason, %d bare; want both demonstrated", withReason, bare)
 	}
+
+	// The GraphQL section, whose two live keys are read and whose third is
+	// deliberately commented out. Copying the example must not turn mutations
+	// on: the file people copy is the file that decides what a first run
+	// sends, and a first run that mutates is the one nobody expected.
+	if settings.GraphQL.Path == "" || settings.GraphQL.MaxDepth == 0 {
+		t.Errorf("the example's graphql block was not read: %+v", settings.GraphQL)
+	}
+	if settings.GraphQL.Mutations {
+		t.Error("the example enables mutations; copying it would send them")
+	}
 }

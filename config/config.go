@@ -126,6 +126,10 @@ type Config struct {
 	// cases bounds its cost.
 	Fuzz FuzzSettings
 
+	// GraphQL is how a GraphQL schema becomes transactions: where to send
+	// them, how deep to ask, and whether mutations are sent at all.
+	GraphQL GraphQLSettings
+
 	// Skip takes transactions out of the run.
 	Skip []SkipRule
 
@@ -167,6 +171,30 @@ type FuzzSettings struct {
 	// cannot carry. Every excused answer is counted and reported — see
 	// fuzz.Accept.
 	Accept []int
+}
+
+// GraphQLSettings decide how a GraphQL schema is turned into transactions.
+//
+// They have no Dredd equivalent — Dredd cannot test GraphQL at all — so
+// nothing here is constrained by what its configuration looks like.
+type GraphQLSettings struct {
+	// Path is where the queries are POSTed, relative to Endpoint. Empty means
+	// compile.DefaultGraphQLPath.
+	Path string
+
+	// MaxDepth bounds how deeply a generated selection set nests. Zero means
+	// compile.DefaultGraphQLDepth.
+	MaxDepth int
+
+	// Mutations sends the mutation root's fields as well as the query root's.
+	//
+	// Off by default, and this is the setting the section exists for. A
+	// mutation is by definition the operation that changes something, and a
+	// schema offers `deleteAccount` on exactly the same terms as `viewer` —
+	// same path, same method, same shape. Nothing on the wire distinguishes
+	// them, so nothing but this can. The same argument as fuzz's pins, in the
+	// same repository, for the same reason.
+	Mutations bool
 }
 
 // Checks selects the checks beyond Dredd's.
@@ -406,6 +434,23 @@ type file struct {
 	// Phases selects what a run does; Fuzz pins the fuzz phase.
 	Phases []string  `yaml:"phases"`
 	Fuzz   *fuzzFile `yaml:"fuzz"`
+	// GraphQL applies only to a GraphQL schema, and is ignored by every other
+	// format rather than refused: a project testing an OpenAPI document and a
+	// GraphQL one from two configurations should be able to share the rest of
+	// the file.
+	GraphQL *graphqlFile `yaml:"graphql"`
+}
+
+// graphqlFile is the `graphql` section as written.
+//
+// `path` rather than `endpoint`, because the file already has an `endpoint`
+// and it means the server's base URL. Two keys that differ by their nesting
+// and mean different things are how a configuration gets written correctly and
+// read wrongly.
+type graphqlFile struct {
+	Path      *string `yaml:"path"`
+	MaxDepth  *int    `yaml:"max-depth"`
+	Mutations *bool   `yaml:"mutations"`
 }
 
 // fuzzFile is the `fuzz` section as written.
@@ -603,6 +648,22 @@ func Load(path string) (Config, error) {
 				return config, fmt.Errorf("%s: %w", path, err)
 			}
 			config.Fuzz.Accept = parsed.Fuzz.Accept
+		}
+	}
+	if parsed.GraphQL != nil {
+		setString(&config.GraphQL.Path, parsed.GraphQL.Path)
+		setBool(&config.GraphQL.Mutations, parsed.GraphQL.Mutations)
+		if parsed.GraphQL.MaxDepth != nil {
+			// Refused rather than corrected. A depth of zero or less would
+			// produce a run with no transactions in it at all, which reads as
+			// a schema with nothing in it — and the whole point of the bound
+			// is that the reader chose it, so a number they cannot have meant
+			// is worth stopping for.
+			if *parsed.GraphQL.MaxDepth < 1 {
+				return config, fmt.Errorf(
+					"%s: graphql: max-depth must be at least 1, got %d", path, *parsed.GraphQL.MaxDepth)
+			}
+			config.GraphQL.MaxDepth = *parsed.GraphQL.MaxDepth
 		}
 	}
 	if parsed.Workers != nil {

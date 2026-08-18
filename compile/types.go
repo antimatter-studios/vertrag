@@ -149,6 +149,16 @@ type Transaction struct {
 	// by. Absent from the JSON for the same reason OperationID is.
 	Tags []string `json:"-"`
 
+	// GraphQL is what the response must satisfy when this transaction came
+	// from a GraphQL schema, and nil for every other format.
+	//
+	// Absent from the JSON for the same reason OperationID is, and it carries
+	// the whole of what makes a GraphQL exchange judgeable: the wire form is a
+	// POST of an opaque string to one path, so a runner that had only the
+	// request could not tell a GraphQL transaction from any other, let alone
+	// what it asked for.
+	GraphQL *GraphQL `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//

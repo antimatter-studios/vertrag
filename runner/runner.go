@@ -921,6 +921,15 @@ func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
 			}
 		}
 	}
+
+	// A GraphQL response is judged on its body rather than on its status, for
+	// the reason set out in graphql.go: this endpoint answers 200 to errors
+	// too, so everything above this line can pass while the server answered
+	// nothing at all.
+	if findings := graphqlResponseFindings(t.source.GraphQL, expected, t.Real); len(findings) > 0 {
+		result.Status = StatusFail
+		result.Errors = append(result.Errors, findings...)
+	}
 	return result
 }
 

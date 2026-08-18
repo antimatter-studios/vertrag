@@ -1,13 +1,22 @@
-// Package apidesc turns an API description document into API Elements.
+// Package apidesc reads an API description document.
 //
-// This is the one format-specific stage. Everything downstream — naming
-// transactions, expanding URIs, running them, reporting — works on API Elements
-// and neither knows nor cares which format the description was written in.
+// This is the one format-specific stage. OpenAPI 2 and 3 become API Elements,
+// and everything downstream of them — naming transactions, expanding URIs,
+// running them, reporting — neither knows nor cares which of the two the
+// description was written in.
+//
+// GraphQL is the exception, and deliberately: a schema has no resources, no
+// URIs and no methods, so API Elements has nowhere honest to put it. It is
+// read into a schema instead and compiled straight to transactions, which is
+// the same output the API Elements path produces — so everything downstream of
+// THAT is shared, which is the part that matters. The reasoning is set out in
+// full at the top of compile/graphql.go.
 package apidesc
 
 import (
 	"regexp"
 
+	"github.com/antimatter-studios/vertrag/apidesc/graphql"
 	"github.com/antimatter-studios/vertrag/apidesc/openapi2"
 	"github.com/antimatter-studios/vertrag/apidesc/openapi3"
 	"github.com/antimatter-studios/vertrag/refract"
@@ -24,6 +33,13 @@ const (
 	MediaTypeOpenAPI2     = "application/swagger+json"
 	MediaTypeAPIBlueprint = "text/vnd.apiblueprint"
 
+	// MediaTypeGraphQL is a GraphQL schema. No media type for one is
+	// registered — `application/graphql` is what the ecosystem's tooling uses
+	// for a GraphQL document and is what a `.graphql` file is served as — and
+	// none needs to be: this string is only ever compared against itself,
+	// since it is what the compiler branches on and what the report prints.
+	MediaTypeGraphQL = "application/graphql"
+
 	// MediaTypeUnknown is what a document nothing recognises is reported as.
 	// It is deliberately not a real media type: naming it after some format
 	// vertrag might have guessed is how the Blueprint fallback came to label
@@ -32,9 +48,24 @@ const (
 )
 
 // Result is a parsed description document.
+//
+// A document arrives as one of two things, and which one follows from its
+// format. Everything that describes resources and methods becomes API
+// Elements; a GraphQL schema becomes a schema, because it has neither and
+// making it pretend to would decide the transaction names — see the reasoning
+// at the top of compile/graphql.go. Exactly one of the two fields is set.
 type Result struct {
 	MediaType string
 	Elements  *refract.Element
+
+	// Schema is the GraphQL schema, when that is what was read.
+	Schema *graphql.Schema
+
+	// Warnings are what the GraphQL reader could not act on. The API Elements
+	// path has no equivalent field because its parsers put the same thing in
+	// the tree as annotation elements; the caller turns these into the same
+	// diagnostics.
+	Warnings []string
 }
 
 // Detection patterns, matching the reference adapters' own.
@@ -90,6 +121,13 @@ func Detect(source []byte) (mediaType string, recognised bool) {
 		// Recognised, and unsupported: two different things, which is the
 		// distinction this return value exists to carry.
 		return MediaTypeAPIBlueprint, true
+	// Asked last of the four, and asked of the parser rather than answered
+	// here. SDL has no version line to match on, so its patterns are the
+	// loosest vertrag has and the loosest question is the one to ask last —
+	// and they belong to the reader that has to make sense of what they
+	// matched, not to a second copy in this file that could drift from it.
+	case graphql.Detect(source):
+		return MediaTypeGraphQL, true
 	default:
 		return MediaTypeUnknown, false
 	}
@@ -101,10 +139,13 @@ func Detect(source []byte) (mediaType string, recognised bool) {
 // covered yet, rather than reporting a wall of failures that all mean the same
 // thing.
 func Implemented(mediaType string) bool {
-	return mediaType == MediaTypeOpenAPI3 || mediaType == MediaTypeOpenAPI2
+	return mediaType == MediaTypeOpenAPI3 ||
+		mediaType == MediaTypeOpenAPI2 ||
+		mediaType == MediaTypeGraphQL
 }
 
-// Parse reads a description document into API Elements.
+// Parse reads a description document into whichever of the two forms its
+// format has: API Elements, or a GraphQL schema.
 func Parse(source []byte, filename string) (Result, error) {
 	mediaType, recognised := Detect(source)
 
@@ -122,6 +163,24 @@ func Parse(source []byte, filename string) (Result, error) {
 			return Result{}, err
 		}
 		return Result{MediaType: mediaType, Elements: elements}, nil
+
+	case MediaTypeGraphQL:
+		// The one format that does not become API Elements. It is routed
+		// straight to its own compiler instead, for the reason set out at the
+		// top of compile/graphql.go: a schema has no resources, no URIs and no
+		// methods, and inventing them would decide the transaction names —
+		// which are what hooks and `--only` address.
+		//
+		// The reader's warnings are carried out with it rather than dropped.
+		// They are everything the schema says that testing cannot act on — an
+		// unmodelled directive, a root type that is not an object, a field
+		// whose type is never defined — and each one is a hole in a run that
+		// would otherwise look exactly like a pass.
+		schema, warnings, err := graphql.Parse(source)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{MediaType: mediaType, Schema: schema, Warnings: warnings}, nil
 	}
 
 	// Two different answers, because they call for two different actions.
@@ -140,7 +199,8 @@ func Parse(source []byte, filename string) (Result, error) {
 	// Reporting either through the parse result rather than as an error means
 	// the caller shows it the way it shows any other unusable document.
 	reason := "the API description format could not be recognised; " +
-		"vertrag reads OpenAPI 3 (`openapi: 3.x.x`) and OpenAPI 2 (`swagger: \"2.0\"`)"
+		"vertrag reads OpenAPI 3 (`openapi: 3.x.x`), OpenAPI 2 (`swagger: \"2.0\"`) " +
+		"and GraphQL schemas (a `schema { … }` block or a `type Query`)"
 	if recognised && mediaType == MediaTypeAPIBlueprint {
 		reason = "this is API Blueprint, which vertrag does not support: the format and " +
 			"its only parser are archived. Convert it to OpenAPI, or keep using Dredd for it"
