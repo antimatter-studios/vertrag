@@ -130,6 +130,13 @@ type Options struct {
 	// field on this probe, so a run can report where its interlock reached
 	// rather than only that it was configured.
 	Engaged map[string]int
+
+	// Workers is how many operations to probe at once. It is read by the
+	// coverage phase only: fuzz is serialised whatever this says, because
+	// rapid takes its case count and seed from process-global flags and two
+	// probes at once would overwrite each other's seed. Coverage uses no
+	// rapid, so nothing is shared between two operations.
+	Workers int
 }
 
 // OutOfTime reports whether the deadline has passed.
