@@ -47,7 +47,7 @@ Pin the version *and* the checksum. Every release publishes `checksums.txt` over
 the archives and `binaries.txt` over the binaries inside them:
 
 ```sh
-VERTRAG_VERSION=0.3.1
+VERTRAG_VERSION=0.4.0
 arch=$(uname -m); [ "$arch" = "aarch64" ] && arch=arm64
 base="https://github.com/antimatter-studios/vertrag/releases/download/v${VERTRAG_VERSION}"
 file="vertrag-${VERTRAG_VERSION}-linux-${arch}.tar.gz"
@@ -56,6 +56,19 @@ curl -fsSL "${base}/${file}" -o "${file}"
 curl -fsSL "${base}/checksums.txt" | grep " ${file}\$" | sha256sum -c -
 tar -xzf "${file}" -C /usr/local/bin vertrag
 ```
+
+Run it somewhere it can write `/usr/local/bin`: a Dockerfile or a provisioning
+script is already root, and anywhere else needs `sudo`. That is worth a sentence
+because of how it fails. A first install refuses the directory, which is clear
+enough. An **upgrade** fails at the `tar` line with
+
+```
+tar: vertrag: Cannot open: File exists
+```
+
+which points at the wrong thing entirely. Nothing is wrong with the file that is
+already there — `tar` replaces one happily, even a read-only one. Replacing it
+means unlinking it, and unlinking is permission on the *directory*.
 
 The checksum matters more than it looks in a pipeline whose image tag is a
 content hash over its build scripts: a release re-pointed at different bytes
