@@ -32,6 +32,7 @@ package fuzz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -84,6 +85,15 @@ func enableOutsideTests() {
 // text form — the URI template decides whether it becomes a repeated key or a
 // comma-separated one, and rendering it here would reimplement that beside it.
 type Sender func(ctx context.Context, value any) (validate.Message, error)
+
+// ErrSkipped is what a Sender returns when the request was deliberately not
+// sent — a hook took it out of the run.
+//
+// It is not a finding and not a transport failure. A hook exists precisely to
+// say "not this one", and reporting the server for a request that never
+// reached it would be the tool blaming the API for the tester's own
+// instruction. The case is abandoned and counted.
+var ErrSkipped = errors.New("the request was skipped before it was sent")
 
 // Options controls how hard a probe looks.
 type Options struct {
@@ -282,6 +292,10 @@ func probe(
 		usable++
 
 		reply, err := send(ctx, rendered)
+		if errors.Is(err, ErrSkipped) {
+			// A hook took this request out of the run. Not the server's doing.
+			return
+		}
 		if err != nil {
 			// Reported as a finding in its own right, carrying the value that
 			// provoked it. A handler that panics drops the connection without

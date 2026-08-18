@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -304,8 +305,44 @@ func NewWithTransport(endpoint string, transport Transport) (*Runner, error) {
 // keeps the URL resolution, extra headers and redirect policy identical to a
 // normal run, so a finding is reproducible by `vertrag run`.
 func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate.Message, error) {
-	return r.send(ctx, newTransaction(source, r.Endpoint, r.headersFor(source)))
+	transaction := newTransaction(source, r.Endpoint, r.headersFor(source))
+
+	// Hooks run here too, and it took a safety review to notice they did not.
+	//
+	// This is the path generation sends through — fuzz, coverage, stateful —
+	// and it was written as "just send this and give me the reply", so hooks
+	// were simply never wired into it. Nobody decided that probing should
+	// bypass them. The consequence is the opposite of what anyone would
+	// choose: a hook exists precisely to pin the value a generator must not
+	// touch, and the moment that matters is when a generator is drawing
+	// values. A project whose hook forces `dry_run: true` had it honoured on
+	// the requests its description documents and ignored on the thousands of
+	// generated ones.
+	//
+	// Only beforeEach and its named hooks run. There is no response yet, so
+	// the validation hooks have nothing to act on, and a probe is judged by
+	// its status rather than by validation. A hook that skips or fails a
+	// transaction is honoured: skip means do not send this probe.
+	if r.Hooks != nil {
+		if err := r.Hooks.BeforeEach(transaction); err != nil {
+			return validate.Message{}, fmt.Errorf("before hook: %w", err)
+		}
+		if transaction.Skip {
+			return validate.Message{}, ErrSkippedByHook
+		}
+		if transaction.Fail != "" {
+			return validate.Message{}, fmt.Errorf("failed by hook: %s", transaction.Fail)
+		}
+	}
+
+	return r.send(ctx, transaction)
 }
+
+// ErrSkippedByHook reports that a hook took a generated request out of the
+// run before it was sent. It is not a finding and not a transport failure:
+// the caller counts it and says so, rather than reporting the server for
+// something that never reached it.
+var ErrSkippedByHook = errors.New("skipped by a hook")
 
 // Prepare builds the transaction that would be sent for a source, with the
 // endpoint resolved and the run's headers and credential attached.
@@ -326,6 +363,10 @@ func (r *Runner) Deliver(ctx context.Context, transaction *Transaction) (validat
 
 // SentRequest is the request as it actually went out — see sentRequest.
 func (t *Transaction) SentRequest() Request { return t.sentRequest() }
+
+// OperationID is how the description names this transaction's operation, or
+// "" when it gave none. Hooks select transactions by it.
+func (t *Transaction) OperationID() string { return t.source.OperationID }
 
 // Run executes every transaction in order and returns the results.
 //

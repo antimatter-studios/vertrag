@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -198,9 +199,17 @@ func TestFailMarker(t *testing.T) {
 }
 
 func TestUnsupportedHookLanguageIsRejected(t *testing.T) {
-	_, err := Start(t.Context(), Options{Language: "python"})
+	// Python is supported now; something genuinely absent stands in.
+	_, err := Start(t.Context(), Options{Language: "ruby"})
 	if err == nil {
 		t.Fatal("an unsupported hooks language should be reported")
+	}
+	// The message offers what there is, rather than only refusing what was
+	// asked for: a reader who typed the wrong language wants the right one.
+	for _, want := range []string{"ruby", "nodejs", "python"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
 	}
 }
 

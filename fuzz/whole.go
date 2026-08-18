@@ -3,6 +3,7 @@ package fuzz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"sort"
@@ -132,6 +133,9 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 		usable++
 
 		reply, err := send(ctx, values)
+		if errors.Is(err, ErrSkipped) {
+			return
+		}
 		if err != nil {
 			found = WholeFinding{Mode: mode, Values: values, Culprit: culprit,
 				Message: fmt.Sprintf("the request could not be completed: %v", err)}

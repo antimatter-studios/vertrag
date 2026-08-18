@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,8 +12,11 @@ import (
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
+	"github.com/antimatter-studios/vertrag/fuzz"
+	"github.com/antimatter-studios/vertrag/hooks"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // probeFlags are the flags `fuzz` and `coverage` share: everything about
@@ -166,7 +170,61 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 		return nil, nil
 	}
 
-	return &probeSet{settings: settings, probeable: probeable, skipped: skipped, engine: engine, ctx: ctx, stop: stop}, nil
+	// The probing commands load hook files too. They did not, which meant a
+	// hook written to hold a dangerous field at a safe value was honoured on
+	// the documented requests and ignored on every generated one.
+	stopHooks, err := startHooks(ctx, engine, settings)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+
+	return &probeSet{
+		settings: settings, probeable: probeable, skipped: skipped, engine: engine, ctx: ctx,
+		stop: func() { stopHooks(); stop() },
+	}, nil
+}
+
+// startHooks loads the hook files, if there are any, and attaches the worker
+// to the engine.
+//
+// Starting is a hard failure rather than a warning: a suite whose hooks did
+// not load would authenticate nothing, pin nothing and skip nothing, and
+// report a wall of failures that say nothing about the API. That reasoning is
+// stronger still for the probing commands, where a hook may be the thing
+// holding a dangerous field at a safe value.
+func startHooks(ctx context.Context, engine *runner.Runner, settings config.Config) (func(), error) {
+	if len(settings.Hookfiles) == 0 {
+		return func() {}, nil
+	}
+
+	client, err := hooks.Start(ctx, hooks.Options{
+		Language:    settings.Language,
+		Hookfiles:   settings.Hookfiles,
+		Host:        settings.HooksWorkerHandlerHost,
+		Port:        settings.HooksWorkerHandlerPort,
+		Timeout:     settings.HooksWorkerTimeout,
+		ConnectWait: settings.HooksWorkerConnectWait,
+		Stderr:      os.Stderr,
+	})
+	if err != nil {
+		return func() {}, fmt.Errorf("loading hooks: %w", err)
+	}
+	engine.Hooks = client
+	return client.Stop, nil
+}
+
+// skipAware translates the runner's "a hook took this out of the run" into
+// the one the generation packages understand.
+//
+// The two sentinels are separate on purpose: the runner reports what it did,
+// and fuzz states what a Sender may tell it, without either package having to
+// know the other exists.
+func skipAware(reply validate.Message, err error) (validate.Message, error) {
+	if errors.Is(err, runner.ErrSkippedByHook) {
+		return reply, fuzz.ErrSkipped
+	}
+	return reply, err
 }
 
 // emitThrough sends results through the --reporter, if one was asked for.

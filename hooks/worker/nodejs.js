@@ -51,10 +51,27 @@ const hooks = {
   configuration: {},
 };
 
-// Hook files ask for this module by name — `require('hooks')`. Nothing on disk
-// provides it, so it is installed into the module cache before they load.
+// Hook files ask for this module by name. Nothing on disk provides it, so it
+// is installed into the module cache before they load.
+//
+// `vertrag_hooks` is the name, in both languages, and the underscore is what
+// makes one name possible: `import vertrag-hooks` is a syntax error in
+// Python, where the hyphen parses as subtraction, while Node's resolver takes
+// any string. So the underscore is the only spelling both can share, and one
+// name across both hook files beats each following its own ecosystem's habit.
+//
+// The hyphenated form still resolves here, because reaching for it is a
+// natural slip for anyone who imports `ts-node` and `body-parser` all day.
+//
+// The bare `hooks` that Dredd used is deliberately absent. There is one Node
+// hook file in the world that says it, its owners can change the line in
+// seconds, and a module named after an archived tool would otherwise sit in
+// this worker forever — with a real hazard attached, since a generic name
+// injected into the resolver shadows any genuine package of that name.
+const MODULE_NAMES = ['vertrag_hooks', 'vertrag-hooks'];
+
 function installHooksModule() {
-  const id = 'hooks';
+  const id = 'vertrag-hooks';
   const fake = new Module(id, null);
   fake.exports = hooks;
   fake.loaded = true;
@@ -62,9 +79,31 @@ function installHooksModule() {
 
   const original = Module._resolveFilename;
   Module._resolveFilename = function resolve(request, ...rest) {
-    if (request === 'hooks') return id;
+    if (MODULE_NAMES.includes(request)) return id;
     return original.call(this, request, ...rest);
   };
+}
+
+// TypeScript hook files need a loader, which Node does not have built in.
+// The project's own is used if it has one — tsx and ts-node are the two in
+// general use — and a project without either is told exactly that rather
+// than being handed `Unexpected token` from a .ts file Node tried to parse
+// as JavaScript.
+function installTypeScript(hookfiles) {
+  if (!hookfiles.some(file => /\.[cm]?tsx?$/i.test(file))) return;
+
+  for (const loader of ['tsx/cjs', 'ts-node/register']) {
+    try {
+      require(loader);
+      return;
+    } catch (error) {
+      // Try the next one.
+    }
+  }
+  throw new Error(
+    'a TypeScript hook file needs a loader: install tsx or ts-node in this project, ' +
+    'or compile the hook file to JavaScript first'
+  );
 }
 
 // runHooks invokes a list of hooks in order, supporting both calling
@@ -132,6 +171,7 @@ function main() {
   }
 
   installHooksModule();
+  installTypeScript(hookfiles);
 
   for (const file of hookfiles) {
     require(path.resolve(file));

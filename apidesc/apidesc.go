@@ -23,6 +23,12 @@ const (
 	// distinguish the serialisation.
 	MediaTypeOpenAPI2     = "application/swagger+json"
 	MediaTypeAPIBlueprint = "text/vnd.apiblueprint"
+
+	// MediaTypeUnknown is what a document nothing recognises is reported as.
+	// It is deliberately not a real media type: naming it after some format
+	// vertrag might have guessed is how the Blueprint fallback came to label
+	// every unreadable file as Blueprint.
+	MediaTypeUnknown = ""
 )
 
 // Result is a parsed description document.
@@ -54,21 +60,38 @@ var (
 	openAPI3Pattern = regexp.MustCompile(
 		`(?:openapi|"openapi"|'openapi')\s*:\s*(?:3\.\d+(?:\.\d+)?|"3\.\d+(?:\.\d+)?"|'3\.\d+(?:\.\d+)?')`)
 	openAPI2Pattern = regexp.MustCompile(`"?swagger"?\s*:\s*["']2\.0["']`)
+
+	// The API Blueprint version line, which its own tooling writes at the top
+	// of the file. Matching it is not a step towards supporting the format —
+	// it is how a Blueprint document gets an answer about Blueprint instead of
+	// the generic "this is not a description vertrag reads".
+	blueprintPattern = regexp.MustCompile(`(?m)^FORMAT:\s*1A`)
 )
 
 // Detect identifies a document's format.
 //
-// A document nothing recognises is assumed to be API Blueprint, which is what
-// the reference does; the caller is told through the second return value so it
-// can attach the warning that assumption deserves.
+// A document nothing recognises is reported as unrecognised, and used to be
+// assumed to be API Blueprint — which is what the reference does, because
+// Blueprint is a format it supports and the likeliest thing an unlabelled
+// document was. vertrag does not support Blueprint and never will, so that
+// assumption bought nothing and cost accuracy: every unreadable file, of any
+// kind, was labelled Blueprint on the way to being rejected.
+//
+// Blueprint is still detected, by the version line its own tooling writes,
+// so that a document that really is one gets told why it cannot be read
+// rather than the generic answer.
 func Detect(source []byte) (mediaType string, recognised bool) {
 	switch {
 	case openAPI3Pattern.Match(source):
 		return MediaTypeOpenAPI3, true
 	case openAPI2Pattern.Match(source):
 		return MediaTypeOpenAPI2, true
+	case blueprintPattern.Match(source):
+		// Recognised, and unsupported: two different things, which is the
+		// distinction this return value exists to carry.
+		return MediaTypeAPIBlueprint, true
 	default:
-		return MediaTypeAPIBlueprint, false
+		return MediaTypeUnknown, false
 	}
 }
 
@@ -101,17 +124,26 @@ func Parse(source []byte, filename string) (Result, error) {
 		return Result{MediaType: mediaType, Elements: elements}, nil
 	}
 
-	// API Blueprint is deliberately unsupported rather than unfinished. The
+	// Two different answers, because they call for two different actions.
+	//
+	// A document that IS API Blueprint cannot be read and never will be: the
 	// format is archived, as is its only parser, which is 2 MB of
 	// Emscripten-compiled C++ — linking it would end the static binary, and
 	// reimplementing a Markdown-based format is not worth doing for a format
-	// nobody is writing any more.
+	// nobody writes any more. Nothing the author can do to the file will help,
+	// so the message says so plainly.
 	//
-	// Reporting that through the parse result rather than as an error means the
-	// caller shows it the way it shows any other unusable document.
-	reason := "API Blueprint is not supported; vertrag reads OpenAPI 3 and OpenAPI 2"
-	if !recognised {
-		reason = "Could not recognize the API description format"
+	// A document nothing recognises is a different problem, and usually a
+	// smaller one: a typo in the version line, a file that is not a
+	// description at all, the wrong path. So it says what vertrag looked for.
+	//
+	// Reporting either through the parse result rather than as an error means
+	// the caller shows it the way it shows any other unusable document.
+	reason := "the API description format could not be recognised; " +
+		"vertrag reads OpenAPI 3 (`openapi: 3.x.x`) and OpenAPI 2 (`swagger: \"2.0\"`)"
+	if recognised && mediaType == MediaTypeAPIBlueprint {
+		reason = "this is API Blueprint, which vertrag does not support: the format and " +
+			"its only parser are archived. Convert it to OpenAPI, or keep using Dredd for it"
 	}
 	result := refract.Named("parseResult", annotationElement("error", reason))
 	return Result{MediaType: mediaType, Elements: result}, nil

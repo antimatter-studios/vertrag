@@ -97,7 +97,7 @@ func coverAll(
 				attempt := transaction
 				attempt.Request = request
 				sent++
-				return engine.Send(ctx, attempt)
+				return skipAware(engine.Send(ctx, attempt))
 			}
 
 			for _, outcome := range fuzz.Cover(ctx, target.subject, target.media, target.schema, send) {

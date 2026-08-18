@@ -20,7 +20,15 @@ func TestDetect(t *testing.T) {
 		{"JSON OpenAPI 3", `{"openapi": "3.0.2"}`, MediaTypeOpenAPI3, true},
 		{"Swagger 2", `swagger: "2.0"`, MediaTypeOpenAPI2, true},
 		{"JSON Swagger 2", `{"swagger": "2.0"}`, MediaTypeOpenAPI2, true},
-		{"API Blueprint is the fallback", "# My API\n", MediaTypeAPIBlueprint, false},
+		// Unrecognised is unrecognised. It used to be reported as API Blueprint,
+		// because that is what the reference assumes an unlabelled document is —
+		// but vertrag does not support Blueprint, so the guess bought nothing
+		// and labelled every unreadable file, of any kind, as a format it was
+		// about to refuse.
+		{"an unrecognised document is not guessed at", "# My API\n", MediaTypeUnknown, false},
+		// A document that really is Blueprint is recognised, so it can be told
+		// why it cannot be read rather than given the generic answer.
+		{"API Blueprint is recognised and unsupported", "FORMAT: 1A\n\n# My API\n", MediaTypeAPIBlueprint, true},
 
 		// A two-part version IS matched, though the specification requires all
 		// three. This once deferred to the reference, which rejects it — but
@@ -91,7 +99,8 @@ func TestUnsupportedFormatsReportRatherThanCrash(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"unrecognised", "# Just a heading\n", "Could not recognize the API description format"},
+		{"unrecognised", "# Just a heading\n", "could not be recognised"},
+		{"API Blueprint says why, and what to do instead", "FORMAT: 1A\n\n# API\n", "does not support"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := Parse([]byte(test.source), "api")

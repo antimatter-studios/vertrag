@@ -249,7 +249,7 @@ func probeAll(
 					attempt := transaction
 					attempt.Request = request
 					requests++
-					return engine.Send(ctx, attempt)
+					return skipAware(engine.Send(ctx, attempt))
 				}
 
 				var finding fuzz.Finding
@@ -338,7 +338,7 @@ func probeAll(
 					attempt := transaction
 					attempt.Request = request
 					requests++
-					return engine.Send(ctx, attempt)
+					return skipAware(engine.Send(ctx, attempt))
 				}
 
 				finding, found := fuzz.ProbeWhole(ctx, parts, mode, sendWhole, options)

@@ -32,8 +32,10 @@ type Config struct {
 	Spec     string
 	Endpoint string
 
-	// Hookfiles are loaded by a language-specific worker, except for Go, which
-	// has no hooks yet.
+	// Hookfiles are loaded by a worker in the language they are written in:
+	// `nodejs` (the default, for a project arriving from Dredd) or `python`.
+	// Go has none — a Go program cannot load a Go source file at runtime, so
+	// hooks in it would mean the user compiling their own binary.
 	Hookfiles []string
 	Language  string
 

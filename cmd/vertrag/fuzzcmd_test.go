@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -757,5 +759,140 @@ func TestMaxTimeReportsWhatWasNotReached(t *testing.T) {
 		// The baseline request may have gone out before the budget was
 		// checked; nothing beyond it should have.
 		t.Errorf("requests were sent past the budget:\n%s", output)
+	}
+}
+
+// TestHooksRunDuringGeneration is a safety test before it is a feature test.
+//
+// A hook exists to pin the value a generator must not touch — the flag that
+// decides whether a request places a real order, sends a real email, charges
+// a real card. The moment that matters is exactly when a generator is drawing
+// values, and for a long time it was the one moment hooks did not run: the
+// documented requests honoured them and the thousands of generated ones did
+// not. Nobody decided that; the generation path was written separately and
+// hooks were never wired into it.
+//
+// So this asserts the property that makes fuzzing safe to point at a system
+// with side effects: EVERY generated request carries what the hook set.
+func TestHooksRunDuringGeneration(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not installed")
+	}
+
+	var dangerous int
+	var total int
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		total++
+		if r.Header.Get("X-Dry-Run") != "true" {
+			dangerous++
+		}
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":1}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	description := filepath.Join(dir, "api.yml")
+	os.WriteFile(description, []byte(parameterisedAPI), 0o600)
+
+	hookfile := filepath.Join(dir, "hooks.py")
+	os.WriteFile(hookfile, []byte(`
+import vertrag_hooks as hooks
+
+@hooks.before_each
+def pin_safety(transaction):
+    transaction['request']['headers']['X-Dry-Run'] = 'true'
+`), 0o600)
+
+	cfg := filepath.Join(dir, "vertrag.yml")
+	os.WriteFile(cfg, []byte("spec: "+description+"\nendpoint: "+server.URL+
+		"\nlanguage: python\nhookfiles: "+hookfile+"\n"), 0o600)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	captured := make(chan string, 1)
+	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
+	runFuzz([]string{"--config", cfg, "--no-color", "--cases", "15", "--seed", "9"})
+	write.Close()
+	os.Stdout = real
+	output := <-captured
+
+	mu.Lock()
+	sent, unpinned := total, dangerous
+	mu.Unlock()
+
+	if sent == 0 {
+		t.Fatalf("nothing was sent, so nothing is proven:\n%s", output)
+	}
+	if unpinned != 0 {
+		t.Errorf("%d of %d generated requests did not carry what the hook set; "+
+			"a hook that pins a dangerous field must hold for every probe", unpinned, sent)
+	}
+	t.Logf("%d generated requests, all carrying the hook's header", sent)
+}
+
+// TestAHookCanSkipAGeneratedRequest: a hook saying "not this one" must stop
+// the request being sent, and must not be reported as the server failing —
+// nothing reached the server to fail.
+func TestAHookCanSkipAGeneratedRequest(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not installed")
+	}
+
+	var reached int
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		reached++
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	description := filepath.Join(dir, "api.yml")
+	os.WriteFile(description, []byte(parameterisedAPI), 0o600)
+
+	hookfile := filepath.Join(dir, "hooks.py")
+	os.WriteFile(hookfile, []byte(`
+import vertrag_hooks as hooks
+
+@hooks.before_each
+def never(transaction):
+    transaction['skip'] = True
+`), 0o600)
+
+	cfg := filepath.Join(dir, "vertrag.yml")
+	os.WriteFile(cfg, []byte("spec: "+description+"\nendpoint: "+server.URL+
+		"\nlanguage: python\nhookfiles: "+hookfile+"\n"), 0o600)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	captured := make(chan string, 1)
+	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
+	err := runFuzz([]string{"--config", cfg, "--no-color", "--cases", "10", "--seed", "9"})
+	write.Close()
+	os.Stdout = real
+	output := <-captured
+
+	mu.Lock()
+	sent := reached
+	mu.Unlock()
+
+	// The server 500s on everything, so any request that got through would be
+	// a finding. The hook stops them, so there are none.
+	if sent != 0 {
+		t.Errorf("%d requests reached a server the hook said not to call", sent)
+	}
+	if err != nil {
+		t.Errorf("a skipped probe is not a failure: %v\n%s", err, output)
+	}
+	if strings.Contains(output, "could not be completed") {
+		t.Errorf("a hook's skip was reported as a transport failure:\n%s", output)
 	}
 }
