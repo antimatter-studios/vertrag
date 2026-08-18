@@ -7,6 +7,16 @@ info:
     codes on one operation, and a 2xx with no content. Each is a place a
     tester can quietly assume more than the document said.
 
+    /specific is the precedence case. An exact code and a range covering it
+    describe the same response twice, and the specification says the more
+    specific wins. vertrag makes each described response its own transaction
+    and judges each on its own, so there is no arbitration to perform: the
+    exact entry's schema is applied by its own transaction, and the range's
+    band still admits the 200 its neighbour documents. Narrowing the band to
+    201-299 instead would fail the range's transaction every time the server
+    answered the 200 it was told to — which is a finding invented about a
+    conforming server, and this file is where that would show.
+
 paths:
   /ranged:
     get:
@@ -39,6 +49,31 @@ paths:
               schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
         "404":
           description: Missing
+          content:
+            application/json:
+              schema: {type: object, required: [error], properties: {error: {type: string, minLength: 1}}}
+
+  /specific:
+    get:
+      summary: An exact code and a range covering it
+      responses:
+        "200":
+          description: The specific description of this response
+          content:
+            application/json:
+              schema: {type: object, required: [id], properties: {id: {type: integer, minimum: 1}}}
+        "2XX":
+          description: The general one beside it
+          content:
+            application/json:
+              schema: {type: object}
+
+  /refused:
+    get:
+      summary: A client-error range
+      responses:
+        "4XX":
+          description: Any refusal
           content:
             application/json:
               schema: {type: object, required: [error], properties: {error: {type: string, minLength: 1}}}

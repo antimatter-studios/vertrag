@@ -238,8 +238,12 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request, matched route) {
 		return
 	}
 
-	status, err := strconv.Atoi(strings.TrimSpace(matched.response.Status))
-	if err != nil {
+	// A documented range is answered with the lowest code in its band: `2XX`
+	// gets a 200, `4XX` a 400. Parsing the text as a number gave every range a
+	// 200, so a description promising `4XX` was served a success and the
+	// conformance baseline measured the wrong thing entirely.
+	status := validate.StatusBandBase(matched.response.Status)
+	if status == 0 {
 		status = http.StatusOK
 	}
 
@@ -434,6 +438,13 @@ func (s *Server) rejectsParameters(r *http.Request, matched route) (string, bool
 		case compile.InHeader:
 			raw = r.Header.Get(parameter.Name)
 			present = raw != ""
+		case compile.InCookie:
+			// Read back off the wire rather than out of the header text, so
+			// the server judges the cookie a standard parser would see — which
+			// is the only cookie a real handler could act on.
+			if cookie, err := r.Cookie(parameter.Name); err == nil {
+				raw, present = cookie.Value, true
+			}
 		}
 		if !present {
 			continue

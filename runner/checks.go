@@ -212,6 +212,12 @@ func baseMediaType(value string) string {
 
 // statusMatches reports whether the response is the one the expectation
 // describes.
+//
+// It defers to the validator rather than comparing the text itself, because
+// the two answers have to agree. A description promising `2XX` is met by a
+// 201; a check reading that as "expected 2XX, got 201, so this is a DIFFERENT
+// documented response" would then decline to compare the content type of the
+// only response the operation describes, and the gap would be silent.
 func statusMatches(expected, actual validate.Message) bool {
-	return strings.TrimSpace(expected.StatusCode) == strings.TrimSpace(actual.StatusCode)
+	return validate.StatusMatches(expected.StatusCode, actual.StatusCode)
 }

@@ -29,6 +29,18 @@ const SchemaAttribute = "vertragSchema"
 // attribute — like the schema, it travels for vertrag's own use.
 const StyleAttribute = "vertragStyle"
 
+// CookiesAttribute carries an operation's cookie parameters on an httpRequest
+// element, as a member per cookie holding its demonstrated value and, through
+// SchemaAttribute, the schema its value must satisfy.
+//
+// They cannot travel in the header list they end up in, because they are not
+// one header each: several cookie parameters share a single Cookie line, and
+// flattening them into it at the parse stage would lose which byte of that
+// line belongs to which parameter — so nothing downstream could vary one
+// cookie, or say which one a finding is about. Dredd has no such attribute;
+// like the schema and the style, it travels for vertrag's own use.
+const CookiesAttribute = "vertragCookies"
+
 // New returns an empty element with the given name.
 func New(name string) *Element {
 	return &Element{Name: name, Kind: ContentNone}

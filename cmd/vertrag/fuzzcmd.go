@@ -627,12 +627,14 @@ func operationKey(transaction compile.Transaction) string {
 	return transaction.Request.URI
 }
 
+// statusOf is the status a transaction expects, as a number.
+//
+// A range answers with the lowest code in its band, so an operation documented
+// as `2XX` is recognised as the success path it is. Reading the text as a
+// number gave it zero, and zero is not a success — so probing quietly refused
+// to fuzz every operation whose author wrote a band instead of a code.
 func statusOf(transaction compile.Transaction) int {
-	n, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
-	if err != nil {
-		return 0
-	}
-	return n
+	return validate.StatusBandBase(transaction.Response.Status)
 }
 
 func isSuccess(status int) bool { return status >= 200 && status < 300 }
@@ -694,6 +696,17 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 
 	// Judged against what the description promised rather than against 2xx: an
 	// operation documented as returning 404 is working when it returns one.
+	//
+	// A documented RANGE is judged as a range. It parses as no number at all,
+	// so it used to fall through to the guess below — and "anything under 400
+	// is fine" accepts a 302 the document never mentioned as a healthy
+	// baseline, which is exactly the pretence the guess exists to admit to.
+	if validate.IsStatusRange(transaction.Response.Status) {
+		return baseline{
+			ok:      validate.StatusMatches(transaction.Response.Status, reply.StatusCode),
+			refused: refused(status, validate.StatusBandBase(transaction.Response.Status)),
+		}
+	}
 	expected, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
 	switch {
 	case err != nil:

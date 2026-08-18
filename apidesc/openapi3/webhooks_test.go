@@ -89,7 +89,7 @@ webhooks:
     post:
       parameters:
         - name: signature
-          in: cookie
+          in: body
       responses:
         "200":
           description: OK
@@ -99,7 +99,11 @@ webhooks:
 `)
 
 	assertSomeDiagnosticMentions(t, diagnostics, "'Path Item Object' contains invalid key 'postt'")
-	assertSomeDiagnosticMentions(t, diagnostics, "'Parameter Object' 'in' 'cookie' is unsupported")
+	// `in: body` is Swagger 2's spelling, which an OpenAPI 3 document has no
+	// place for. It stands in for the parameter-level mistake this test is
+	// really about; it was written as `in: cookie`, which vertrag now sends
+	// rather than warns about.
+	assertSomeDiagnosticMentions(t, diagnostics, "'Parameter Object' 'in' 'body' is unsupported")
 	assertSomeDiagnosticMentions(t, diagnostics, "resolves to nothing")
 }
 

@@ -25,8 +25,11 @@ func TestSupplierNamesSomethingThatWorks(t *testing.T) {
 			"--header 'Authorization: Basic <base64>'"},
 		{compile.Security{Type: "apiKey", In: "query", Parameter: "api_key"},
 			"no flag supplies a credential in the query; a hook can set it"},
+		// A cookie IS suppliable now: a run merges Cookie headers instead of
+		// replacing them, so `--header` puts the credential beside whatever
+		// cookies the description declares rather than deleting them.
 		{compile.Security{Type: "apiKey", In: "cookie", Parameter: "session"},
-			"no flag supplies a credential in the cookie; a hook can set it"},
+			"--header 'Cookie: session=<value>'"},
 		{compile.Security{Type: "oauth2"},
 			"a hook can set the credential this scheme needs"},
 	} {

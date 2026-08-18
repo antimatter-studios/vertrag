@@ -92,3 +92,44 @@ func TestSanitizeHeaderAddsAName(t *testing.T) {
 		t.Errorf("Redact(harmless) = %q, want acme", got)
 	}
 }
+
+// TestARedactedCookieHeaderKeepsItsCookieNames pins the treatment a Cookie
+// header gets now that a cookie can be a documented PARAMETER rather than a
+// credential. Whole-line redaction hid the names too, so a report of a failing
+// request could not say which cookies were sent at all.
+func TestARedactedCookieHeaderKeepsItsCookieNames(t *testing.T) {
+	SetSanitize(true)
+
+	got := Redact("Cookie", "jwt=topsecret; locale=en-GB")
+	if want := "jwt=<redacted>; locale=<redacted>"; got != want {
+		t.Errorf("Redact(Cookie) = %q, want %q", got, want)
+	}
+}
+
+// TestARedactedCookieHeaderKeepsNoValues is the half that matters more.
+// vertrag cannot tell which pair is the credential — the credential's name
+// comes from the server's Set-Cookie and a parameter may be called `session`
+// just as easily — so every value goes, including the ones the description
+// wrote down.
+func TestARedactedCookieHeaderKeepsNoValues(t *testing.T) {
+	SetSanitize(true)
+
+	if got := Redact("Cookie", "session=topsecret"); strings.Contains(got, "topsecret") {
+		t.Errorf("Redact(Cookie) = %q, which leaked the value", got)
+	}
+	if got := Redact("cookie", "novalue"); strings.Contains(got, "novalue") {
+		t.Errorf("Redact(Cookie) = %q, which leaked a pair with no '=' in it", got)
+	}
+}
+
+// TestARedactedSetCookieHeaderIsStillRedactedWhole says why Set-Cookie is not
+// treated the same way. Its value is one cookie followed by attributes —
+// `Path`, `Expires`, `HttpOnly` — not a list of independent pairs, and nobody
+// reproducing a request needs to read it back.
+func TestARedactedSetCookieHeaderIsStillRedactedWhole(t *testing.T) {
+	SetSanitize(true)
+
+	if got := Redact("Set-Cookie", "session=topsecret; Path=/"); got != Redacted {
+		t.Errorf("Redact(Set-Cookie) = %q, want %q", got, Redacted)
+	}
+}

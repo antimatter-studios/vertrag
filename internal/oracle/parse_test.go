@@ -106,6 +106,34 @@ var divergences = []divergence{
 		reason:  constraintsAreSupported,
 	},
 	{
+		fixture: "media-types",
+		path:    "transactions[8].response.status",
+		reason:  statusRangesAreSupported,
+	},
+	{
+		fixture: "media-types",
+		path:    "transactions[8].name",
+		reason: statusRangesAreSupported + " The band reaches the transaction " +
+			"NAME too, which is what hooks and `--only` address — and it has to, " +
+			"or two responses of one operation would share a name.",
+	},
+	{
+		fixture: "media-types",
+		path:    "transactions[8].origin.exampleName",
+		reason:  statusRangesAreSupported + " The name is built from this.",
+	},
+	{
+		fixture: "security-and-servers",
+		path:    "transactions[3].request.headers",
+		reason:  cookieParametersAreSent,
+	},
+	{
+		fixture: "security-and-servers",
+		path:    "annotations",
+		reason: cookieParametersAreSent + " This is the warning Dredd raises " +
+			"and vertrag no longer has anything to warn about.",
+	},
+	{
 		fixture: "composition",
 		path:    "transactions[0].response.body",
 		reason: "Dredd acts on none of allOf, anyOf or oneOf when the schema " +
@@ -201,6 +229,23 @@ var divergences = []divergence{
 			"nothing.",
 	},
 }
+
+// statusRangesAreSupported explains the expected status vertrag derives from a
+// Responses Object key naming a band.
+const statusRangesAreSupported = "Dredd gives a status code range no status " +
+	"at all, which leaves it with the compiler's fallback of 200 — so a " +
+	"document saying `2XX` is tested as though it had said `exactly 200`, and " +
+	"a server answering the 201 its own document permits is reported as " +
+	"wrong. vertrag carries the band through and matches any code inside it."
+
+// cookieParametersAreSent explains the request header vertrag builds where
+// Dredd builds none.
+const cookieParametersAreSent = "Dredd has nowhere to put a cookie parameter " +
+	"and warns that `in: cookie` is unsupported, so the parameter is simply " +
+	"not sent: the operation is tested without an input its description says " +
+	"it takes, and a server requiring the cookie answers 401 for a reason no " +
+	"report explains. vertrag assembles the documented cookies into a Cookie " +
+	"header, merging rather than replacing whatever credential the run carries."
 
 // headerSchemasAreSupported explains the Header Object annotations vertrag does
 // not emit.

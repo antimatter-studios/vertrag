@@ -5,7 +5,8 @@
 // judgements are what turn into a passing or failing test. The rules are looser
 // than they first look, deliberately so:
 //
-//   - A status code must match exactly.
+//   - A status code must match exactly, unless the description gave a range
+//     (`2XX`), which any code in the band satisfies.
 //   - Expected headers must be present; their values are not compared. A
 //     description says which headers exist, not what they will contain.
 //   - A JSON body is checked for the presence of the keys the expected body
@@ -22,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -89,12 +91,83 @@ func (r *Result) add(name string, field FieldResult) {
 
 func validateStatusCode(expected, real string) FieldResult {
 	field := FieldResult{Valid: true, Kind: kind("text"), Errors: []string{}}
-	if strings.TrimSpace(expected) != strings.TrimSpace(real) {
+	if !StatusMatches(expected, real) {
 		field.Valid = false
 		field.Errors = append(field.Errors,
 			fmt.Sprintf("Expected status code '%s', but got '%s'.", expected, real))
 	}
 	return field
+}
+
+// StatusMatches reports whether a response's status is the one an expectation
+// describes.
+//
+// Exact for exact codes, which is what a status comparison has always been.
+// The addition is OpenAPI's status code RANGES — `2XX`, `4XX` — which name a
+// band rather than a code and therefore cannot be compared for equality: an
+// expectation of the literal text "2XX" can never be met, because no server
+// sends it. A `2XX` response is satisfied by anything from 200 to 299.
+//
+// It is exported because the judging of a status happens in two places that
+// must agree. This one decides pass or fail; the runner's extra checks gate
+// themselves on "was this the documented response at all" before comparing a
+// content type or a header schema, and a range the two read differently would
+// have a run report a Content-Type mismatch against an expectation it had
+// already decided did not apply.
+func StatusMatches(expected, real string) bool {
+	expected, real = strings.TrimSpace(expected), strings.TrimSpace(real)
+	if expected == real {
+		return true
+	}
+	band, ranged := statusBand(expected)
+	if !ranged || len(real) != 3 {
+		return false
+	}
+	return real[0] == band && real[1] >= '0' && real[1] <= '9' && real[2] >= '0' && real[2] <= '9'
+}
+
+// statusBand reads the leading digit of a status code range, or reports that
+// the text is not one.
+//
+// Only `1XX` through `5XX` count. The specification defines exactly those, and
+// accepting `22X` or `XXX` as a range would silently give a typo a meaning
+// nobody wrote — the parse stage reports those as the invalid keys they are.
+func statusBand(status string) (byte, bool) {
+	if len(status) != 3 || status[1] != 'X' || status[2] != 'X' {
+		return 0, false
+	}
+	if status[0] < '1' || status[0] > '5' {
+		return 0, false
+	}
+	return status[0], true
+}
+
+// IsStatusRange reports whether a status expectation names a band rather than
+// a code, for the callers that have to turn one into a number — a probing
+// phase deciding whether an operation is a success path, a test server
+// deciding what to answer.
+func IsStatusRange(status string) bool {
+	_, ranged := statusBand(strings.TrimSpace(status))
+	return ranged
+}
+
+// StatusBandBase is the lowest code a status expectation admits: 200 for
+// `2XX`, and the code itself for an exact one. Zero when the text is neither.
+//
+// A caller wanting "is this operation a success path" cannot ask that of the
+// text `2XX`, and the answers it reached for by parsing it as a number — zero,
+// or an error — both say "not a success path" about a response documented as
+// nothing but.
+func StatusBandBase(status string) int {
+	status = strings.TrimSpace(status)
+	if band, ranged := statusBand(status); ranged {
+		return int(band-'0') * 100
+	}
+	code, err := strconv.Atoi(status)
+	if err != nil {
+		return 0
+	}
+	return code
 }
 
 // validateHeaders reports the expected headers the response did not carry.

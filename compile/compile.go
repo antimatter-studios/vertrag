@@ -235,12 +235,14 @@ func compileRequest(element *refract.Element) (*Request, []Annotation) {
 
 	headers := compileHeaders(element.Attr("headers"))
 	request := &Request{
-		Method:     element.Attr("method").String(),
-		URI:        uri.uri,
-		Headers:    headers,
-		Body:       compileBody(element.ChildWithClass("asset", "messageBody"), hasMultipartBody(headers)),
-		Template:   uri.template,
-		Parameters: append(uri.parameters, headerParameters(element.Attr("headers"))...),
+		Method:   element.Attr("method").String(),
+		URI:      uri.uri,
+		Headers:  headers,
+		Body:     compileBody(element.ChildWithClass("asset", "messageBody"), hasMultipartBody(headers)),
+		Template: uri.template,
+		Parameters: append(append(uri.parameters,
+			headerParameters(element.Attr("headers"))...),
+			cookieParameters(element.Attr(refract.CookiesAttribute))...),
 	}
 	if schema := element.ChildWithClass("asset", "messageBodySchema"); schema != nil {
 		request.Schema = schema.String()
@@ -270,6 +272,33 @@ func headerParameters(element *refract.Element) []Parameter {
 			In:       InHeader,
 			Name:     name,
 			Schema:   schema,
+			Value:    value,
+			HasValue: value != "",
+		})
+	}
+	return out
+}
+
+// cookieParameters reads the cookie parameters a parser recorded beside the
+// request's headers.
+//
+// They are parameters like any other, and are listed as such so that the
+// checks and probes which vary a parameter by name and location can reach a
+// cookie — a session identifier or a tenant selector is exactly the kind of
+// input a handler forgets to validate, and it was previously not sent at all,
+// let alone varied.
+func cookieParameters(element *refract.Element) []Parameter {
+	var out []Parameter
+	for _, member := range element.ContentChildren() {
+		if member.Kind != refract.ContentMember {
+			continue
+		}
+		name, _ := member.Key.StringValue()
+		value := member.Value.String()
+		out = append(out, Parameter{
+			In:       InCookie,
+			Name:     name,
+			Schema:   member.Value.Attr(refract.SchemaAttribute).String(),
 			Value:    value,
 			HasValue: value != "",
 		})

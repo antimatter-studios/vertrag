@@ -241,17 +241,17 @@
         "body": ""
       },
       "response": {
-        "status": "200",
+        "status": "2XX",
         "headers": []
       },
-      "name": "Media Types \u003e /status-range \u003e Status code range \u003e 200",
+      "name": "Media Types \u003e /status-range \u003e Status code range \u003e 2XX",
       "origin": {
         "filename": "media-types.yml",
         "apiName": "Media Types",
         "resourceGroupName": "",
         "resourceName": "/status-range",
         "actionName": "Status code range",
-        "exampleName": "200"
+        "exampleName": "2XX"
       }
     },
     {
@@ -287,8 +287,5 @@
         "exampleName": "200 \u003e application/json"
       }
     }
-  ],
-  "annotations": [
-    "warning: 'Responses Object' response status code ranges are unsupported"
   ]
 }

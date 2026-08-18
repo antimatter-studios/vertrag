@@ -570,6 +570,12 @@ paths:
 
 // TestAnnotationSourcePositions pins that diagnostics point at the source,
 // including the quotes a quoted key adds to its span.
+//
+// The key is a malformed one — `22X` is neither a status code nor one of the
+// five bands the specification defines — because it has to be a key that
+// warns. This test was written against `"2XX"`, which vertrag now acts on
+// rather than warns about; the span being pinned is the same either way, and
+// it is the span that is the subject here.
 func TestAnnotationSourcePositions(t *testing.T) {
 	result := compileSource(t, `openapi: "3.0.0"
 info: {title: P, version: "1.0.0"}
@@ -578,18 +584,18 @@ paths:
     get:
       summary: S
       responses:
-        "2XX":
-          description: Any success
+        "22X":
+          description: Not a range
 `)
 
 	if len(result.Annotations) != 1 {
 		t.Fatalf("annotations = %d, want 1", len(result.Annotations))
 	}
 	got := result.Annotations[0]
-	if !strings.Contains(got.Message, "status code ranges are unsupported") {
+	if !strings.Contains(got.Message, "contains invalid key '22X'") {
 		t.Fatalf("annotation = %q", got.Message)
 	}
-	// `"2XX"` starts at line 8 column 9 and is five characters wide with its
+	// `"22X"` starts at line 8 column 9 and is five characters wide with its
 	// quotes, so it ends at column 14.
 	want := [][]int{{8, 9}, {8, 14}}
 	if len(got.Location) != 2 || got.Location[0][0] != want[0][0] || got.Location[0][1] != want[0][1] ||
