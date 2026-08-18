@@ -1,0 +1,4830 @@
+{
+  "components": {
+    "schemas": {
+      "AccessPointDevice": {
+        "properties": {
+          "device": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Device"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "has_dhcp_lease": {
+            "type": "boolean"
+          },
+          "is_dongle": {
+            "type": "boolean"
+          },
+          "is_station": {
+            "type": "boolean"
+          },
+          "lease": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DHCPLease"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "station": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WifiConnectedDevice"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "mac_address",
+          "has_dhcp_lease",
+          "is_station",
+          "is_dongle"
+        ],
+        "type": "object"
+      },
+      "AccessPointServiceConfig": {
+        "properties": {
+          "channel": {
+            "type": "integer"
+          },
+          "country_code": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "ssid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid",
+          "channel",
+          "country_code"
+        ],
+        "type": "object"
+      },
+      "AddDeviceRequest": {
+        "properties": {
+          "device_type": {
+            "enum": [
+              "hub",
+              "dongle"
+            ],
+            "example": "dongle",
+            "type": "string"
+          },
+          "inpace_api_endpoint": {
+            "example": "http://10.55.0.1/api/v1",
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inpace_api_endpoint",
+          "device_type"
+        ],
+        "type": "object"
+      },
+      "BundleInfo": {
+        "properties": {
+          "bundle_bytes": {
+            "type": "integer"
+          },
+          "compatible": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "compatible"
+        ],
+        "type": "object"
+      },
+      "CPUStats": {
+        "properties": {
+          "system": {
+            "type": "number"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "usage": {
+            "type": "number"
+          },
+          "user": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "usage",
+          "user",
+          "system",
+          "temperature"
+        ],
+        "type": "object"
+      },
+      "ConfigEntry": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "section": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "required",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ConfigResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DHCPLease": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "device_guid": {
+            "type": "string"
+          },
+          "expiry_time": {
+            "type": "integer"
+          },
+          "has_api": {
+            "type": "boolean"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expiry_time",
+          "mac_address",
+          "ip_address",
+          "hostname",
+          "client_id",
+          "has_api"
+        ],
+        "type": "object"
+      },
+      "Device": {
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "guid": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "inpace_api_endpoint": {
+            "type": "string"
+          },
+          "is_local": {
+            "type": "boolean"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usb_disk_label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "guid",
+          "device_type",
+          "is_local",
+          "inpace_api_endpoint",
+          "status",
+          "last_seen",
+          "hostname",
+          "mac_address",
+          "build_id",
+          "usb_disk_label"
+        ],
+        "type": "object"
+      },
+      "DeviceType": {
+        "type": "string"
+      },
+      "DiskPartition": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "mount_point": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mount_point",
+          "label",
+          "total",
+          "used"
+        ],
+        "type": "object"
+      },
+      "FieldRow": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "source"
+        ],
+        "type": "object"
+      },
+      "FileOperation": {
+        "properties": {
+          "destination_path": {
+            "type": "string"
+          },
+          "is_directory": {
+            "type": "boolean"
+          },
+          "operation_type": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/FileOperationStats"
+          }
+        },
+        "required": [
+          "source_path",
+          "destination_path",
+          "is_directory",
+          "operation_type",
+          "stats"
+        ],
+        "type": "object"
+      },
+      "FileOperationStats": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "directories": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files",
+          "directories",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "FileProcessingResult": {
+        "properties": {
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/FileOperation"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/FileOperationStats"
+          }
+        },
+        "required": [
+          "path",
+          "operations",
+          "stats"
+        ],
+        "type": "object"
+      },
+      "FileTrackingEntryResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "is_deleted": {
+            "type": "boolean"
+          },
+          "is_processed": {
+            "type": "boolean"
+          },
+          "job_id": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "timestamp": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "root",
+          "path",
+          "size",
+          "timestamp",
+          "is_processed",
+          "is_deleted",
+          "job_id"
+        ],
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "boot_name": {
+            "type": "string"
+          },
+          "boot_status": {
+            "type": "string"
+          },
+          "booted_slot": {
+            "type": "string"
+          },
+          "build_id": {
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "display_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "status",
+          "build_id",
+          "device_type"
+        ],
+        "type": "object"
+      },
+      "InPaceJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/FileOperation"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/FileOperationStats"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "operations",
+          "stats",
+          "job_id",
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "JobEntryResponse": {
+        "properties": {
+          "cancelled_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "failed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "file_path": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "metadata": {
+            "type": "string"
+          },
+          "programmer_type": {
+            "type": "string"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "wait_deadline": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "guid",
+          "status",
+          "programmer_type",
+          "file_path",
+          "metadata",
+          "started_at",
+          "completed_at",
+          "cancelled_at",
+          "failed_at",
+          "error",
+          "created_by",
+          "serial",
+          "wait_deadline"
+        ],
+        "type": "object"
+      },
+      "JobListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/JobEntryResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "JobResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/JobEntryResponse"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "type": "object"
+      },
+      "JobStatus": {
+        "type": "string"
+      },
+      "KtdaStatus": {
+        "properties": {
+          "generated_at": {
+            "type": "string"
+          },
+          "institutions": {
+            "type": "integer"
+          },
+          "loaded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "loaded",
+          "institutions"
+        ],
+        "type": "object"
+      },
+      "LocaleConfig": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LocaleEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "LocaleEntry": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "LogConfigResponse": {
+        "properties": {
+          "filter_in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "filter_out": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "filter_in",
+          "filter_out"
+        ],
+        "type": "object"
+      },
+      "LogEntry": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {},
+          "guid": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "json": {},
+          "message": {
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "guid",
+          "timestamp",
+          "message",
+          "action",
+          "json"
+        ],
+        "type": "object"
+      },
+      "LogsResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/LogEntry"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/LogsResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "type": "object"
+      },
+      "LogsResponseMeta": {
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pages": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "page",
+          "size",
+          "pages"
+        ],
+        "type": "object"
+      },
+      "MemoryStats": {
+        "properties": {
+          "available": {
+            "type": "integer"
+          },
+          "buffers": {
+            "type": "integer"
+          },
+          "cached": {
+            "type": "integer"
+          },
+          "free": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "available",
+          "used",
+          "free",
+          "cached",
+          "buffers"
+        ],
+        "type": "object"
+      },
+      "NameserverServiceConfig": {
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "dhcp_end_ip": {
+            "type": "string"
+          },
+          "dhcp_start_ip": {
+            "type": "string"
+          },
+          "hub_ip": {
+            "type": "string"
+          },
+          "upstream_dns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "device",
+          "hub_ip",
+          "dhcp_start_ip",
+          "dhcp_end_ip",
+          "upstream_dns"
+        ],
+        "type": "object"
+      },
+      "NetworkDevice": {
+        "properties": {
+          "ip_address": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "mac_address",
+          "ip_address"
+        ],
+        "type": "object"
+      },
+      "NetworkStatusInfo": {
+        "properties": {
+          "ip_address": {
+            "type": "string"
+          },
+          "wifi_connected": {
+            "type": "boolean"
+          },
+          "wifi_ssid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "wifi_connected"
+        ],
+        "type": "object"
+      },
+      "PHPInfo": {
+        "properties": {
+          "version": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "ProgressEvent": {
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "failed": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "stage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "stage",
+          "percent",
+          "message"
+        ],
+        "type": "object"
+      },
+      "RFKillDevice": {
+        "properties": {
+          "hard_blocked": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "soft_blocked": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "soft_blocked",
+          "hard_blocked"
+        ],
+        "type": "object"
+      },
+      "RegisterDongleRequest": {
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "inpace_api_endpoint": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guid",
+          "hostname",
+          "inpace_api_endpoint",
+          "mac_address",
+          "build_id"
+        ],
+        "type": "object"
+      },
+      "RemoteUpdateServerFile": {
+        "properties": {
+          "download_url": {
+            "type": "string"
+          },
+          "last_modified": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size",
+          "last_modified",
+          "download_url"
+        ],
+        "type": "object"
+      },
+      "RemoteUpdateURLRequest": {
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "RestartResult": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "SambaConfig": {
+        "properties": {
+          "encrypt_passwords": {
+            "type": "boolean"
+          },
+          "shares": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SambaShare"
+            },
+            "type": "object"
+          },
+          "status": {
+            "type": "string"
+          },
+          "users": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SambaUser"
+            },
+            "type": "object"
+          },
+          "workgroup": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "workgroup",
+          "encrypt_passwords"
+        ],
+        "type": "object"
+      },
+      "SambaShare": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "type": "object"
+      },
+      "SambaUser": {
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "ServiceStatus": {
+        "properties": {
+          "ethernet_active": {
+            "type": "boolean"
+          },
+          "nameserver_active": {
+            "type": "boolean"
+          },
+          "wireless_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ethernet_active",
+          "wireless_active",
+          "nameserver_active"
+        ],
+        "type": "object"
+      },
+      "SystemInfo": {
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "device_guid": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "kernel_arch": {
+            "type": "string"
+          },
+          "kernel_version": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "platform_family": {
+            "type": "string"
+          },
+          "platform_version": {
+            "type": "string"
+          },
+          "virtualization": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "build_id",
+          "device_type",
+          "device_guid",
+          "hostname",
+          "os",
+          "platform",
+          "platform_family",
+          "platform_version",
+          "kernel_version",
+          "kernel_arch",
+          "virtualization"
+        ],
+        "type": "object"
+      },
+      "Timezone": {
+        "properties": {
+          "city": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "region",
+          "city"
+        ],
+        "type": "object"
+      },
+      "UpdatePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "type": "object"
+      },
+      "WifiConnectedDevice": {
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "rx_bytes": {
+            "type": "string"
+          },
+          "signal_strength": {
+            "type": "string"
+          },
+          "tx_bytes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device",
+          "mac_address",
+          "signal_strength",
+          "rx_bytes",
+          "tx_bytes",
+          "ip_address",
+          "hostname"
+        ],
+        "type": "object"
+      },
+      "file": {
+        "format": "binary",
+        "type": "string"
+      },
+      "file_tracking.FileTrackingListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/FileTrackingEntryResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "interface{}": {
+        "type": "object"
+      },
+      "model.CardRead": {
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/FieldRow"
+            },
+            "type": "array"
+          },
+          "form": {
+            "items": {
+              "$ref": "#/components/schemas/FieldRow"
+            },
+            "type": "array"
+          },
+          "read_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form",
+          "diagnostics"
+        ],
+        "type": "object"
+      },
+      "model.Status": {
+        "properties": {
+          "card_present": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "has_read": {
+            "type": "boolean"
+          },
+          "ktda": {
+            "$ref": "#/components/schemas/KtdaStatus"
+          },
+          "last_read_at": {
+            "type": "string"
+          },
+          "reader_connected": {
+            "type": "boolean"
+          },
+          "reader_driver": {
+            "type": "string"
+          },
+          "reader_product": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reader_connected",
+          "card_present",
+          "has_read",
+          "ktda"
+        ],
+        "type": "object"
+      },
+      "network.AccessPointResponse": {
+        "properties": {
+          "access_point": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessPointServiceConfig"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "ethernet_device": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NetworkDevice"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "nameserver": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NameserverServiceConfig"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "rfkill": {
+            "items": {
+              "$ref": "#/components/schemas/RFKillDevice"
+            },
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ServiceStatus"
+          },
+          "wifi_device": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NetworkDevice"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "access_point",
+          "nameserver",
+          "rfkill",
+          "status",
+          "wifi_device",
+          "ethernet_device"
+        ],
+        "type": "object"
+      },
+      "network.NetworkInfo": {
+        "properties": {
+          "bitrate": {
+            "type": "string"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "rfkill": {
+            "items": {
+              "$ref": "#/components/schemas/RFKillDevice"
+            },
+            "type": "array"
+          },
+          "signal": {
+            "type": "string"
+          },
+          "ssid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rfkill"
+        ],
+        "type": "object"
+      },
+      "rauc.InstallAccepted": {
+        "properties": {
+          "bundle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BundleInfo"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "expected_version": {
+            "type": "string"
+          },
+          "installed_slot": {
+            "type": "string"
+          },
+          "previous_slot": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "installed_slot",
+          "previous_slot"
+        ],
+        "type": "object"
+      },
+      "rauc.InstallState": {
+        "properties": {
+          "bundle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BundleInfo"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ProgressEvent"
+            },
+            "type": "array"
+          },
+          "expected_version": {
+            "type": "string"
+          },
+          "installed_slot": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "previous_slot": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "events"
+        ],
+        "type": "object"
+      },
+      "rauc.ProgressEvent": {
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "failed": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "stage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "stage",
+          "percent",
+          "message"
+        ],
+        "type": "object"
+      },
+      "restclient.DeviceInfoResponse": {
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/CPUStats"
+          },
+          "disk": {
+            "items": {
+              "$ref": "#/components/schemas/DiskPartition"
+            },
+            "type": "array"
+          },
+          "display_version": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "info": {
+            "$ref": "#/components/schemas/SystemInfo"
+          },
+          "locales": {
+            "$ref": "#/components/schemas/LocaleConfig"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryStats"
+          },
+          "php": {
+            "$ref": "#/components/schemas/PHPInfo"
+          },
+          "timezone": {
+            "$ref": "#/components/schemas/Timezone"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "info",
+          "cpu",
+          "memory",
+          "disk",
+          "php",
+          "locales",
+          "timezone"
+        ],
+        "type": "object"
+      },
+      "restclient.DeviceListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Device"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "restclient.DeviceUpdateRequest": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hostname",
+          "status"
+        ],
+        "type": "object"
+      },
+      "restclient.DongleHeartbeatRequest": {
+        "properties": {
+          "guid": {
+            "type": "string"
+          },
+          "inpace_api_endpoint": {
+            "type": "string"
+          },
+          "usb_disk_label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guid",
+          "inpace_api_endpoint",
+          "usb_disk_label"
+        ],
+        "type": "object"
+      },
+      "restclient.ErrorResponse": {
+        "properties": {
+          "details": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "response_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "restclient.InPaceJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/FileOperation"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/FileOperationStats"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "operations",
+          "stats",
+          "job_id",
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "restclient.LoginRequest": {
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "restclient.LoginResponse": {
+        "properties": {
+          "api_endpoint": {
+            "type": "string"
+          },
+          "device_guid": {
+            "type": "string"
+          },
+          "last_login": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      },
+      "restclient.MessageResponse": {
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "restclient.RemoteUpdateServerResponse": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/RemoteUpdateServerFile"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "type": "object"
+      },
+      "restclient.UserResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "last_login": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "name",
+          "username",
+          "last_login"
+        ],
+        "type": "object"
+      },
+      "system.Device": {
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "guid": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "inpace_api_endpoint": {
+            "type": "string"
+          },
+          "is_local": {
+            "type": "boolean"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "mac_address": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usb_disk_label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "guid",
+          "device_type",
+          "is_local",
+          "inpace_api_endpoint",
+          "status",
+          "last_seen",
+          "hostname",
+          "mac_address",
+          "build_id",
+          "usb_disk_label"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "inPACE (real generator output, plus one array query parameter)",
+    "version": "dev",
+    "description": "A go-oapifly-generated OpenAPI 3 document from a real project, unchanged except for one array-typed query parameter with a list example on GET /api/v1/card-reader/download. It pins the fix in #17: a list example used to be dropped by the parser and the parameter with it; the spec default for a query list is exploded, so the compiled URI must carry ids=1&ids=2."
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Login",
+        "description": "Authenticates a user and creates a session",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "description": "Login credentials",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/restclient.LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid username or password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error setting up session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "summary": "Logout",
+        "description": "Destroys the user's session and logs out",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error destroying session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/card-reader/data": {
+      "get": {
+        "summary": "Current card data",
+        "description": "Patient demographics + insurance block of the most-recent eGK read",
+        "tags": [
+          "card-reader"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/model.CardRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No card has been read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/card-reader/download": {
+      "get": {
+        "summary": "Export card data",
+        "description": "Download the current read as gdt | hl7adt | fhir",
+        "tags": [
+          "card-reader"
+        ],
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "Output format: gdt | hl7adt | fhir",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "gdt"
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "example": [
+              1,
+              2
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/file"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported format",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No card has been read",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/card-reader/ktda/refresh": {
+      "post": {
+        "summary": "Refresh KTDA insurer table",
+        "description": "Re-scrape gkv-datenaustausch.de and recompile ktda.json",
+        "tags": [
+          "card-reader"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/model.Status"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Refresh failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/card-reader/status": {
+      "get": {
+        "summary": "Card reader status",
+        "description": "Reader connection, card presence, last-read time, KTDA table state",
+        "tags": [
+          "card-reader"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/model.Status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/config": {
+      "get": {
+        "summary": "Get config",
+        "description": "Returns the current configuration",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to retrieve config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/config/log": {
+      "delete": {
+        "summary": "Remove log filters",
+        "description": "Removes filters from log include/exclude lists",
+        "tags": [
+          "config"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to update log filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get log config",
+        "description": "Returns current log level and filters",
+        "tags": [
+          "config"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogConfigResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to retrieve log config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Set log config",
+        "description": "Sets log level and/or filters",
+        "tags": [
+          "config"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to update log config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Add log filters",
+        "description": "Adds filters to log include/exclude lists",
+        "tags": [
+          "config"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to update log filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device": {
+      "post": {
+        "summary": "Add device",
+        "description": "Adds a new device to the system",
+        "tags": [
+          "device"
+        ],
+        "requestBody": {
+          "description": "Device to add",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDeviceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/guid/{deviceGuid}": {
+      "delete": {
+        "summary": "Remove device",
+        "description": "Removes a device from the system",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Path parameter 'deviceGuid'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get device info by GUID",
+        "description": "Returns device info for the specified GUID",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "98604a08-2a5c-11f0-96c2-8eb3c8ffa935"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.DeviceInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update device info",
+        "description": "Updates the device information in the database",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Path parameter 'deviceGuid'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          }
+        ],
+        "requestBody": {
+          "description": "Device info to update",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/restclient.DeviceUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/id/{id}": {
+      "delete": {
+        "summary": "Remove device",
+        "description": "Removes a device from the system",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter 'id'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/info": {
+      "get": {
+        "summary": "Get device info",
+        "description": "Returns system, CPU, memory, disk, PHP, locales, and timezone info",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.DeviceInfoResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/list": {
+      "get": {
+        "summary": "Get all devices",
+        "description": "Returns a list of all devices (no type filter)",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.DeviceListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/list/{type}": {
+      "get": {
+        "summary": "Get device list",
+        "description": "Returns a list of all connected devices",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "Device type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "type"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.DeviceListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/reboot": {
+      "post": {
+        "summary": "Reboot device",
+        "description": "Initiates a system reboot on the device",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/validate/{endpoint}": {
+      "get": {
+        "summary": "Validate device",
+        "description": "Validates the device with the specified endpoint (e.g. http://192.168.0.1:4000 or https://inpace.local:4000). Path is not required and will be ignored.",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "name": "endpoint",
+            "in": "path",
+            "description": "InPace endpoint (protocol + host[:port])",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "endpoint"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.DeviceInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/file-tracking": {
+      "get": {
+        "summary": "Get all file tracking entries",
+        "description": "Returns a list of all file tracking entries",
+        "tags": [
+          "file-tracking"
+        ],
+        "responses": {
+          "200": {
+            "description": "File tracking entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/file_tracking.FileTrackingListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/file-tracking/history": {
+      "get": {
+        "summary": "Get full file tracking history",
+        "description": "Returns a list of all file tracking entries including deleted rows",
+        "tags": [
+          "file-tracking"
+        ],
+        "responses": {
+          "200": {
+            "description": "File tracking history entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/file_tracking.FileTrackingListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Returns health status and build ID of the device",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hub/dongles": {
+      "get": {
+        "summary": "Get active dongles",
+        "description": "Returns a list of all active dongles",
+        "tags": [
+          "dongle"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/system.Device"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hub/heartbeat": {
+      "post": {
+        "summary": "Dongle heartbeat",
+        "description": "Updates the heartbeat for a dongle",
+        "tags": [
+          "dongle"
+        ],
+        "requestBody": {
+          "description": "Dongle heartbeat",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/restclient.DongleHeartbeatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Dongle not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hub/register": {
+      "post": {
+        "summary": "Register dongle",
+        "description": "Registers a new dongle with the device",
+        "tags": [
+          "dongle"
+        ],
+        "requestBody": {
+          "description": "Dongle to register",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDongleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job": {
+      "get": {
+        "summary": "Get all jobs",
+        "description": "Returns a list of all jobs",
+        "tags": [
+          "jobs"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/guid/{guid}": {
+      "get": {
+        "summary": "Get job by GUID",
+        "description": "Returns a job by its GUID",
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "name": "guid",
+            "in": "path",
+            "description": "Job GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "guid"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/status/{status}": {
+      "get": {
+        "summary": "Get jobs by status",
+        "description": "Returns all jobs with the specified status",
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Job status",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "status"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs filtered by status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid job status or failed to get jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/submit": {
+      "post": {
+        "summary": "Submit a new job",
+        "description": "Upload a ZIP file and job metadata to create a new job",
+        "tags": [
+          "jobs"
+        ],
+        "requestBody": {
+          "description": "Job ZIP file",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "created_by": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "guid": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file",
+                  "guid"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.InPaceJobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to create job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/upload": {
+      "post": {
+        "summary": "Upload a job file",
+        "description": "Upload a job file to the job monitor directory",
+        "tags": [
+          "jobs"
+        ],
+        "requestBody": {
+          "description": "Job file",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InPaceJobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file uploaded or bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to upload job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/{id}/cancel": {
+      "post": {
+        "summary": "Cancel job by ID",
+        "description": "Cancels a job by its ID",
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter 'id'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/{id}/delete": {
+      "delete": {
+        "summary": "Delete job by ID",
+        "description": "Deletes a job by its ID",
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter 'id'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/{id}/detail": {
+      "get": {
+        "summary": "Get job by ID",
+        "description": "Returns a job by its ID",
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter 'id'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/{id}/retry": {
+      "post": {
+        "summary": "Retry job by ID",
+        "description": "Retries a cancelled job by its ID or GUID",
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Path parameter 'id'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/logs": {
+      "get": {
+        "summary": "Get logs",
+        "description": "Returns paginated logs with optional filtering",
+        "tags": [
+          "logs"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filter string",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to retrieve logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/logs/download": {
+      "get": {
+        "summary": "Download logs as CSV",
+        "description": "Downloads filtered logs as a CSV file",
+        "tags": [
+          "logs"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filter string",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/file"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to generate CSV file",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/access-point": {
+      "get": {
+        "summary": "Get access point info",
+        "description": "Returns access point configuration and status",
+        "tags": [
+          "access-point"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/network.AccessPointResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to get access point info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/access-point/devices": {
+      "get": {
+        "summary": "List access point devices",
+        "description": "Returns devices connected to the AP by merging DHCP leases, WiFi station metrics, and registered devices",
+        "tags": [
+          "access-point"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessPointDevice"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/access-point/restart": {
+      "post": {
+        "summary": "Restart access point",
+        "description": "Restarts the WiFi access point",
+        "tags": [
+          "access-point"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartResult"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to restart access point",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/dhcp-leases": {
+      "get": {
+        "summary": "Get DHCP leases",
+        "description": "Returns a list of DHCP leases from dnsmasq",
+        "tags": [
+          "network"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DHCPLease"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to get DHCP leases",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/samba": {
+      "get": {
+        "summary": "Get Samba configuration",
+        "description": "Returns the current Samba configuration",
+        "tags": [
+          "samba"
+        ],
+        "responses": {
+          "200": {
+            "description": "Samba configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SambaConfig"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to retrieve Samba config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/wifi": {
+      "get": {
+        "summary": "Get wifi info",
+        "description": "Returns wifi information including rfkill status",
+        "tags": [
+          "network"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/network.NetworkInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to get wifi info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rauc-update/bundle": {
+      "post": {
+        "summary": "Upload and install a RAUC bundle",
+        "tags": [
+          "rauc-update"
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rauc.InstallAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rauc-update/events": {
+      "get": {
+        "summary": "Stream RAUC install progress",
+        "tags": [
+          "rauc-update"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/rauc.ProgressEvent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rauc-update/status": {
+      "get": {
+        "summary": "Current or last RAUC install state",
+        "tags": [
+          "rauc-update"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rauc.InstallState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-update/download/{filename}": {
+      "get": {
+        "summary": "Download update file",
+        "description": "Downloads an update file by filename (simulated remote server)",
+        "tags": [
+          "remote-update-server"
+        ],
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "description": "Filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File downloaded",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/file"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No filename provided",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-update/files": {
+      "get": {
+        "summary": "List update files",
+        "description": "Returns a list of available update files (simulated remote server)",
+        "tags": [
+          "remote-update-server"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.RemoteUpdateServerResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to list update files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-update/upload": {
+      "post": {
+        "summary": "Upload and apply update from ZIP file",
+        "description": "Uploads a ZIP file and applies the update to the system",
+        "tags": [
+          "remote-update"
+        ],
+        "requestBody": {
+          "description": "Update ZIP file",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "updateFile": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "updateFile"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update applied successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileProcessingResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to process update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-update/url": {
+      "post": {
+        "summary": "Download and apply update from URL",
+        "description": "Downloads an update ZIP file from a URL and applies it to the system",
+        "tags": [
+          "remote-update"
+        ],
+        "requestBody": {
+          "description": "Update URL payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteUpdateURLRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update applied successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileProcessingResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format or missing URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to process update from URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/user": {
+      "get": {
+        "summary": "Get current user profile",
+        "description": "Returns the profile of the currently authenticated user",
+        "tags": [
+          "profile"
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.UserResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error getting profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/user/{username}": {
+      "get": {
+        "summary": "Get user profile",
+        "description": "Returns a user's profile by username",
+        "tags": [
+          "profile"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "description": "Username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "username"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.UserResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Username is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error getting profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/user/{username}/password": {
+      "post": {
+        "summary": "Update password",
+        "description": "Updates a user's password",
+        "tags": [
+          "profile"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "description": "Username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "username"
+          }
+        ],
+        "requestBody": {
+          "description": "New password",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Username is required or invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to update password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proxy/{deviceGuid}/api/v1/{path}": {
+      "delete": {
+        "summary": "Proxy API request to device",
+        "description": "Proxies an API request to the specified device by GUID",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The device-relative API path, everything after /api/v1",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid or invalid API path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Proxy API request to device",
+        "description": "Proxies an API request to the specified device by GUID",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The device-relative API path, everything after /api/v1",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid or invalid API path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Proxy API request to device",
+        "description": "Proxies an API request to the specified device by GUID",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The device-relative API path, everything after /api/v1",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid or invalid API path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Proxy API request to device",
+        "description": "Proxies an API request to the specified device by GUID",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The device-relative API path, everything after /api/v1",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid or invalid API path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proxy/{deviceGuid}/{path}": {
+      "delete": {
+        "summary": "Proxy API request through device",
+        "description": "Forwards an API request through an intermediate device in the proxy tree",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The path to forward on to the next device in the tree",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Proxy API request through device",
+        "description": "Forwards an API request through an intermediate device in the proxy tree",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The path to forward on to the next device in the tree",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Proxy API request through device",
+        "description": "Forwards an API request through an intermediate device in the proxy tree",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The path to forward on to the next device in the tree",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Proxy API request through device",
+        "description": "Forwards an API request through an intermediate device in the proxy tree",
+        "tags": [
+          "proxy"
+        ],
+        "parameters": [
+          {
+            "name": "deviceGuid",
+            "in": "path",
+            "description": "Device GUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "deviceGuid"
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "The path to forward on to the next device in the tree",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whatever the device answered, proxied unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/interface{}"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing deviceGuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Could not reach the device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/restclient.ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

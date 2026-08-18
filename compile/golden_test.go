@@ -214,3 +214,47 @@ func repoRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// TestRealGeneratorSpecCarriesTheArrayParameter pins the one thing the
+// real-generator fixture exists for, independently of its recording: a
+// re-record that quietly dropped the array parameter again would update the
+// golden and pass. This says what the golden must contain.
+//
+// The fixture is a go-oapifly-generated document from a real project, plus
+// one array-typed query parameter with a list example. Before #17 the list
+// example was dropped by the parser and the parameter with it — reproduced by
+// that project against its own generator's output.
+func TestRealGeneratorSpecCarriesTheArrayParameter(t *testing.T) {
+	root := repoRoot(t)
+	document := filepath.Join(root, "oracle", "corpus", "openapi3", "real-generator-array-param.yml")
+	source, err := os.ReadFile(document)
+	if err != nil {
+		t.Fatalf("reading %s: %v", document, err)
+	}
+	parsed, err := apidesc.Parse(source, document)
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	result := compile.Compile(parsed.MediaType, parsed.Elements, filepath.Base(document))
+
+	if len(result.Transactions) != 172 {
+		t.Errorf("transactions = %d, want the real spec's 172", len(result.Transactions))
+	}
+	for _, annotation := range result.Annotations {
+		t.Errorf("a real generator's output produced %q", annotation.Message)
+	}
+
+	found := false
+	for _, transaction := range result.Transactions {
+		if strings.Contains(transaction.Request.URI, "/card-reader/download") {
+			found = true
+			// The spec default for a query list is exploded.
+			if !strings.Contains(transaction.Request.URI, "ids=1&ids=2") {
+				t.Errorf("URI = %q, want the array parameter as ids=1&ids=2", transaction.Request.URI)
+			}
+		}
+	}
+	if !found {
+		t.Error("the download transaction is missing entirely")
+	}
+}
