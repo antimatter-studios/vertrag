@@ -90,8 +90,11 @@ func validateValue(schema json.RawMessage, document any, root string) FieldResul
 
 	compiled, err := compileSchema(schema)
 	if err != nil {
-		// A schema vertrag cannot read says nothing about the response. Failing
-		// here would blame the server for the description's problem.
+		// A schema vertrag cannot read says nothing about the response, so
+		// failing here would blame the server for the description's problem.
+		// It is not silent, though: the compiler reports an unusable schema as
+		// a warning about the document when it reads it — see Usable — which
+		// is once, up front, and names the operation.
 		return field
 	}
 
@@ -103,6 +106,23 @@ func validateValue(schema json.RawMessage, document any, root string) FieldResul
 }
 
 // compileSchema prepares a schema for repeated use.
+// Usable reports whether a schema can be compiled, and why not when it
+// cannot.
+//
+// It exists so a description can be told about an unusable schema ONCE, when
+// it is read, rather than never. Validation itself cannot report it: a schema
+// vertrag cannot read says nothing about the response, so failing the
+// transaction would blame the server for the description's problem — but
+// passing it silently tells the reader their body was checked when nothing
+// checked it, and a green run nobody can trust is worse than a red one.
+func Usable(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	_, err := compileSchema(raw)
+	return err
+}
+
 func compileSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 	var schema map[string]any
 	if err := json.Unmarshal(raw, &schema); err != nil {
