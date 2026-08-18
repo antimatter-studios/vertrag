@@ -17,17 +17,24 @@ import (
 // is `any` because Dredd lets a hook assign either a string or `false`, and
 // both have to survive the round trip.
 type wireTransaction struct {
-	Name     string      `json:"name"`
-	ID       string      `json:"id"`
-	Host     string      `json:"host"`
-	Port     string      `json:"port"`
-	Protocol string      `json:"protocol"`
-	FullPath string      `json:"fullPath"`
-	Request  wireRequest `json:"request"`
-	Expected wireMessage `json:"expected"`
-	Real     wireMessage `json:"real"`
-	Skip     bool        `json:"skip"`
-	Fail     any         `json:"fail"`
+	Name string `json:"name"`
+
+	// OperationID is not Dredd's — it has no concept of one — and is added
+	// because a generated transaction name is long and moves whenever
+	// someone edits a summary, while an operationId is stable. A hook
+	// selecting transactions by name is brittle in exactly the way a
+	// generated API is brittle.
+	OperationID string      `json:"operationId,omitempty"`
+	ID          string      `json:"id"`
+	Host        string      `json:"host"`
+	Port        string      `json:"port"`
+	Protocol    string      `json:"protocol"`
+	FullPath    string      `json:"fullPath"`
+	Request     wireRequest `json:"request"`
+	Expected    wireMessage `json:"expected"`
+	Real        wireMessage `json:"real"`
+	Skip        bool        `json:"skip"`
+	Fail        any         `json:"fail"`
 }
 
 type wireRequest struct {
@@ -48,12 +55,13 @@ func toWire(t *runner.Transaction) wireTransaction {
 	host, port, protocol := splitEndpoint(t.Endpoint())
 
 	return wireTransaction{
-		Name:     t.Name,
-		ID:       t.Request.Method + " (" + t.Expected.StatusCode + ") " + t.Request.URI,
-		Host:     host,
-		Port:     port,
-		Protocol: protocol,
-		FullPath: t.FullPath,
+		Name:        t.Name,
+		OperationID: t.OperationID(),
+		ID:          t.Request.Method + " (" + t.Expected.StatusCode + ") " + t.Request.URI,
+		Host:        host,
+		Port:        port,
+		Protocol:    protocol,
+		FullPath:    t.FullPath,
 		Request: wireRequest{
 			Method:  t.Request.Method,
 			URI:     t.Request.URI,

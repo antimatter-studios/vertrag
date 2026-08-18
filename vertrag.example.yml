@@ -82,6 +82,12 @@ auth:
 # a response, or deriving a value per transaction. Everything above exists so
 # that a hook file holds only what is actually specific to your API.
 hookfiles: ./hooks.js
+
+# The language your hook files are written in: `nodejs` (the default) or
+# `python`. Both expose the same API and are tested against each other, so a
+# hook behaves identically in either. Python uses only the standard library —
+# no virtualenv, no pip install — and needs `python3` on PATH. Node hook files
+# may be TypeScript if the project has tsx or ts-node.
 language: nodejs
 
 hooks-worker-handler-host: 127.0.0.1

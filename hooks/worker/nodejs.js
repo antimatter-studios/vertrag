@@ -51,10 +51,19 @@ const hooks = {
   configuration: {},
 };
 
-// Hook files ask for this module by name — `require('hooks')`. Nothing on disk
-// provides it, so it is installed into the module cache before they load.
+// Hook files ask for this module by name. Nothing on disk provides it, so it
+// is installed into the module cache before they load.
+//
+// Two names, for one reason each. `vertrag-hooks` is the name to write: it
+// says whose hooks these are, which is the thing a reader of a hook file
+// cannot otherwise tell, and it matches `vertrag_hooks` in the Python worker.
+// `hooks` is kept because hook files in the world already say it — the bare
+// name is what Dredd used — and breaking a working file to tidy a name is a
+// poor trade.
+const MODULE_NAMES = ['vertrag-hooks', 'hooks'];
+
 function installHooksModule() {
-  const id = 'hooks';
+  const id = 'vertrag-hooks';
   const fake = new Module(id, null);
   fake.exports = hooks;
   fake.loaded = true;
@@ -62,9 +71,31 @@ function installHooksModule() {
 
   const original = Module._resolveFilename;
   Module._resolveFilename = function resolve(request, ...rest) {
-    if (request === 'hooks') return id;
+    if (MODULE_NAMES.includes(request)) return id;
     return original.call(this, request, ...rest);
   };
+}
+
+// TypeScript hook files need a loader, which Node does not have built in.
+// The project's own is used if it has one — tsx and ts-node are the two in
+// general use — and a project without either is told exactly that rather
+// than being handed `Unexpected token` from a .ts file Node tried to parse
+// as JavaScript.
+function installTypeScript(hookfiles) {
+  if (!hookfiles.some(file => /\.[cm]?tsx?$/i.test(file))) return;
+
+  for (const loader of ['tsx/cjs', 'ts-node/register']) {
+    try {
+      require(loader);
+      return;
+    } catch (error) {
+      // Try the next one.
+    }
+  }
+  throw new Error(
+    'a TypeScript hook file needs a loader: install tsx or ts-node in this project, ' +
+    'or compile the hook file to JavaScript first'
+  );
 }
 
 // runHooks invokes a list of hooks in order, supporting both calling
@@ -132,6 +163,7 @@ function main() {
   }
 
   installHooksModule();
+  installTypeScript(hookfiles);
 
   for (const file of hookfiles) {
     require(path.resolve(file));

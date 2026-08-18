@@ -430,14 +430,64 @@ mistaken for one.
 
 ## Hooks
 
-Dredd loads Node.js hook files into its own process. vertrag is a Go program and
-cannot, so it ships a small Node worker — embedded in the binary — which runs
-the hook files for real and exchanges transactions over a socket using Dredd's
-own worker protocol. Hook files are unchanged.
+Some setup cannot be written as configuration: deriving a request field from an
+earlier response, seeding a fixture, pinning a value the generator must not
+touch. That is what hooks are for.
+
+vertrag is a Go program and cannot load a JavaScript or Python file into
+itself, so it ships a small worker for each — embedded in the binary, so
+there is nothing to install and the worker can never be a version out of step
+with the binary driving it. The worker runs your hook files in a real
+interpreter and exchanges transactions over a socket.
+
+```yaml
+language: python                   # or nodejs, the default
+hookfiles: ./hooks.py
+```
+
+Both languages expose the same API and are tested against each other, so a
+hook that works in one behaves identically in the other.
+
+```python
+import vertrag_hooks as hooks
+
+@hooks.before_each
+def pin_safety(transaction):
+    body = hooks.get_json(transaction)
+    body["dry_run"] = True          # whatever the generator drew
+    hooks.set_json(transaction, body)
+
+@hooks.before("createOrder")        # by operationId, or by name, or a glob
+def authenticate(transaction):
+    transaction["request"]["headers"]["Authorization"] = hooks.stash["token"]
+
+@hooks.after("/api/session > Log in > 200 > application/json")
+def keep_token(transaction):
+    hooks.stash["token"] = hooks.get_json(transaction, "real")["token"]
+```
+
+```javascript
+const hooks = require('vertrag-hooks');   // `require('hooks')` also works
+
+hooks.beforeEach((transaction) => {
+  transaction.request.headers['X-Tenant'] = 'acme';
+});
+```
+
+Python needs `python3` on PATH and uses nothing but the standard library — no
+virtualenv, no pip install. Node hook files may be TypeScript if the project
+has `tsx` or `ts-node`; without one, vertrag says so rather than letting Node
+fail on syntax it cannot parse.
 
 `beforeAll`, `beforeEach`, `before(name)`, `beforeEachValidation`,
 `after(name)`, `afterEach` and `afterAll` all work, as do `transaction.skip`,
 `transaction.fail`, and rewriting the request or the expectation.
+
+Python adds two things Node does not have, because Python hook files are new
+and had nothing to stay compatible with: a named hook may select by
+`operationId` or by a glob (`@hooks.before("/api/*")`) as well as by the full
+transaction name, and `hooks.stash` is a dictionary shared between hooks, for
+the value one hook reads out of a response and another needs in a request.
 
 One inherited behaviour is worth knowing, because it surprises people: Dredd
 builds the request URL from `transaction.fullPath`, which is computed *before*

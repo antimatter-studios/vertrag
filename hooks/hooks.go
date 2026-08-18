@@ -19,7 +19,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +35,49 @@ import (
 //
 //go:embed worker/nodejs.js
 var nodeWorker []byte
+
+//go:embed worker/python.py
+var pythonWorker []byte
+
+// runtime is what a hook language needs: the worker to unpack, the file name
+// to unpack it as, and the interpreters that might run it, in preference
+// order. Adding a language is adding an entry and a worker file — the
+// protocol is the same in every one, which is what keeps them equivalent.
+type runtime struct {
+	worker       []byte
+	filename     string
+	interpreters []string
+	// missing is what to say when none of the interpreters is on PATH.
+	missing string
+}
+
+var runtimes = map[string]runtime{
+	"nodejs": {
+		worker:       nodeWorker,
+		filename:     "nodejs.js",
+		interpreters: []string{"node"},
+		missing:      "hook files need Node.js on PATH",
+	},
+	"python": {
+		worker:   pythonWorker,
+		filename: "python.py",
+		// python3 first: on a system carrying both, `python` may still be
+		// Python 2, which cannot run this worker.
+		interpreters: []string{"python3", "python"},
+		missing:      "hook files need Python 3 on PATH (looked for python3, then python)",
+	},
+}
+
+// Languages lists what `language:` accepts, for an error message that offers
+// the alternatives rather than only rejecting what was asked for.
+func Languages() []string {
+	names := make([]string, 0, len(runtimes))
+	for name := range runtimes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 // Options configures the worker.
 type Options struct {
@@ -72,17 +117,26 @@ type message struct {
 
 // Start launches the worker and waits for it to accept connections.
 func Start(ctx context.Context, options Options) (*Client, error) {
-	if options.Language != "nodejs" {
-		return nil, fmt.Errorf(
-			"hooks language %q is not supported yet; only nodejs is", options.Language)
+	language, known := runtimes[options.Language]
+	if !known {
+		return nil, fmt.Errorf("hooks language %q is not supported; vertrag has %s",
+			options.Language, strings.Join(Languages(), " and "))
 	}
-	if _, err := exec.LookPath("node"); err != nil {
-		return nil, fmt.Errorf("hook files need Node.js on PATH: %w", err)
+
+	interpreter := ""
+	for _, candidate := range language.interpreters {
+		if _, err := exec.LookPath(candidate); err == nil {
+			interpreter = candidate
+			break
+		}
+	}
+	if interpreter == "" {
+		return nil, fmt.Errorf("%s", language.missing)
 	}
 
 	client := &Client{options: options}
 
-	workerPath, err := client.writeWorker()
+	workerPath, err := client.writeWorker(language)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +153,7 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 		args = append(args, absolute)
 	}
 
-	client.command = exec.CommandContext(ctx, "node", args...)
+	client.command = exec.CommandContext(ctx, interpreter, args...)
 	client.command.Stderr = options.Stderr
 	stdout, err := client.command.StdoutPipe()
 	if err != nil {
@@ -152,16 +206,16 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 	return client, nil
 }
 
-// writeWorker unpacks the embedded worker next to the hook files it will load.
-func (c *Client) writeWorker() (string, error) {
+// writeWorker unpacks the embedded worker for a language.
+func (c *Client) writeWorker(language runtime) (string, error) {
 	dir, err := os.MkdirTemp("", "vertrag-hooks-")
 	if err != nil {
 		return "", err
 	}
 	c.scratch = dir
 
-	path := filepath.Join(dir, "nodejs.js")
-	if err := os.WriteFile(path, nodeWorker, 0o600); err != nil {
+	path := filepath.Join(dir, language.filename)
+	if err := os.WriteFile(path, language.worker, 0o600); err != nil {
 		return "", err
 	}
 	return path, nil

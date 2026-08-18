@@ -327,6 +327,10 @@ func (r *Runner) Deliver(ctx context.Context, transaction *Transaction) (validat
 // SentRequest is the request as it actually went out — see sentRequest.
 func (t *Transaction) SentRequest() Request { return t.sentRequest() }
 
+// OperationID is how the description names this transaction's operation, or
+// "" when it gave none. Hooks select transactions by it.
+func (t *Transaction) OperationID() string { return t.source.OperationID }
+
 // Run executes every transaction in order and returns the results.
 //
 // Order is the document's order, which is what makes a description that creates
