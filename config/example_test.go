@@ -63,6 +63,19 @@ func TestExampleConfigLoads(t *testing.T) {
 	if len(settings.Skip) < 2 {
 		t.Errorf("the example's skip list read as %d entries, want both forms", len(settings.Skip))
 	}
+	// The narrowing keys the example demonstrates with a value. An empty list
+	// in the file proves nothing was read, so only the filled ones are checked
+	// — and every one of them is a key that decides what reaches the server.
+	for key, got := range map[string][]string{
+		"only-matching":    settings.OnlyMatching,
+		"exclude-matching": settings.ExcludeMatching,
+		"exclude-method":   settings.ExcludeMethod,
+		"exclude-tag":      settings.ExcludeTag,
+	} {
+		if len(got) == 0 {
+			t.Errorf("the example's %s was not read", key)
+		}
+	}
 
 	// One of each skip form, since the point of accepting both is that both work.
 	var withReason, bare int

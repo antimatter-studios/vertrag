@@ -107,6 +107,27 @@ vertrag run --reporter dot                          # one character per transact
 vertrag run --reporter html --output report.html    # a page to publish
 ```
 
+### Narrowing a run
+
+A transaction is addressed by name, method, tag or operationId, and each of
+those can either select what runs or leave it out:
+
+```console
+vertrag run --tag orders --exclude-method DELETE    # the orders API, read-only
+vertrag run --only-matching '^/api/v1/'            # by name, as a pattern
+vertrag run --exclude-matching '> 5[0-9][0-9] >'   # not the error variants
+```
+
+An exclude wins over every include, because the two are meant to be written
+together and the exclude is the more specific half of the pair. The same keys go
+in `vertrag.yml`, where a suite records the operation it must never send.
+
+Both halves are checked rather than trusted. A pattern that does not compile
+stops the run and names itself, and a value matching no transaction is reported
+— an include matching nothing tests an API that looks like it has nothing to
+test, and an exclude matching nothing sends every request it was written to
+prevent.
+
 ### Sequences
 
 A description lists operations in whatever order reads well, which is frequently

@@ -50,11 +50,18 @@ func TestStripAPIName(t *testing.T) {
 	}
 }
 
+// orders is a transaction named the way real ones are, so the regular
+// expression rows can search inside a name rather than match all of a
+// one-letter one — which would pass whether the match is a search or a
+// comparison and prove nothing about which it is.
+const orders = "/orders > List orders > 200 > application/json"
+
 func TestFilterTransactions(t *testing.T) {
 	transactions := []compile.Transaction{
 		{Name: "a", Request: compile.Request{Method: "GET"}, Tags: []string{"network"}, OperationID: "listThings"},
 		{Name: "b", Request: compile.Request{Method: "POST"}, Tags: []string{"network", "admin"}, OperationID: "createThing"},
 		{Name: "c", Request: compile.Request{Method: "GET"}},
+		{Name: orders, Request: compile.Request{Method: "GET"}, Tags: []string{"orders"}, OperationID: "listOrders"},
 	}
 
 	for _, test := range []struct {
@@ -62,9 +69,9 @@ func TestFilterTransactions(t *testing.T) {
 		settings config.Config
 		want     []string
 	}{
-		{"no filters keeps everything", config.Config{}, []string{"a", "b", "c"}},
+		{"no filters keeps everything", config.Config{}, []string{"a", "b", "c", orders}},
 		{"only", config.Config{Only: []string{"b"}}, []string{"b"}},
-		{"method", config.Config{Method: []string{"get"}}, []string{"a", "c"}},
+		{"method", config.Config{Method: []string{"get"}}, []string{"a", "c", orders}},
 		{"both", config.Config{Only: []string{"a", "b"}, Method: []string{"POST"}}, []string{"b"}},
 		{"no matches", config.Config{Only: []string{"absent"}}, nil},
 		{"tag", config.Config{Tag: []string{"admin"}}, []string{"b"}},
@@ -76,9 +83,36 @@ func TestFilterTransactions(t *testing.T) {
 		{"operation-ids widen", config.Config{OperationID: []string{"listThings", "createThing"}}, []string{"a", "b"}},
 		// A transaction with no operationId matches no named one.
 		{"operation-id misses the unnamed", config.Config{OperationID: []string{"noSuchOp"}}, nil},
+
+		// A pattern searches the name rather than being compared with the
+		// whole of it, so one word of a long generated name is enough — and a
+		// pattern that does mean the whole name says so with ^ and $.
+		{"only-matching searches inside the name", config.Config{OnlyMatching: []string{"orders"}}, []string{orders}},
+		{"only-matching anchors when asked", config.Config{OnlyMatching: []string{"^b$"}}, []string{"b"}},
+		{"only-matching widens", config.Config{OnlyMatching: []string{"^a$", "^b$"}}, []string{"a", "b"}},
+		{"only-matching narrows with method", config.Config{OnlyMatching: []string{"^[ab]$"}, Method: []string{"GET"}}, []string{"a"}},
+
+		{"exclude", config.Config{Exclude: []string{"b"}}, []string{"a", "c", orders}},
+		{"exclude-matching", config.Config{ExcludeMatching: []string{"orders"}}, []string{"a", "b", "c"}},
+		{"exclude-method is case-insensitive like method", config.Config{ExcludeMethod: []string{"get"}}, []string{"b"}},
+		{"exclude-tag", config.Config{ExcludeTag: []string{"network"}}, []string{"c", orders}},
+		{"exclude-operation-id", config.Config{ExcludeOperationID: []string{"listThings"}}, []string{"b", "c", orders}},
+		// An untagged transaction carries no tag to exclude, so exclude-tag
+		// leaves it in — the mirror of a tag include leaving it out.
+		{"exclude-tag keeps the untagged", config.Config{ExcludeTag: []string{"orders"}}, []string{"a", "b", "c"}},
+
+		// An exclude wins over every include, because the two are written
+		// together and the exclude is the more specific half of the pair.
+		{"an exclude beats a named include", config.Config{Only: []string{"a", "b"}, Exclude: []string{"b"}}, []string{"a"}},
+		{"an exclude beats a tag include", config.Config{Tag: []string{"network"}, ExcludeMethod: []string{"POST"}}, []string{"a"}},
+		{"an exclude beats a matching include", config.Config{OnlyMatching: []string{"^[abc]$"}, ExcludeMatching: []string{"^b$"}}, []string{"a", "c"}},
+		{"an exclude may empty the run", config.Config{Only: []string{"b"}, Exclude: []string{"b"}}, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := filterTransactions(transactions, test.settings)
+			got, _, err := filterTransactions(transactions, test.settings)
+			if err != nil {
+				t.Fatalf("filterTransactions: %v", err)
+			}
 			if len(got) != len(test.want) {
 				t.Fatalf("kept %d, want %d", len(got), len(test.want))
 			}
@@ -88,6 +122,111 @@ func TestFilterTransactions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAnInvalidPatternStopsTheRunAndNamesItself pins that a regular expression
+// which does not compile is an error rather than a filter that matches nothing.
+//
+// The silently-inert filter is the failure this project keeps having to fix. An
+// include matching nothing runs no transactions and reads as an API with
+// nothing to test; an exclude matching nothing sends every request the pattern
+// was written to prevent, which is the one that reaches a real server. Neither
+// mentions the typo, so the pattern has to be in the message.
+func TestAnInvalidPatternStopsTheRunAndNamesItself(t *testing.T) {
+	for _, test := range []struct {
+		key      string
+		settings config.Config
+	}{
+		{"only-matching", config.Config{OnlyMatching: []string{"orders(unclosed"}}},
+		{"exclude-matching", config.Config{ExcludeMatching: []string{"orders(unclosed"}}},
+	} {
+		t.Run(test.key, func(t *testing.T) {
+			_, _, err := filterTransactions(nil, test.settings)
+			if err == nil {
+				t.Fatal("a pattern that does not compile should stop the run")
+			}
+			if !strings.Contains(err.Error(), "orders(unclosed") {
+				t.Errorf("the error should quote the pattern: %v", err)
+			}
+			if !strings.Contains(err.Error(), test.key) {
+				t.Errorf("the error should name the option it came from: %v", err)
+			}
+		})
+	}
+}
+
+// TestAFilterValueThatMatchesNothingIsReported pins the same treatment an
+// unmatched `skip` entry gets, for the same reason: a value that matches
+// nothing is nearly always a typo or a transaction that was renamed, and its
+// effect is a run that does something other than what the configuration reads
+// as. The two directions are opposites and say so — an unmatched include tests
+// less than was asked for, an unmatched exclude sends what was written down to
+// be kept back.
+func TestAFilterValueThatMatchesNothingIsReported(t *testing.T) {
+	transactions := []compile.Transaction{
+		{Name: "a", Request: compile.Request{Method: "GET"}, Tags: []string{"network"}, OperationID: "listThings"},
+	}
+
+	_, unmatched, err := filterTransactions(transactions, config.Config{
+		Only:            []string{"a", "renamed"},
+		Tag:             []string{"network"},
+		Exclude:         []string{"gone"},
+		ExcludeTag:      []string{"admn"},
+		ExcludeMatching: []string{"^nothing$"},
+	})
+	if err != nil {
+		t.Fatalf("filterTransactions: %v", err)
+	}
+
+	reported := strings.Join(unmatched, "\n")
+	for _, want := range []string{
+		`only has no transaction named "renamed"`,
+		`exclude has no transaction named "gone"`,
+		`exclude-tag has no transaction carrying the tag "admn"`,
+		`exclude-matching has no transaction whose name matches "^nothing$"`,
+	} {
+		if !strings.Contains(reported, want) {
+			t.Errorf("no report says %s:\n%s", want, reported)
+		}
+	}
+
+	// The values that did match are not reported, or the reports would be
+	// noise nobody reads.
+	if strings.Contains(reported, `named "a"`) || strings.Contains(reported, "network") {
+		t.Errorf("a value that matched was reported as unmatched:\n%s", reported)
+	}
+	if !strings.Contains(reported, "narrower") || !strings.Contains(reported, "wider") {
+		t.Errorf("the reports should say which way the run was moved:\n%s", reported)
+	}
+}
+
+// TestAFilterIsNotBlamedForWhatAnotherFilterDropped pins that every filter is
+// tested against every transaction, rather than the loop stopping as soon as
+// one of them has settled the verdict.
+//
+// `--only a --exclude-tag admin` is the case: only `a` survives, and the
+// transaction carrying the admin tag is dropped by `only` before the tag filter
+// is reached. Stop early and the tag is reported as matching nothing — a false
+// alarm about the filter that was working perfectly well, which teaches the
+// reader to ignore the report that matters.
+func TestAFilterIsNotBlamedForWhatAnotherFilterDropped(t *testing.T) {
+	transactions := []compile.Transaction{
+		{Name: "a", Request: compile.Request{Method: "GET"}, Tags: []string{"network"}},
+		{Name: "b", Request: compile.Request{Method: "POST"}, Tags: []string{"admin"}},
+	}
+
+	kept, unmatched, err := filterTransactions(transactions, config.Config{
+		Only: []string{"a"}, ExcludeTag: []string{"admin"},
+	})
+	if err != nil {
+		t.Fatalf("filterTransactions: %v", err)
+	}
+	if len(kept) != 1 || kept[0].Name != "a" {
+		t.Errorf("kept = %v, want just a", names(kept))
+	}
+	if len(unmatched) != 0 {
+		t.Errorf("nothing should be reported as unmatched: %v", unmatched)
 	}
 }
 

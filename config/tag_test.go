@@ -93,6 +93,85 @@ max-failures: 3
 	}
 }
 
+func TestRegexAndExcludeFiltersFromVertragFile(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", `
+spec: ./api.yml
+endpoint: http://localhost:4210
+only-matching: ['^/orders']
+exclude: ['/orders/{id} > Delete order > 204']
+exclude-matching: ['> 500 >']
+exclude-method: [DELETE]
+exclude-tag: [destructive]
+exclude-operation-id: [wipeDatabase]
+`)
+
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	for key, got := range map[string][]string{
+		"only-matching":        settings.OnlyMatching,
+		"exclude":              settings.Exclude,
+		"exclude-matching":     settings.ExcludeMatching,
+		"exclude-method":       settings.ExcludeMethod,
+		"exclude-tag":          settings.ExcludeTag,
+		"exclude-operation-id": settings.ExcludeOperationID,
+	} {
+		if len(got) != 1 {
+			t.Errorf("%s = %v, want the one entry the file gives it", key, got)
+		}
+	}
+	// One value is compared as well as counted: a key wired to the wrong field
+	// would satisfy every count above and still run the wrong thing.
+	if len(settings.ExcludeTag) != 1 || settings.ExcludeTag[0] != "destructive" {
+		t.Errorf("exclude-tag = %v, want [destructive]", settings.ExcludeTag)
+	}
+}
+
+// All six are read from whatever file they were found in, like every other key
+// — see TestTagIsHonouredWhateverTheFileIsCalled for what changed. They used to
+// be refused from a `dredd.yml`, and the exclude half had the most at stake: a
+// shared file carrying `exclude-method: [DELETE]` would have looked to both
+// testers like the DELETEs were held back while only one of them held them
+// back. Nothing is discovered by that name now, so the file reaching Load is
+// one somebody named, and all six apply.
+func TestRegexAndExcludeFiltersAreHonouredWhateverTheFileIsCalled(t *testing.T) {
+	path := writeConfig(t, "dredd.yml", `
+spec: ./api.yml
+endpoint: http://localhost:4210
+only-matching: ['^/orders']
+exclude: ['/orders > List orders > 200']
+exclude-matching: ['> 500 >']
+exclude-method: [DELETE]
+exclude-tag: [destructive]
+exclude-operation-id: [wipeDatabase]
+`)
+
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Each key's own value, not just a count: a table this uniform is exactly
+	// where a copy that reads one key and applies another would hide.
+	for key, want := range map[string]struct {
+		got   []string
+		value string
+	}{
+		"only-matching":        {settings.OnlyMatching, "^/orders"},
+		"exclude":              {settings.Exclude, "/orders > List orders > 200"},
+		"exclude-matching":     {settings.ExcludeMatching, "> 500 >"},
+		"exclude-method":       {settings.ExcludeMethod, "DELETE"},
+		"exclude-tag":          {settings.ExcludeTag, "destructive"},
+		"exclude-operation-id": {settings.ExcludeOperationID, "wipeDatabase"},
+	} {
+		if len(want.got) != 1 || want.got[0] != want.value {
+			t.Errorf("%s = %v, want [%s]", key, want.got, want.value)
+		}
+	}
+}
+
 func TestPhasesFromVertragFile(t *testing.T) {
 	path := writeConfig(t, "vertrag.yml", `
 spec: ./api.yml
