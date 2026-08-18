@@ -79,7 +79,8 @@ func (d *document) parseParameters(n node) *parameters {
 // gap, it is simply absent, and coverage reads as complete.
 //
 //  1. The Parameter Object's own `example`.
-//  2. Its `examples`, a MAP of Example Objects, each with a `value`.
+//  2. Its `examples`, a MAP of Example Objects, each with a `value` — or, since
+//     3.2, a `dataValue` saying the same thing unambiguously.
 //  3. The schema's `examples`, an ARRAY — JSON Schema 2020-12's keyword, and
 //     the form OpenAPI 3.1 documents use.
 //
@@ -97,8 +98,7 @@ func (d *document) parameterExample(parameter node) (value any, source node, fou
 	// A map of Example Objects; the first in document order stands in, the
 	// way the first enum value does elsewhere.
 	for _, member := range parameter.Get("examples").Entries() {
-		example := d.Resolve(member.Value)
-		if inner := example.Get("value"); inner.Valid() {
+		if inner := exampleValue(d.Resolve(member.Value)); inner.Valid() {
 			return scalarValue(inner), inner, true
 		}
 	}

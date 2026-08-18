@@ -52,7 +52,13 @@ var (
 		// declarations change nothing about a run, but warning about them while
 		// operation tags filter runs would call one half of a feature
 		// unsupported.
-		supported:   []string{"openapi", "info", "paths", "components", "security", "servers", "tags"},
+		//
+		// `$self` is 3.2's, and is read rather than merely tolerated: it is the
+		// URI the document gives itself, and a reference written through that
+		// URI is a reference into this document. Before it was read, such a
+		// reference resolved to nothing and left an empty schema behind, so the
+		// response was validated against anything at all.
+		supported:   []string{"openapi", "$self", "info", "paths", "components", "security", "servers", "tags"},
 		unsupported: []string{"externalDocs"},
 		required:    []string{"openapi", "info", "paths"},
 	}
@@ -79,8 +85,13 @@ var (
 		required:  []string{"name"},
 	}
 	specServer = objectSpec{
-		name:      "Server Object",
-		supported: []string{"url", "description", "variables"},
+		name: "Server Object",
+		// `name` is 3.2's, and belongs with the rest of this object rather than
+		// on the unsupported list: no field of a Server Object decides where a
+		// request goes, because the endpoint under test comes from the command
+		// line. Calling out the one 3.2 added while the `url` beside it passes
+		// without comment would describe a distinction that does not exist.
+		supported: []string{"url", "name", "description", "variables"},
 		required:  []string{"url"},
 	}
 	specServerVariable = objectSpec{
@@ -88,11 +99,22 @@ var (
 		supported: []string{"default", "description", "enum"},
 		required:  []string{"default"},
 	}
+	// The one table here that the revision changes, because 3.2 gave a Path
+	// Item two more places to hold an operation. Validation reaches it through
+	// pathItemSpec rather than naming it directly, so use that.
 	specPathItem = objectSpec{
 		name: "Path Item Object",
 		supported: append([]string{"summary", "description", "servers", "parameters"},
 			yamldoc.HTTPMethods...),
 		unsupported: []string{"$ref"},
+	}
+	// `query` is the QUERY method, which 3.2 gave a field of its own;
+	// `additionalOperations` holds the methods it did not.
+	specPathItem32 = objectSpec{
+		name: specPathItem.name,
+		supported: append(append([]string{}, specPathItem.supported...),
+			"query", additionalOperationsKey),
+		unsupported: specPathItem.unsupported,
 	}
 	specOperation = objectSpec{
 		name: "Operation Object",
@@ -119,14 +141,30 @@ var (
 		supported: []string{"content", "description", "required"},
 	}
 	specResponse = objectSpec{
-		name:      "Response Object",
-		supported: []string{"content", "description", "headers", "links"},
+		name: "Response Object",
+		// `summary` is 3.2's, and is prose beside the `description` it was
+		// added next to. `description` stopped being required in the same
+		// revision, which responseSpec applies — the requirement stated here
+		// is 3.0's and 3.1's.
+		supported: []string{"content", "summary", "description", "headers", "links"},
 		required:  []string{"description"},
 	}
 	specMediaType = objectSpec{
-		name:        "Media Type Object",
-		supported:   []string{"schema", "example", "examples"},
-		unsupported: []string{"encoding"},
+		name:      "Media Type Object",
+		supported: []string{"schema", "example", "examples"},
+		// `itemSchema` describes one item of a sequential body — an SSE event,
+		// a line of JSON Lines, a part of a multipart/mixed stream — where
+		// `schema` describes a body in one piece. vertrag reads a response to
+		// its end and validates it whole, so it has no item to apply this to;
+		// a streaming response would have to be split into items first, and
+		// that is a different reader, not a different schema. Saying so is the
+		// point: a 3.2 document that describes its stream this way and nothing
+		// else is a document whose response bodies are going unchecked.
+		//
+		// `prefixEncoding` and `itemEncoding` are 3.2's positional forms of the
+		// `encoding` beside them, and are not acted on for the same reason it
+		// is not.
+		unsupported: []string{"encoding", "itemSchema", "prefixEncoding", "itemEncoding"},
 	}
 	specHeader = objectSpec{
 		name: "Header Object",
@@ -149,21 +187,45 @@ var (
 		unsupported: []string{"server"},
 	}
 	specExample = objectSpec{
-		name:        "Example Object",
-		supported:   []string{"value"},
-		unsupported: []string{"summary", "description", "externalValue"},
+		name: "Example Object",
+		// `dataValue` is 3.2's unambiguous spelling of `value`: the example as
+		// data, to be validated against the schema and serialised for sending.
+		// That is exactly what `value` was already read as, so it is read the
+		// same way — anything else would mean a document written the new way
+		// lost the examples its author supplied, and sent generated bodies in
+		// their place.
+		supported: []string{"value", "dataValue"},
+		// `serializedValue` is the other half of 3.2's split: the example
+		// already serialised, escaping and all. Using it would mean parsing the
+		// media type back into data before anything could be compared, which is
+		// the work `externalValue` beside it is not done for either.
+		unsupported: []string{"summary", "description", "externalValue", "serializedValue"},
 	}
 	specComponents = objectSpec{
 		name: "Components Object",
+		// `mediaTypes` is 3.2's, and arrives with the change that gives it a
+		// use: a `content` entry may be a Reference Object now, where before it
+		// had to be a Media Type Object written in place. Both halves are read
+		// — see validateContent and parseContentFor, which resolve a media type
+		// before looking at it — so a shared media type carries its schema and
+		// examples to every operation that names it.
 		supported: []string{"schemas", "parameters", "requestBodies", "responses",
-			"headers", "examples", "securitySchemes", "pathItems", "links"},
+			"headers", "examples", "securitySchemes", "pathItems", "links", "mediaTypes"},
 		unsupported: []string{"callbacks"},
 	}
 
 	specSecurityScheme = objectSpec{
-		name:        "Security Scheme Object",
-		supported:   []string{"type", "description", "name", "in", "scheme", "flows"},
-		unsupported: []string{"bearerFormat", "openIdConnectUrl"},
+		name:      "Security Scheme Object",
+		supported: []string{"type", "description", "name", "in", "scheme", "flows"},
+		// `oauth2MetadataUrl` is 3.2's, and joins the `openIdConnectUrl` beside
+		// it: both point at metadata a client would fetch to discover the
+		// endpoints, and vertrag fetches neither — the token endpoint it uses
+		// comes from the flow, or from the configuration.
+		//
+		// `deprecated` says the scheme is on its way out. Nothing chooses
+		// between schemes on that basis, the same way nothing skips a
+		// deprecated operation or parameter, so it is listed where those are.
+		unsupported: []string{"bearerFormat", "openIdConnectUrl", "oauth2MetadataUrl", "deprecated"},
 		required:    []string{"type"},
 	}
 
@@ -295,19 +357,78 @@ func (d *document) validatePaths(paths node) []annotation {
 }
 
 func (d *document) validatePathItem(pathItem node) []annotation {
-	return d.validateObject(pathItem, specPathItem, func(item node) []annotation {
+	return d.validateObject(pathItem, d.pathItemSpec(), func(item node) []annotation {
 		var out []annotation
 		for _, parameter := range item.Get("parameters").Items() {
 			out = append(out, d.validateParameter(parameter)...)
 		}
 		for _, member := range item.Entries() {
-			if isHTTPMethod(member.Key.Str()) {
+			if d.isOperationKey(member.Key.Str()) {
 				out = append(out, d.validateOperation(member.Value)...)
 			}
+		}
+		for _, member := range item.Get(additionalOperationsKey).Entries() {
+			out = append(out, d.validateAdditionalOperation(member)...)
 		}
 		return out
 	})
 }
+
+// pathItemSpec is the Path Item key list for the revision this document
+// declares.
+//
+// `query` and `additionalOperations` are keys in the wrong place in a 3.0 or
+// 3.1 document, and reporting them there is worth more to their author than
+// quietly running requests the specification gave that document no way to ask
+// for. So this is the one key list that depends on the version line.
+func (d *document) pathItemSpec() objectSpec {
+	if d.atLeast(2) {
+		return specPathItem32
+	}
+	return specPathItem
+}
+
+// validateAdditionalOperation checks one entry of `additionalOperations`.
+//
+// The map key is the method, spelled the way it is to be sent. The
+// specification forbids naming one that already has a field of its own, and the
+// consequence of doing it anyway is worth stating rather than hiding: both
+// operations are read, so the path ends up with two sets of transactions under
+// one method, and the hooks that address them by name cannot tell which is
+// which. It is a warning and not an error because the document is still
+// runnable, and dropping one of the two silently would be the worse answer.
+func (d *document) validateAdditionalOperation(member entry) []annotation {
+	var out []annotation
+
+	method := member.Key.Str()
+	switch {
+	case method == "":
+	case d.isOperationKey(strings.ToLower(method)):
+		out = append(out, d.at(annotation{
+			class: "warning",
+			message: fmt.Sprintf(
+				"'Path Item Object' 'additionalOperations' names '%s', which has a field of "+
+					"its own; the operations under both are run, so move this one to '%s'",
+				method, strings.ToLower(method)),
+		}, member.Key))
+	case !methodTokenPattern.MatchString(method):
+		// A method has to be a token to be sent at all: net/http refuses
+		// anything else, and the refusal would otherwise arrive from the
+		// transport, reading as though the network broke.
+		out = append(out, d.at(annotation{
+			class: "error",
+			message: fmt.Sprintf(
+				"'Path Item Object' 'additionalOperations' names '%s', which is not a "+
+					"method that can be sent", method),
+		}, member.Key))
+	}
+
+	return append(out, d.validateOperation(member.Value)...)
+}
+
+// methodTokenPattern is RFC 9110's token production, which a method name is one
+// of. It is the same set of characters a header field name may use.
+var methodTokenPattern = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`)
 
 func (d *document) validateOperation(operation node) []annotation {
 	return d.validateObject(operation, specOperation, func(op node) []annotation {
@@ -371,10 +492,14 @@ func (d *document) reportDanglingReferences() []annotation {
 	var out []annotation
 
 	for _, ref := range d.findReferences(d.Root) {
-		target := ref.Value
-		if !strings.HasPrefix(target, "#/") {
+		target, local := d.Local(ref.Value)
+		if !local {
 			// A reference into another document. vertrag reads one file, so it
 			// cannot follow this, and saying it is dangling would be wrong.
+			//
+			// A reference written through the document's own `$self` URI is not
+			// one of these, however much it looks like one, which is why the
+			// judgement is Local's and not a prefix test here.
 			continue
 		}
 		if d.Pointer(target).Valid() {
@@ -415,8 +540,13 @@ func (d *document) validateParameter(parameter node) []annotation {
 		var out []annotation
 
 		// A parameter travels in the path, the query string or a header.
-		// Anything else — a cookie — is a place this implementation does not
-		// put values, so the parameter would silently not be sent.
+		// Anything else is a place this implementation does not put values, so
+		// the parameter would silently not be sent: a cookie, or 3.2's
+		// `querystring`, which is not one parameter among others but the entire
+		// query string given as a single value to be serialised through a media
+		// type. Building one means form-encoding an object through its Encoding
+		// Objects, which is work the request builder does for bodies and not
+		// for URLs.
 		if in := p.Get("in"); in.IsScalar() && in.Value != "path" && in.Value != "query" && in.Value != "header" {
 			out = append(out, d.at(annotation{
 				class:   "warning",
@@ -466,7 +596,7 @@ func (d *document) validateRequestBody(body node) []annotation {
 		// media type carries either, the requests for this operation go out
 		// empty against an operation that promises empty is refused — and the
 		// failures that produces would otherwise read as the server's fault.
-		if b.Get("required").Bool() && !anyMediaTypeFillsABody(b.Get("content")) {
+		if b.Get("required").Bool() && !d.anyMediaTypeFillsABody(b.Get("content")) {
 			out = append(out, d.at(annotation{
 				class: "warning",
 				message: "'Request Body Object' is required, but no media type carries " +
@@ -479,9 +609,9 @@ func (d *document) validateRequestBody(body node) []annotation {
 
 // anyMediaTypeFillsABody reports whether at least one media type gives the
 // compiler something a request body can be built from.
-func anyMediaTypeFillsABody(content node) bool {
+func (d *document) anyMediaTypeFillsABody(content node) bool {
 	for _, member := range content.Entries() {
-		mediaType := member.Value
+		mediaType := d.Resolve(member.Value)
 		if !mediaType.IsMapping() {
 			continue
 		}
@@ -518,7 +648,7 @@ func (d *document) validateResponses(responses node) []annotation {
 			continue
 		}
 
-		out = append(out, d.validateObject(member.Value, specResponse, func(response node) []annotation {
+		out = append(out, d.validateObject(member.Value, d.responseSpec(), func(response node) []annotation {
 			var nested []annotation
 			nested = append(nested, d.validateContent(response.Get("content"))...)
 			for _, header := range response.Get("headers").Entries() {
@@ -535,6 +665,22 @@ func (d *document) validateResponses(responses node) []annotation {
 	return out
 }
 
+// responseSpec is the Response Object key list for the revision this document
+// declares.
+//
+// 3.2 stopped requiring `description`, and the difference is not cosmetic: a
+// missing required property is an error, an error stops everything, and a valid
+// 3.2 document that leaves a 204 undescribed produced no transactions at all —
+// the whole run lost to a field the document was right to omit.
+func (d *document) responseSpec() objectSpec {
+	if !d.atLeast(2) {
+		return specResponse
+	}
+	spec := specResponse
+	spec.required = nil
+	return spec
+}
+
 func (d *document) validateContent(content node) []annotation {
 	if !content.IsMapping() {
 		return nil
@@ -542,7 +688,12 @@ func (d *document) validateContent(content node) []annotation {
 
 	var out []annotation
 	for _, member := range content.Entries() {
-		out = append(out, d.validateObject(member.Value, specMediaType, func(mediaType node) []annotation {
+		// Resolved, because 3.2 allows a `content` entry to reference a Media
+		// Type Object held in `components.mediaTypes`. Left unresolved, such an
+		// entry looks like a media type with no schema and no example, which is
+		// exactly what an unshared media type looks like when its author forgot
+		// one — so nothing is reported and nothing is checked.
+		out = append(out, d.validateObject(d.Resolve(member.Value), specMediaType, func(mediaType node) []annotation {
 			var nested []annotation
 			nested = append(nested, d.validateSchema(mediaType.Get("schema"), specSchema)...)
 
@@ -579,6 +730,16 @@ func (d *document) validateComponents(components node) []annotation {
 		}
 		for _, scheme := range c.Get("securitySchemes").Entries() {
 			out = append(out, d.validateObject(scheme.Value, specSecurityScheme, nil)...)
+		}
+		// 3.2's shared media types. Checked here rather than only where they
+		// are referenced, for the reason this whole walk exists: a document's
+		// problems should not depend on which corners of it happened to be
+		// needed, and a shared media type nothing references yet is the corner
+		// most likely to be wrong.
+		for _, mediaType := range c.Get("mediaTypes").Entries() {
+			out = append(out, d.validateObject(mediaType.Value, specMediaType, func(m node) []annotation {
+				return d.validateSchema(m.Get("schema"), specSchema)
+			})...)
 		}
 		return out
 	})
