@@ -507,3 +507,132 @@ func TestFuzzStyledParametersAgainstACarefulServer(t *testing.T) {
 		t.Errorf("both styled parameters should be probed:\n%s", output)
 	}
 }
+
+// formAPI posts a form-encoded body: the shape a login page or a classic
+// HTML form sends, and one a JSON-only prober had to leave untested.
+const formAPI = `openapi: 3.0.3
+info:
+  title: Forms
+  version: 1.0.0
+paths:
+  /signup:
+    post:
+      summary: Sign up
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name, age]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                age:
+                  type: integer
+                  minimum: 18
+            example: {name: ann, age: 30}
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+`
+
+// carelessForm parses age without checking it is a number or its bound.
+func carelessForm() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, err := strconv.Atoi(r.PostForm.Get("age")); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{}`))
+	})
+}
+
+// carefulForm enforces the whole schema.
+func carefulForm() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		age, err := strconv.Atoi(r.PostForm.Get("age"))
+		if err != nil || age < 18 || r.PostForm.Get("name") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{}`))
+	})
+}
+
+func fuzzFormOutput(t *testing.T, endpoint string, extra ...string) (string, error) {
+	t.Helper()
+	description := filepath.Join(t.TempDir(), "form.yml")
+	if err := os.WriteFile(description, []byte(formAPI), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"--endpoint", endpoint, "--no-color", "--seed", "9"}, extra...)
+	args = append(args, description)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	defer func() { os.Stdout = real }()
+	captured := make(chan string, 1)
+	go func() {
+		text, _ := io.ReadAll(read)
+		captured <- string(text)
+	}()
+	runErr := runFuzz(args)
+	write.Close()
+	return <-captured, runErr
+}
+
+// TestFuzzProbesFormEncodedBodies: a form body is generated in its own
+// layout and a handler careless about a field is caught. Before, a request
+// whose content type was not JSON had its body left alone entirely.
+func TestFuzzProbesFormEncodedBodies(t *testing.T) {
+	server := httptest.NewServer(carelessForm())
+	defer server.Close()
+
+	output, err := fuzzFormOutput(t, server.URL, "--cases", "40", "--mode", "invalid")
+	if !errors.Is(err, errFailed) {
+		t.Fatalf("err = %v, want a finding; output:\n%s", err, output)
+	}
+	if !strings.Contains(output, "body:") {
+		t.Errorf("no finding names the body:\n%s", output)
+	}
+	// The body shown must be form-encoded, or the finding cannot be repeated.
+	if !strings.Contains(output, "age=") {
+		t.Errorf("the finding does not show a form-encoded body:\n%s", output)
+	}
+	if strings.Contains(output, "1 transaction(s) skipped for having no schema") {
+		t.Errorf("the form body was skipped instead of probed:\n%s", output)
+	}
+}
+
+// TestFuzzFormBodiesAgainstACarefulServer keeps the other half honest.
+func TestFuzzFormBodiesAgainstACarefulServer(t *testing.T) {
+	server := httptest.NewServer(carefulForm())
+	defer server.Close()
+
+	output, err := fuzzFormOutput(t, server.URL, "--cases", "60")
+	if err != nil {
+		t.Fatalf("a correct server produced findings:\n%s", output)
+	}
+	if !strings.Contains(output, "0 finding(s)") || strings.Contains(output, " 0 request(s) sent") {
+		t.Errorf("not a clean, non-empty run:\n%s", output)
+	}
+}

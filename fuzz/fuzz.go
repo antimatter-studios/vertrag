@@ -160,6 +160,17 @@ func Probe(ctx context.Context, schema generate.Schema, mode generate.Mode, send
 	return probe(ctx, Subject{In: InBody}, schema, mode, bodyForm(), send, opts)
 }
 
+// ProbeBody is Probe for a body of a given media type: JSON, form-encoded or
+// multipart. The second return is false with no probing done when the media
+// type is one generation cannot lay a value out in.
+func ProbeBody(ctx context.Context, mediaType string, schema generate.Schema, mode generate.Mode, send Sender, opts Options) (Finding, bool) {
+	form, ok := BodyForm(mediaType, schema)
+	if !ok {
+		return Finding{}, false
+	}
+	return probe(ctx, Subject{In: InBody}, schema, mode, form, send, opts)
+}
+
 // ProbeParameter does the same for one path, query or header parameter.
 //
 // It is separate from Probe only because a parameter reaches the server as text

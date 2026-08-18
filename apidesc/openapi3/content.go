@@ -184,12 +184,12 @@ func (d *document) parseContent(content node, withSchema bool) []message {
 				}
 			}
 
-			// A multipart schema describes the parts rather than a JSON
-			// document, so it is carried for generation — which builds the
-			// parts from it — but a JSON body is the only thing a JSON Schema
-			// can be validated against.
+			// A multipart or form-encoded schema describes the FIELDS rather
+			// than a JSON document, so it is carried for generation — which
+			// builds the fields from it — but a JSON body is the only thing a
+			// JSON Schema can be validated against.
 			if withSchema && schema.Valid() &&
-				(isJSONMediaType(mediaType) || isMultipartMediaType(mediaType)) {
+				(isJSONMediaType(mediaType) || isMultipartMediaType(mediaType) || isFormMediaType(mediaType)) {
 				if converted, ok := d.convertSchema(schema); ok {
 					msg.schema = converted
 				}
