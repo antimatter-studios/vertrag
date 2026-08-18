@@ -37,6 +37,7 @@ type runFlags struct {
 	sorted            bool
 	sequence          bool
 	checkHeaderSchema bool
+	checkIgnoredAuth  bool
 	reporterName      string
 	output            string
 
@@ -70,6 +71,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.sorted, "sorted", false, "run transactions grouped by method rather than in document order")
 	fs.BoolVar(&f.sequence, "sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
 	fs.BoolVar(&f.checkHeaderSchema, "check-header-schema", false, "validate response header values against the schemas the description gives them")
+	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
 	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
 	fs.Var(&f.headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
@@ -150,6 +152,9 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 	if f.checkHeaderSchema {
 		settings.Checks.HeaderSchema = true
+	}
+	if f.checkIgnoredAuth {
+		settings.Checks.IgnoredAuth = true
 	}
 	settings.Header = append(settings.Header, f.headers...)
 	settings.Only = append(settings.Only, f.only...)
@@ -297,6 +302,7 @@ func runRun(args []string) error {
 		ServerError:  settings.Checks.ServerError,
 		ContentType:  settings.Checks.ContentType,
 		HeaderSchema: settings.Checks.HeaderSchema,
+		IgnoredAuth:  settings.Checks.IgnoredAuth,
 	}
 
 	// Hook files run in a worker process. Starting it is a hard failure: a

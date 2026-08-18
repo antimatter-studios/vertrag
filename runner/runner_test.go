@@ -648,3 +648,135 @@ func TestExpectedSchemaIsCarried(t *testing.T) {
 		t.Error("the carried schema should be valid JSON")
 	}
 }
+
+// TestTheGrantingOperationNeverReceivesTheCredential pins a rule that is
+// definitional rather than configurable: the request that OBTAINS the
+// credential is not sent it.
+//
+// Found on a real suite, whose login transaction went out carrying the cookie
+// it had just minted. Harmless there — the server ignored it — but the suite
+// had to spell the exclusion out in `auth.except`, and at worst a server
+// takes the cookie as "already authenticated" and answers a login it never
+// performed, which is a different exchange from the one documented.
+func TestTheGrantingOperationNeverReceivesTheCredential(t *testing.T) {
+	engine := New("http://example.invalid")
+	engine.Auth = Credential{
+		Header:      "Cookie: session=minted",
+		LoginMethod: "POST",
+		LoginPath:   "/auth/login",
+	}
+
+	login := compile.Transaction{
+		Name:    "login",
+		Request: compile.Request{Method: "POST", URI: "/auth/login"},
+	}
+	if headers := engine.headersFor(login); len(headers) != 0 {
+		t.Errorf("the login request was sent the credential it granted: %v", headers)
+	}
+
+	// Everything else still gets it, including a different method on the same
+	// path — a GET /auth/login is not the operation that granted anything.
+	for _, other := range []compile.Transaction{
+		{Name: "list", Request: compile.Request{Method: "GET", URI: "/things"}},
+		{Name: "peek", Request: compile.Request{Method: "GET", URI: "/auth/login"}},
+	} {
+		headers := engine.headersFor(other)
+		if len(headers) != 1 || headers[0] != "Cookie: session=minted" {
+			t.Errorf("%s should carry the credential, got %v", other.Name, headers)
+		}
+	}
+
+	// A query string on the compiled URI does not hide the login path.
+	withQuery := compile.Transaction{
+		Name:    "login with query",
+		Request: compile.Request{Method: "POST", URI: "/auth/login?next=%2Fhome"},
+	}
+	if headers := engine.headersFor(withQuery); len(headers) != 0 {
+		t.Errorf("a query string let the credential reach the login request: %v", headers)
+	}
+}
+
+// TestIgnoredAuthFindsAnEndpointThatIsNotActuallyAuthenticated pins the check
+// that no ordinary run can make.
+//
+// Every request in a run carries the credential, so every response is
+// correct, and an endpoint that would have answered just as happily without
+// one is indistinguishable from a properly guarded one. The only way to tell
+// is to ask again without it.
+func TestIgnoredAuthFindsAnEndpointThatIsNotActuallyAuthenticated(t *testing.T) {
+	// /guarded checks the credential; /open does not, though the suite sends
+	// one to both.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/guarded" && r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	engine := New(server.URL)
+	engine.Auth = Credential{Header: "Authorization: Bearer good"}
+	engine.Checks = Checks{IgnoredAuth: true}
+
+	transactions := []compile.Transaction{
+		{
+			Name:     "guarded",
+			Request:  compile.Request{Method: "GET", URI: "/guarded"},
+			Response: compile.Response{Status: "200"},
+		},
+		{
+			Name:     "open",
+			Request:  compile.Request{Method: "GET", URI: "/open"},
+			Response: compile.Response{Status: "200"},
+		},
+	}
+
+	results, err := engine.Run(context.Background(), transactions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if results[0].Status != StatusPass {
+		t.Errorf("the guarded endpoint should pass: %v %v", results[0].Status, results[0].Beyond)
+	}
+	if results[1].Status != StatusFail {
+		t.Fatalf("the unauthenticated endpoint should be reported, got %s", results[1].Status)
+	}
+	if len(results[1].Beyond) != 1 || !strings.Contains(results[1].Beyond[0], "not authenticated") {
+		t.Errorf("the finding does not say what is wrong: %v", results[1].Beyond)
+	}
+	// It is a Beyond finding: a check Dredd never made, kept apart so an
+	// upgrade is not mistaken for a regression.
+	if len(results[1].Errors) != 0 {
+		t.Errorf("an ignored-auth finding is not a validation error: %v", results[1].Errors)
+	}
+}
+
+// TestIgnoredAuthIsSilentWithoutACredential: with nothing to withhold there
+// is no question to ask, and asking anyway would report every endpoint of an
+// unauthenticated suite.
+func TestIgnoredAuthIsSilentWithoutACredential(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	engine := New(server.URL)
+	engine.Checks = Checks{IgnoredAuth: true}
+	results, _ := engine.Run(context.Background(), []compile.Transaction{{
+		Name: "open", Request: compile.Request{Method: "GET", URI: "/open"},
+		Response: compile.Response{Status: "200"},
+	}})
+
+	if results[0].Status != StatusPass || len(results[0].Beyond) != 0 {
+		t.Errorf("an unauthenticated run should raise nothing: %v %v", results[0].Status, results[0].Beyond)
+	}
+	if requests != 1 {
+		t.Errorf("the server saw %d requests; with no credential there is nothing to re-send", requests)
+	}
+}

@@ -39,6 +39,12 @@ func Obtain(ctx context.Context, client *http.Client, endpoint string, settings 
 		return "", nil
 	}
 
+	// The client credentials grant, when configured: a token endpoint rather
+	// than a login path, and a form rather than a JSON body.
+	if settings.OAuth2.Configured() {
+		return obtainOAuth2(ctx, client, endpoint, settings.OAuth2)
+	}
+
 	// A static credential — an API key, a token from the environment — needs no
 	// exchange, and demanding a login endpoint for one would be absurd.
 	if settings.Login.Path == "" {
