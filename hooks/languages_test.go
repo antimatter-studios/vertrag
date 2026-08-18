@@ -223,10 +223,10 @@ func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 }
 
 // TestBothModuleNamesWorkInNode: `vertrag_hooks` is the one name, in both
-// languages — the underscore is what makes that possible, since a hyphen is a
-// syntax error in a Python import. The hyphenated form still resolves here
-// because reaching for it is a natural slip for a JavaScript developer. The
-// bare `hooks` Dredd used does not, and the next test says so.
+// languages, because the underscore is the only spelling Python can take — a
+// hyphen there is a syntax error. The hyphenated form still resolves in Node
+// for the muscle memory. The bare `hooks` Dredd used does not, and the next
+// test says so.
 func TestBothModuleNamesWorkInNode(t *testing.T) {
 	interpreterFor(t, "nodejs")
 

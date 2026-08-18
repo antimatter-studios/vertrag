@@ -474,6 +474,10 @@ hooks.beforeEach((transaction) => {
 });
 ```
 
+One name in both languages, and the underscore is what allows that: a hyphen
+is a syntax error in a Python import, where it parses as subtraction. Node
+accepts `vertrag-hooks` too, for the muscle memory.
+
 Python needs `python3` on PATH and uses nothing but the standard library — no
 virtualenv, no pip install. Node hook files may be TypeScript if the project
 has `tsx` or `ts-node`; without one, vertrag says so rather than letting Node

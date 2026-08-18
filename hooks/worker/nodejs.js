@@ -54,17 +54,14 @@ const hooks = {
 // Hook files ask for this module by name. Nothing on disk provides it, so it
 // is installed into the module cache before they load.
 //
-// `vertrag_hooks` is THE name, here and in Python, and the underscore is why
-// it can be: `import vertrag-hooks` is a syntax error in Python, where the
-// hyphen parses as subtraction, so Python has no choice — while Node's
-// resolver takes any string and can therefore spell it either way. One name
-// in both languages beats each following its own convention, since the person
-// reading a hook file is likelier to be moving between them than comparing
-// vertrag against npm's naming habits.
+// `vertrag_hooks` is the name, in both languages, and the underscore is what
+// makes one name possible: `import vertrag-hooks` is a syntax error in
+// Python, where the hyphen parses as subtraction, while Node's resolver takes
+// any string. So the underscore is the only spelling both can share, and one
+// name across both hook files beats each following its own ecosystem's habit.
 //
-// The hyphenated form still resolves, because reaching for it is a natural
-// slip for anyone who imports `ts-node` and `body-parser` all day, and
-// refusing a name costs somebody an afternoon to save nothing.
+// The hyphenated form still resolves here, because reaching for it is a
+// natural slip for anyone who imports `ts-node` and `body-parser` all day.
 //
 // The bare `hooks` that Dredd used is deliberately absent. There is one Node
 // hook file in the world that says it, its owners can change the line in
