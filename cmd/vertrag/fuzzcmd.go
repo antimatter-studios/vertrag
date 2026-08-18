@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"strconv"
@@ -135,6 +136,14 @@ func runFuzz(args []string) error {
 		fmt.Printf("Every operation that could be probed is on the skip list, so nothing was sent.\n")
 		return nil
 	}
+
+	// rapid reports the seed it picks only through a log nothing surfaces, so a
+	// zero seed is chosen here instead — the printed value is then, by
+	// construction, the one every probe used.
+	for *seed == 0 {
+		*seed = rand.Uint64()
+	}
+	fmt.Printf("seed: %d (replay with --seed %d)\n", *seed, *seed)
 
 	return probeAll(ctx, engine, probeable, modes, skipped, fuzz.Options{
 		Cases: *cases,

@@ -90,8 +90,9 @@ type Options struct {
 	// sound. More finds more, and costs one request each.
 	Cases int
 
-	// Seed reproduces an earlier run. Zero picks one and reports it, so a
-	// finding can always be replayed.
+	// Seed reproduces an earlier run. Zero lets rapid pick one and keep it to
+	// itself, so a caller that wants replayable findings must choose the seed
+	// and tell the user what it chose.
 	Seed uint64
 }
 
@@ -194,8 +195,8 @@ func probe(
 	defer probeMu.Unlock()
 
 	_ = flag.Set("rapid.checks", strconv.Itoa(opts.Cases))
-	// Zero tells rapid to choose one, which is also what it reports back, so a
-	// finding can always be replayed with --seed.
+	// Zero tells rapid to choose one, but the choice surfaces only in rapid's
+	// own log, which nothing here reads — see Options.Seed.
 	_ = flag.Set("rapid.seed", strconv.FormatUint(opts.Seed, 10))
 
 	collector := &collector{}
