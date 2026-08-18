@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -780,3 +781,171 @@ func TestIgnoredAuthIsSilentWithoutACredential(t *testing.T) {
 		t.Errorf("the server saw %d requests; with no credential there is nothing to re-send", requests)
 	}
 }
+
+// TestWorkersProduceTheSameReportAsOneWorker is the property that makes
+// parallelism safe to offer at all.
+//
+// A parallel run that reordered its report would be unreadable against the
+// description and undiffable against yesterday's, which is most of what a
+// contract report is for. Results are collected against their original
+// positions, so the report is the document's order whatever the worker count
+// — and this asserts it rather than trusting it.
+func TestWorkersProduceTheSameReportAsOneWorker(t *testing.T) {
+	// Deliberately uneven: the earliest transactions are the slowest, so a
+	// run that reported in completion order would come out backwards.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/slow":
+			time.Sleep(40 * time.Millisecond)
+		case "/medium":
+			time.Sleep(20 * time.Millisecond)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	transactions := []compile.Transaction{
+		{Name: "slow", Request: compile.Request{Method: "GET", URI: "/slow"}, Response: compile.Response{Status: "200"}},
+		{Name: "medium", Request: compile.Request{Method: "GET", URI: "/medium"}, Response: compile.Response{Status: "200"}},
+		{Name: "quick", Request: compile.Request{Method: "GET", URI: "/quick"}, Response: compile.Response{Status: "200"}},
+	}
+
+	names := func(results []Result) []string {
+		var out []string
+		for _, result := range results {
+			out = append(out, result.Name+"="+string(result.Status))
+		}
+		return out
+	}
+
+	sequential := New(server.URL)
+	one, err := sequential.Run(context.Background(), transactions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parallel := New(server.URL)
+	parallel.Workers = 3
+	many, err := parallel.Run(context.Background(), transactions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Join(names(one), ",") != strings.Join(names(many), ",") {
+		t.Errorf("the report changed with workers:\n one: %v\nmany: %v", names(one), names(many))
+	}
+	if len(many) != 3 {
+		t.Errorf("results = %d, want 3", len(many))
+	}
+}
+
+// TestWorkersActuallyOverlap: without this, the whole feature could be a
+// no-op that quietly ran sequentially and passed every other test here.
+func TestWorkersActuallyOverlap(t *testing.T) {
+	var mu sync.Mutex
+	inFlight, peak := 0, 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inFlight++
+		if inFlight > peak {
+			peak = inFlight
+		}
+		mu.Unlock()
+
+		time.Sleep(30 * time.Millisecond)
+
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	var transactions []compile.Transaction
+	for i := 0; i < 8; i++ {
+		transactions = append(transactions, compile.Transaction{
+			Name:     fmt.Sprintf("t%d", i),
+			Request:  compile.Request{Method: "GET", URI: "/x"},
+			Response: compile.Response{Status: "200"},
+		})
+	}
+
+	engine := New(server.URL)
+	engine.Workers = 4
+	if _, err := engine.Run(context.Background(), transactions); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	saw := peak
+	mu.Unlock()
+	if saw < 2 {
+		t.Errorf("peak concurrency was %d; --workers 4 did not overlap anything", saw)
+	}
+	if saw > 4 {
+		t.Errorf("peak concurrency was %d, above the 4 workers asked for", saw)
+	}
+}
+
+// TestASequencedRunIgnoresWorkers: a step that takes its values from another
+// step's response cannot overlap it. The plan wins, silently here and loudly
+// in the command, which says so rather than appearing to go faster.
+func TestASequencedRunIgnoresWorkers(t *testing.T) {
+	var mu sync.Mutex
+	inFlight, peak := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inFlight++
+		if inFlight > peak {
+			peak = inFlight
+		}
+		mu.Unlock()
+		time.Sleep(15 * time.Millisecond)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	var transactions []compile.Transaction
+	for i := 0; i < 6; i++ {
+		transactions = append(transactions, compile.Transaction{
+			Name:     fmt.Sprintf("t%d", i),
+			Request:  compile.Request{Method: "GET", URI: "/x"},
+			Response: compile.Response{Status: "200"},
+		})
+	}
+
+	engine := New(server.URL)
+	engine.Workers = 4
+	engine.Plan = documentOrder{}
+	if _, err := engine.Run(context.Background(), transactions); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	saw := peak
+	mu.Unlock()
+	if saw != 1 {
+		t.Errorf("peak concurrency was %d; a planned run must send one at a time", saw)
+	}
+}
+
+// documentOrder is the simplest possible Plan: document order, nothing
+// rewritten. It exists to prove a plan forces sequential sending.
+type documentOrder struct{}
+
+func (documentOrder) Order(count int) []int {
+	out := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		out = append(out, i)
+	}
+	return out
+}
+func (documentOrder) Prepare(int, *Transaction, map[int]Result) (string, bool) { return "", true }
+func (documentOrder) Record(int, *Transaction, Result)                         {}

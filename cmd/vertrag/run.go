@@ -38,6 +38,7 @@ type runFlags struct {
 	sequence          bool
 	checkHeaderSchema bool
 	checkIgnoredAuth  bool
+	workers           int
 	reporterName      string
 	output            string
 
@@ -72,6 +73,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.sequence, "sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
 	fs.BoolVar(&f.checkHeaderSchema, "check-header-schema", false, "validate response header values against the schemas the description gives them")
 	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
+	fs.IntVar(&f.workers, "workers", 1, "send this many transactions at once; refused with --sequence or hooks, which are ordering contracts")
 	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
 	fs.Var(&f.headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
@@ -155,6 +157,9 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 	if f.checkIgnoredAuth {
 		settings.Checks.IgnoredAuth = true
+	}
+	if f.workers > 1 {
+		settings.Workers = f.workers
 	}
 	settings.Header = append(settings.Header, f.headers...)
 	settings.Only = append(settings.Only, f.only...)
@@ -283,6 +288,22 @@ func runRun(args []string) error {
 
 	if err := applyConfiguredRules(ctx, engine, settings, transactions); err != nil {
 		return err
+	}
+
+	// Concurrency is refused rather than silently ignored where it would break
+	// an ordering contract: a sequenced step takes its values from another
+	// step's response, and a hook worker is one process handling one
+	// transaction at a time. Saying so is the difference between a run that
+	// went slower than asked and a run the reader believes went faster.
+	if settings.Workers > 1 {
+		switch {
+		case flags.sequence:
+			fmt.Fprintln(os.Stderr, "vertrag: workers is ignored with --sequence, which orders the run by the links between transactions")
+		case len(settings.Hookfiles) > 0:
+			fmt.Fprintln(os.Stderr, "vertrag: workers is ignored while hookfiles are loaded, since the worker process handles one transaction at a time")
+		default:
+			engine.Workers = settings.Workers
+		}
 	}
 
 	// Sequencing is opt-in because it reorders a run, and a suite whose hooks
