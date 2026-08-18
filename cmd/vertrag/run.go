@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
@@ -37,6 +38,7 @@ type runFlags struct {
 	sequence          bool
 	checkHeaderSchema bool
 	checkIgnoredAuth  bool
+	maxResponseTime   time.Duration
 	workers           int
 	reporterName      string
 	output            string
@@ -72,6 +74,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.sequence, "sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
 	fs.BoolVar(&f.checkHeaderSchema, "check-header-schema", false, "validate response header values against the schemas the description gives them")
 	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
+	fs.DurationVar(&f.maxResponseTime, "max-response-time", 0, "report any transaction that took longer than this, e.g. 750ms (0 = do not time them)")
 	fs.IntVar(&f.workers, "workers", 1, "send this many transactions at once; refused with --sequence or hooks, which are ordering contracts")
 	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
@@ -156,6 +159,9 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 	if f.checkIgnoredAuth {
 		settings.Checks.IgnoredAuth = true
+	}
+	if f.maxResponseTime > 0 {
+		settings.Checks.MaxResponseTime = f.maxResponseTime
 	}
 	if f.workers > 1 {
 		settings.Workers = f.workers
@@ -311,10 +317,11 @@ func runRun(args []string) error {
 	}
 
 	engine.Checks = runner.Checks{
-		ServerError:  settings.Checks.ServerError,
-		ContentType:  settings.Checks.ContentType,
-		HeaderSchema: settings.Checks.HeaderSchema,
-		IgnoredAuth:  settings.Checks.IgnoredAuth,
+		ServerError:     settings.Checks.ServerError,
+		ContentType:     settings.Checks.ContentType,
+		HeaderSchema:    settings.Checks.HeaderSchema,
+		IgnoredAuth:     settings.Checks.IgnoredAuth,
+		MaxResponseTime: settings.Checks.MaxResponseTime,
 	}
 
 	// Hook files run in a worker process. Starting it is a hard failure: a

@@ -882,7 +882,7 @@ func (t *Transaction) validated(checks Checks, elapsed time.Duration) Result {
 		Validation: validation,
 		Duration:   elapsed,
 	}
-	result.Beyond = checks.run(expected, t.Real)
+	result.Beyond = checks.run(expected, t.Real, elapsed)
 	if len(result.Beyond) > 0 {
 		result.Status = StatusFail
 	}

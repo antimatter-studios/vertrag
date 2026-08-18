@@ -7,10 +7,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/validate"
 )
+
+// untimed is the elapsed time handed to a check that is not about time. Every
+// test below it leaves the response-time bound at zero, so the value cannot
+// affect the outcome — naming it says so, where a bare 0 in the argument list
+// invites the reader to look for the significance it does not have.
+const untimed = time.Duration(0)
 
 // TestContentTypeIsNotComparedAcrossAStatusMismatch pins a fix for a false
 // finding vertrag reported against a real server.
@@ -31,14 +38,14 @@ func TestContentTypeIsNotComparedAcrossAStatusMismatch(t *testing.T) {
 		Headers:    map[string]string{"content-type": "application/json"},
 		Body:       `{"error":"No card has been read"}`,
 	}
-	if findings := checks.run(expected, wrongStatus); len(findings) != 0 {
+	if findings := checks.run(expected, wrongStatus, untimed); len(findings) != 0 {
 		t.Errorf("a mismatched status should suppress the comparison, got %v", findings)
 	}
 
 	// With the status matching, the comparison means something again.
 	rightStatus := wrongStatus
 	rightStatus.StatusCode = "200"
-	findings := checks.run(expected, rightStatus)
+	findings := checks.run(expected, rightStatus, untimed)
 	if len(findings) != 1 || !strings.Contains(findings[0], "promises application/octet-stream") {
 		t.Errorf("a genuine mismatch should still be reported, got %v", findings)
 	}
@@ -52,6 +59,7 @@ func TestCharsetIsNotAViolation(t *testing.T) {
 	findings := Checks{ContentType: true}.run(
 		validate.Message{StatusCode: "200", Headers: map[string]string{"Content-Type": "application/json"}},
 		validate.Message{StatusCode: "200", Headers: map[string]string{"content-type": "application/json; charset=utf-8"}},
+		untimed,
 	)
 	if len(findings) != 0 {
 		t.Errorf("a charset should not be a violation, got %v", findings)
@@ -64,6 +72,7 @@ func TestServerErrorIsReportedRegardlessOfStatusExpectation(t *testing.T) {
 	findings := Checks{ServerError: true}.run(
 		validate.Message{StatusCode: "200"},
 		validate.Message{StatusCode: "500"},
+		untimed,
 	)
 	if len(findings) != 1 || !strings.Contains(findings[0], "failed rather than disagreed") {
 		t.Errorf("a 5xx should be reported, got %v", findings)
@@ -94,11 +103,11 @@ func TestHeaderSchemasAreOnlyCheckedWhenAskedFor(t *testing.T) {
 		Headers:    map[string]string{"x-rate-limit": "banana"},
 	}
 
-	if findings := (Checks{}).run(headerSchemaExpectation(), violating); len(findings) != 0 {
+	if findings := (Checks{}).run(headerSchemaExpectation(), violating, untimed); len(findings) != 0 {
 		t.Errorf("the check must be off unless asked for, got %v", findings)
 	}
 
-	findings := Checks{HeaderSchema: true}.run(headerSchemaExpectation(), violating)
+	findings := Checks{HeaderSchema: true}.run(headerSchemaExpectation(), violating, untimed)
 	if len(findings) != 1 || !strings.Contains(findings[0], "X-Rate-Limit") {
 		t.Errorf("once asked for it should report the violation, got %v", findings)
 	}
@@ -114,7 +123,7 @@ func TestHeaderSchemasAreNotCheckedAcrossAStatusMismatch(t *testing.T) {
 		Headers:    map[string]string{"x-rate-limit": "unavailable"},
 	}
 
-	findings := Checks{HeaderSchema: true}.run(headerSchemaExpectation(), wrongStatus)
+	findings := Checks{HeaderSchema: true}.run(headerSchemaExpectation(), wrongStatus, untimed)
 	if len(findings) != 0 {
 		t.Errorf("a mismatched status should suppress the check, got %v", findings)
 	}
@@ -183,6 +192,7 @@ func TestADocumentedServerErrorIsNotAFinding(t *testing.T) {
 	documented := Checks{ServerError: true}.run(
 		validate.Message{StatusCode: "500"},
 		validate.Message{StatusCode: "500"},
+		untimed,
 	)
 	if len(documented) != 0 {
 		t.Errorf("a documented 500 should not be a finding, got %v", documented)
@@ -193,6 +203,7 @@ func TestADocumentedServerErrorIsNotAFinding(t *testing.T) {
 	unexpected := Checks{ServerError: true}.run(
 		validate.Message{StatusCode: "200"},
 		validate.Message{StatusCode: "500"},
+		untimed,
 	)
 	if len(unexpected) != 1 {
 		t.Errorf("an undocumented 500 should be reported, got %v", unexpected)
@@ -203,6 +214,7 @@ func TestADocumentedServerErrorIsNotAFinding(t *testing.T) {
 	other := Checks{ServerError: true}.run(
 		validate.Message{StatusCode: "503"},
 		validate.Message{StatusCode: "500"},
+		untimed,
 	)
 	if len(other) != 1 {
 		t.Errorf("a 500 where a 503 was promised should be reported, got %v", other)
@@ -238,5 +250,150 @@ func TestABodilessResponseIsNotCheckedForABody(t *testing.T) {
 		if got := bodiless(test.method, test.status); got != test.want {
 			t.Errorf("bodiless(%q, %q) = %v, want %v", test.method, test.status, got, test.want)
 		}
+	}
+}
+
+// TestTheResponseTimeBoundIsOffUntilItIsGiven pins that an unconfigured run
+// never reports on time at all.
+//
+// Every other check here judges the response against the description, so it can
+// be on by default and still only report what the document already promised. A
+// response time has no such reference: OpenAPI cannot state one, so any bound a
+// default applied would be a number vertrag made up on the operator's behalf —
+// and a suite that goes red over an invented threshold teaches people to
+// distrust the tool rather than read the finding.
+func TestTheResponseTimeBoundIsOffUntilItIsGiven(t *testing.T) {
+	slow := validate.Message{StatusCode: "200"}
+
+	if findings := (Checks{}).run(slow, slow, time.Hour); len(findings) != 0 {
+		t.Errorf("an hour must be unremarkable with no bound set, got %v", findings)
+	}
+
+	findings := Checks{MaxResponseTime: 750 * time.Millisecond}.run(slow, slow, time.Hour)
+	if len(findings) != 1 {
+		t.Errorf("once a bound is set the hour should be reported, got %v", findings)
+	}
+}
+
+// TestTheResponseTimeFindingNamesTheBoundAndWhatItTook covers the arithmetic and
+// the wording together, because both are how a reader decides whether the
+// finding is about their server or about their configuration.
+func TestTheResponseTimeFindingNamesTheBoundAndWhatItTook(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		bound   time.Duration
+		elapsed time.Duration
+		want    string
+	}{
+		{
+			name:    "over the bound",
+			bound:   750 * time.Millisecond,
+			elapsed: 900 * time.Millisecond,
+			want:    "the response took 900ms, longer than the 750ms this run allows",
+		},
+		{
+			// A bound is a maximum, so meeting it exactly is meeting it. The
+			// alternative reading turns `750ms` into "strictly under 750ms",
+			// which is not what anybody writing an SLA means by it.
+			name:    "exactly on the bound",
+			bound:   750 * time.Millisecond,
+			elapsed: 750 * time.Millisecond,
+			want:    "",
+		},
+		{
+			// The microseconds differ on every run and no server can be tuned
+			// by them, so they are rounded away rather than printed as
+			// precision the finding does not have.
+			name:    "microseconds are not reported",
+			bound:   750 * time.Millisecond,
+			elapsed: 751348219 * time.Nanosecond,
+			want:    "the response took 751ms, longer than the 750ms this run allows",
+		},
+		{
+			// Under a bound finer than a millisecond that rounding would print
+			// "took 0s", which reads as the checker having fired on nothing.
+			name:    "a bound finer than the rounding",
+			bound:   500 * time.Microsecond,
+			elapsed: 900 * time.Microsecond,
+			want:    "the response took 900µs, longer than the 500µs this run allows",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			finding, found := checkResponseTime(test.bound, test.elapsed)
+			if found != (test.want != "") {
+				t.Fatalf("found = %v, want %v (finding %q)", found, test.want != "", finding)
+			}
+			if finding != test.want {
+				t.Errorf("finding = %q, want %q", finding, test.want)
+			}
+		})
+	}
+}
+
+// TestASlowResponseIsReportedWithoutFailingTheContract runs the check where it
+// actually has to work: over a live server, through the runner, with the
+// duration the runner measured rather than one a test handed it.
+//
+// The duration reaching the check is the part a refactor breaks silently. It is
+// not carried in the message pair the other checks read — it is measured by the
+// runner and passed alongside — so nothing but a real transaction proves the
+// two are still connected, and a bound that quietly stopped being applied looks
+// exactly like a server that got faster.
+//
+// The other half is what the finding is filed as. Nothing the description
+// promised was contradicted here: the status, the headers and the body are all
+// what it said they would be, and Errors must stay empty to say so. A reader
+// sent to the document by this finding would find nothing in it about time.
+func TestASlowResponseIsReportedWithoutFailingTheContract(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Comfortably longer than the bound below, so the test is deciding
+		// whether the check works rather than how loaded the machine is.
+		time.Sleep(25 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	source := compile.Transaction{
+		Name:    "slow",
+		Request: compile.Request{Method: "GET", URI: "/slow"},
+		Response: compile.Response{
+			Status:  "200",
+			Headers: []compile.Header{{Name: "Content-Type", Value: "application/json"}},
+			Body:    `{"ok":true}`,
+		},
+	}
+
+	engine := New(server.URL)
+	engine.Checks = Checks{MaxResponseTime: time.Millisecond}
+
+	results, err := engine.Run(context.Background(), []compile.Transaction{source})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(results[0].Beyond) != 1 || !strings.Contains(results[0].Beyond[0], "longer than the 1ms") {
+		t.Errorf("findings = %v, want the bound named", results[0].Beyond)
+	}
+	if len(results[0].Errors) != 0 {
+		t.Errorf("errors = %v, want none: the description was not contradicted", results[0].Errors)
+	}
+	// It does still fail the transaction, as every finding in Beyond does. The
+	// CLI reporter prints Beyond for a failure only, so a finding that left the
+	// run green would be one nobody ever reads — and a bound is only ever set
+	// by somebody who wanted to be told.
+	if results[0].Status != StatusFail {
+		t.Errorf("status = %s, want fail", results[0].Status)
+	}
+
+	// The same server under a bound it meets is green, which is what makes the
+	// check safe to leave configured.
+	engine.Checks = Checks{MaxResponseTime: time.Minute}
+	results, err = engine.Run(context.Background(), []compile.Transaction{source})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if results[0].Status != StatusPass || len(results[0].Beyond) != 0 {
+		t.Errorf("status = %s, findings = %v, want a clean pass", results[0].Status, results[0].Beyond)
 	}
 }
