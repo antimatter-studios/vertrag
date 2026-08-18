@@ -2,10 +2,13 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -229,5 +232,64 @@ func TestBadCACertFailsBeforeAnyRequest(t *testing.T) {
 	}
 	if _, err := NewWithTransport("http://x", Transport{Proxy: "://bad"}); err == nil {
 		t.Error("an unparsable proxy URL should fail construction")
+	}
+}
+
+// TestDelayThrottlesTheStreamNotEachWorker pins the semantics --delay has to
+// have once requests overlap.
+//
+// A pause each worker takes on its own throttles nothing: four workers
+// pausing in parallel still send four requests per interval. What someone
+// throttling a shared server is asking for is a bound on the whole run's
+// request stream, so the wait is computed against the last send by ANY
+// worker. (The naive per-worker form was also a data race, which is how this
+// came to light.)
+func TestDelayThrottlesTheStreamNotEachWorker(t *testing.T) {
+	var mu sync.Mutex
+	var times []time.Time
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		times = append(times, time.Now())
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	const delay = 25 * time.Millisecond
+	engine, err := NewWithTransport(server.URL, Transport{Delay: delay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.Workers = 4
+
+	var transactions []compile.Transaction
+	for i := 0; i < 6; i++ {
+		transactions = append(transactions, compile.Transaction{
+			Name:     fmt.Sprintf("t%d", i),
+			Request:  compile.Request{Method: "GET", URI: "/x"},
+			Response: compile.Response{Status: "200"},
+		})
+	}
+	if _, err := engine.Run(context.Background(), transactions); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	seen := append([]time.Time{}, times...)
+	mu.Unlock()
+
+	if len(seen) != 6 {
+		t.Fatalf("server saw %d requests, want 6", len(seen))
+	}
+	sort.Slice(seen, func(i, j int) bool { return seen[i].Before(seen[j]) })
+
+	// Six requests, five gaps of at least the delay: the whole run cannot be
+	// shorter than 5×delay however many workers asked to send at once.
+	span := seen[len(seen)-1].Sub(seen[0])
+	if floor := 4 * delay; span < floor {
+		t.Errorf("six requests spanned %s; a %s stream delay makes that at least %s — workers paced independently",
+			span, delay, floor)
 	}
 }

@@ -84,6 +84,10 @@ type Config struct {
 	// means run everything. Read only from a vertrag file.
 	MaxFailures int
 
+	// Workers is how many transactions to send at once; zero or one is
+	// sequential. Read only from a vertrag file.
+	Workers int
+
 	// Phases are what a run does: "examples" (the documented transactions,
 	// always first and on by default), then optionally "coverage" (every
 	// boundary each schema implies, deterministic) and "fuzz" (values drawn
@@ -332,6 +336,8 @@ type file struct {
 	OperationID []string `yaml:"operation-id"`
 	// MaxFailures stops the run early.
 	MaxFailures *int `yaml:"max-failures"`
+	// Workers sends several transactions at once.
+	Workers *int `yaml:"workers"`
 	// Phases selects what a run does; Fuzz pins the fuzz phase.
 	Phases []string  `yaml:"phases"`
 	Fuzz   *fuzzFile `yaml:"fuzz"`
@@ -471,6 +477,9 @@ func Load(path string) (Config, error) {
 	if parsed.MaxFailures != nil {
 		own = append(own, "`max-failures`")
 	}
+	if parsed.Workers != nil {
+		own = append(own, "`workers`")
+	}
 	if len(parsed.Phases) > 0 {
 		own = append(own, "`phases`")
 	}
@@ -521,6 +530,12 @@ func Load(path string) (Config, error) {
 			if parsed.Fuzz.WholeRequest != nil {
 				config.Fuzz.WholeRequest = *parsed.Fuzz.WholeRequest
 			}
+		}
+		if parsed.Workers != nil {
+			if *parsed.Workers < 1 {
+				return config, fmt.Errorf("%s: workers must be at least 1, got %d", path, *parsed.Workers)
+			}
+			config.Workers = *parsed.Workers
 		}
 		if parsed.MaxFailures != nil {
 			if *parsed.MaxFailures < 0 {

@@ -132,14 +132,41 @@ func (r *Runner) do(request *http.Request) (*http.Response, error) {
 	return nil, lastErr
 }
 
-// pace waits the transport's delay, unless the run was cancelled first.
+// pace throttles the run's requests to one every Delay, and is the reason
+// --delay means something under --workers.
+//
+// The naive form — sleep before each request unless it is the first — is both
+// a data race and the wrong semantics once several requests are in flight: a
+// pause each worker takes independently throttles nothing, because the
+// workers simply pause in parallel. What someone throttling a shared server
+// wants is a bound on the STREAM, so the wait is computed against the last
+// send by anyone, under a lock, and the send time is claimed before the wait
+// rather than after — otherwise every waiting worker would read the same last
+// send and all wake together.
 func (r *Runner) pace(ctx context.Context) error {
-	if r.Transport.Delay <= 0 || !r.sentOnce {
-		r.sentOnce = true
+	if r.Transport.Delay <= 0 {
+		return nil
+	}
+
+	r.paceMu.Lock()
+	now := time.Now()
+	// The first request goes at once; each later one no sooner than Delay
+	// after the slot already claimed.
+	slot := now
+	if !r.lastSend.IsZero() {
+		if earliest := r.lastSend.Add(r.Transport.Delay); earliest.After(slot) {
+			slot = earliest
+		}
+	}
+	r.lastSend = slot
+	r.paceMu.Unlock()
+
+	wait := time.Until(slot)
+	if wait <= 0 {
 		return nil
 	}
 	select {
-	case <-time.After(r.Transport.Delay):
+	case <-time.After(wait):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

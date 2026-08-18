@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -71,7 +72,12 @@ type Runner struct {
 	// Transport is what the client was built from, kept for the retry and
 	// pacing decisions send makes per request.
 	Transport Transport
-	sentOnce  bool
+
+	// paceMu guards lastSend, which is when the next request may go out. It is
+	// shared state on purpose: a delay bounds the run's request stream, and
+	// under workers that can only be enforced across all of them.
+	paceMu   sync.Mutex
+	lastSend time.Time
 
 	// Header lines, as `Name: value`, added to every request. They come from
 	// the command line and are how a run supplies credentials the description
@@ -101,6 +107,18 @@ type Runner struct {
 
 	// ConditionalHeaders are added to the transactions they match.
 	ConditionalHeaders []ConditionalHeader
+
+	// Workers is how many transactions to send at once. Zero or one is
+	// sequential, which is the default and what every run did before this
+	// existed.
+	//
+	// It is ignored for a run with a plan (`--sequence`) or hooks: both are
+	// ordering contracts, and a step that takes its values from another's
+	// response cannot overlap it. The report is unaffected either way —
+	// results are collected by original position and printed in document
+	// order — so a parallel run and a sequential one of the same suite
+	// produce the same report.
+	Workers int
 
 	// MaxFailures stops sending once this many transactions have failed or
 	// errored. Zero means never stop. What has not run is reported as skipped,
@@ -200,7 +218,17 @@ func configuredSkipReason(reason string) string {
 // headersFor returns the extra headers for one transaction: the run-wide ones,
 // plus the credential unless this transaction is one that must go without.
 func (r *Runner) headersFor(transaction compile.Transaction) []string {
-	authenticated := r.Auth.Header != "" &&
+	return r.headers(transaction, true)
+}
+
+// headers builds a transaction's extra headers, with or without the
+// credential. The explicit form exists because the ignored-auth check must
+// send the same request bare: it used to copy the Runner to do that, which
+// `go vet` rightly refused once the Runner held a mutex — and copying a
+// runner to change one decision was the wrong shape regardless.
+func (r *Runner) headers(transaction compile.Transaction, withCredential bool) []string {
+	authenticated := withCredential &&
+		r.Auth.Header != "" &&
 		!r.Auth.Except[transaction.Name] &&
 		!r.Auth.grantedBy(transaction)
 
@@ -320,49 +348,12 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 	// reordered itself would be unreadable against the description, and a diff
 	// between two runs would be noise.
 	completed := map[int]Result{}
-	failures := 0
-	for _, index := range r.sequence(len(prepared)) {
-		transaction := prepared[index]
+	order := r.sequence(len(prepared))
 
-		// Checked before the plan and before hooks: a transaction the config
-		// takes out of the run should not be prepared, sequenced, or offered to
-		// a hook that might act on it.
-		if reason, skipped := r.Skip[transaction.Name]; skipped {
-			completed[index] = transaction.skippedResult(configuredSkipReason(reason))
-			continue
-		}
-
-		// Past the failure budget nothing more is sent. Skipped rather than
-		// dropped: a pipeline that stops early still gets a report naming
-		// every transaction, and can tell "did not run" from "passed".
-		if r.MaxFailures > 0 && failures >= r.MaxFailures {
-			completed[index] = transaction.skippedResult(
-				fmt.Sprintf("not run: stopped after %d failure(s)", failures))
-			continue
-		}
-
-		if r.Plan != nil {
-			if reason, ok := r.Plan.Prepare(index, transaction, completed); !ok {
-				completed[index] = transaction.skippedResult(reason)
-				continue
-			}
-		}
-
-		result := r.runOne(ctx, transaction)
-		// Asked after the transaction's own verdict, and only of one that
-		// succeeded: the question is whether the credential mattered, which
-		// a failed request cannot answer.
-		if finding, open := r.checkIgnoredAuth(ctx, transactions[index], result); open {
-			result.Beyond = append(result.Beyond, finding)
-			result.Status = StatusFail
-		}
-		if r.Plan != nil {
-			r.Plan.Record(index, transaction, result)
-		}
-		completed[index] = result
-		if result.Status == StatusFail || result.Status == StatusError {
-			failures++
-		}
+	if r.Workers > 1 && r.Plan == nil {
+		r.runConcurrently(ctx, prepared, order, completed)
+	} else {
+		r.runSequentially(ctx, prepared, order, completed)
 	}
 
 	results := make([]Result, 0, len(prepared))
@@ -377,6 +368,162 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 	}
 
 	return results, nil
+}
+
+// runSequentially is the original loop, and the only one used when a plan
+// orders the run: a sequenced run's steps take their values from each other's
+// responses, so they cannot overlap by construction.
+func (r *Runner) runSequentially(ctx context.Context, prepared []*Transaction, order []int, completed map[int]Result) {
+	failures := 0
+	for _, index := range order {
+		transaction := prepared[index]
+
+		if skipped, reason := r.excluded(transaction, failures); skipped {
+			completed[index] = transaction.skippedResult(reason)
+			continue
+		}
+		if r.Plan != nil {
+			if reason, ok := r.Plan.Prepare(index, transaction, completed); !ok {
+				completed[index] = transaction.skippedResult(reason)
+				continue
+			}
+		}
+
+		result := r.runOne(ctx, transaction)
+		// Asked after the transaction's own verdict, and only of one that
+		// succeeded: the question is whether the credential mattered, which
+		// a failed request cannot answer.
+		if finding, open := r.checkIgnoredAuth(ctx, transaction.source, result); open {
+			result.Beyond = append(result.Beyond, finding)
+			result.Status = StatusFail
+		}
+		if r.Plan != nil {
+			r.Plan.Record(index, transaction, result)
+		}
+		completed[index] = result
+		if result.Status == StatusFail || result.Status == StatusError {
+			failures++
+		}
+	}
+}
+
+// runConcurrently sends up to Workers transactions at once.
+//
+// What it does NOT do is reorder or reinterpret anything: results are still
+// collected against their original positions and reported in the document's
+// order, so two runs of the same suite produce the same report whatever the
+// worker count. That is the whole reason the concurrency is here rather than
+// in a wrapper — a parallel run whose report shuffled itself would be
+// unreadable against the description and undiffable against yesterday.
+//
+// It is refused for a planned (`--sequence`) run, and for hooks, by the
+// caller: both are ordering contracts that concurrency would break rather
+// than speed up.
+//
+// The failure budget is honoured approximately and deliberately so: workers
+// already in flight when the budget is reached finish, because cancelling a
+// request that is already on the wire tells the reader less than letting it
+// answer. What has not STARTED is skipped with the reason, as sequentially.
+func (r *Runner) runConcurrently(ctx context.Context, prepared []*Transaction, order []int, completed map[int]Result) {
+	var mu sync.Mutex
+	var failures int
+	var stopped bool
+
+	// A worker takes the next index rather than a fixed share, so one slow
+	// transaction cannot leave a worker idle while another has a queue.
+	queue := make(chan int)
+	var wait sync.WaitGroup
+
+	workers := r.Workers
+	if workers > len(order) {
+		workers = len(order)
+	}
+	for w := 0; w < workers; w++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range queue {
+				transaction := prepared[index]
+
+				mu.Lock()
+				seen, halted := failures, stopped
+				mu.Unlock()
+
+				if halted {
+					mu.Lock()
+					completed[index] = transaction.skippedResult(
+						fmt.Sprintf("not run: stopped after %d failure(s)", seen))
+					mu.Unlock()
+					continue
+				}
+				if skipped, reason := r.excluded(transaction, seen); skipped {
+					mu.Lock()
+					completed[index] = transaction.skippedResult(reason)
+					mu.Unlock()
+					continue
+				}
+
+				result := r.runOne(ctx, transaction)
+				if finding, open := r.checkIgnoredAuth(ctx, transaction.source, result); open {
+					result.Beyond = append(result.Beyond, finding)
+					result.Status = StatusFail
+				}
+
+				mu.Lock()
+				completed[index] = result
+				if result.Status == StatusFail || result.Status == StatusError {
+					failures++
+					if r.MaxFailures > 0 && failures >= r.MaxFailures {
+						stopped = true
+					}
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+
+	for _, index := range order {
+		select {
+		case queue <- index:
+		case <-ctx.Done():
+			// A cancelled run stops handing out work; what was not handed out
+			// is filled in below.
+			close(queue)
+			wait.Wait()
+			r.fillUnrun(prepared, order, completed, "not run: the run was cancelled")
+			return
+		}
+	}
+	close(queue)
+	wait.Wait()
+}
+
+// excluded reports whether a transaction should not be sent, and why: the
+// configuration took it out, or the failure budget is spent.
+func (r *Runner) excluded(transaction *Transaction, failures int) (bool, string) {
+	// Checked before the plan and before hooks: a transaction the config takes
+	// out of the run should not be prepared, sequenced, or offered to a hook
+	// that might act on it.
+	if reason, skipped := r.Skip[transaction.Name]; skipped {
+		return true, configuredSkipReason(reason)
+	}
+	// Past the failure budget nothing more is sent. Skipped rather than
+	// dropped: a pipeline that stops early still gets a report naming every
+	// transaction, and can tell "did not run" from "passed".
+	if r.MaxFailures > 0 && failures >= r.MaxFailures {
+		return true, fmt.Sprintf("not run: stopped after %d failure(s)", failures)
+	}
+	return false, ""
+}
+
+// fillUnrun records a reason for every transaction that never ran, so a
+// cancelled run still reports one line per transaction.
+func (r *Runner) fillUnrun(prepared []*Transaction, order []int, completed map[int]Result, reason string) {
+	for _, index := range order {
+		if _, ran := completed[index]; !ran {
+			completed[index] = prepared[index].skippedResult(reason)
+		}
+	}
 }
 
 func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
@@ -563,8 +710,14 @@ func readBody(response *http.Response) (string, error) {
 // Transaction is a compiled transaction as it moves through a run: hooks may
 // rewrite the request, the expectation, or remove it altogether.
 type Transaction struct {
-	Name     string
-	Request  Request
+	Name    string
+	Request Request
+
+	// source is the compiled transaction this was prepared from, kept so a
+	// check that must send the SAME request again — ignored-auth re-sends it
+	// without the credential — can prepare it afresh rather than reverse a
+	// prepared one back into its inputs.
+	source   compile.Transaction
 	Expected validate.Message
 	Real     validate.Message
 
@@ -606,7 +759,8 @@ func newTransaction(source compile.Transaction, endpoint string, extraHeaders []
 	}
 
 	return &Transaction{
-		Name: source.Name,
+		Name:   source.Name,
+		source: source,
 		Request: Request{
 			Method:  source.Request.Method,
 			URI:     source.Request.URI,
@@ -724,12 +878,8 @@ func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transactio
 		return "", false
 	}
 
-	// The same transaction, prepared without the credential: headersFor is
-	// asked for a name the Except set holds, which is how a run already says
-	// "send this one bare".
-	bare := *r
-	bare.Auth = Credential{}
-	prepared := bare.Prepare(source)
+	// The same transaction, prepared without the credential.
+	prepared := newTransaction(source, r.Endpoint, r.headers(source, false))
 
 	reply, err := r.send(ctx, prepared)
 	if err != nil {
