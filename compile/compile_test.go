@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/refract"
@@ -22,6 +23,29 @@ func transaction(status string) *refract.Element {
 	response.SetAttr("statusCode", refract.String(status))
 
 	return refract.Named("httpTransaction", request, response)
+}
+
+// transactionWithSchemas builds a document whose request and response carry
+// the given body schemas, for the cases that are about the schemas themselves.
+func transactionWithSchemas(responseSchema, requestSchema string) *refract.Element {
+	request := refract.Named("httpRequest")
+	request.SetAttr("method", refract.String("POST"))
+	if requestSchema != "" {
+		asset := refract.Text("asset", requestSchema)
+		asset.AddClass("messageBodySchema")
+		request.Append(asset)
+	}
+
+	response := refract.Named("httpResponse")
+	response.SetAttr("statusCode", refract.String("200"))
+	if responseSchema != "" {
+		asset := refract.Text("asset", responseSchema)
+		asset.AddClass("messageBodySchema")
+		response.Append(asset)
+	}
+
+	return buildAPI(resource("/things", "Things",
+		transition("Do", refract.Named("httpTransaction", request, response))))
 }
 
 func resource(href, title string, transitions ...*refract.Element) *refract.Element {
@@ -320,5 +344,55 @@ func TestTransactionOrderFollowsDocument(t *testing.T) {
 	if result.Transactions[0].Request.URI != "/first" || result.Transactions[1].Request.URI != "/second" {
 		t.Errorf("transactions out of document order: %q then %q",
 			result.Transactions[0].Request.URI, result.Transactions[1].Request.URI)
+	}
+}
+
+// TestAnUnusableSchemaIsReportedRatherThanIgnored pins a silence that made a
+// green run untrustworthy.
+//
+// A schema vertrag cannot compile validates nothing. Validation was the wrong
+// place to say so — failing the transaction there blames the server for the
+// description's problem — so it returned "valid" and said nothing at all, and
+// the reader saw a passing transaction and believed the body had been checked.
+// It is now reported about the DOCUMENT, once, naming the operation, which is
+// where every other diagnostic about the description already goes.
+func TestAnUnusableSchemaIsReportedRatherThanIgnored(t *testing.T) {
+	// `type` must be a string or a list of them; a number is not a schema
+	// vertrag can compile.
+	broken := `{"type": 42}`
+
+	result := Compile("application/vnd.oai.openapi", transactionWithSchemas(broken, ""), "api.yml")
+	if len(result.Transactions) != 1 {
+		t.Fatalf("the transaction should still be built: %d", len(result.Transactions))
+	}
+
+	var reported bool
+	for _, annotation := range result.Annotations {
+		if strings.Contains(annotation.Message, "response body schema cannot be read") {
+			reported = true
+			if annotation.Type != "warning" {
+				t.Errorf("an unusable schema is the description's problem, not a failure: %s", annotation.Type)
+			}
+			if annotation.Name == "" {
+				t.Error("the annotation does not name the operation it came from")
+			}
+			if !strings.Contains(annotation.Message, "will not be validated") {
+				t.Errorf("the message does not say what the consequence is: %q", annotation.Message)
+			}
+		}
+	}
+	if !reported {
+		t.Errorf("an unusable response schema was not reported: %v", result.Annotations)
+	}
+}
+
+// TestAUsableSchemaSaysNothing keeps the warning from becoming noise.
+func TestAUsableSchemaSaysNothing(t *testing.T) {
+	result := Compile("application/vnd.oai.openapi",
+		transactionWithSchemas(`{"type":"object"}`, `{"type":"object"}`), "api.yml")
+	for _, annotation := range result.Annotations {
+		if strings.Contains(annotation.Message, "cannot be read") {
+			t.Errorf("a usable schema produced %q", annotation.Message)
+		}
 	}
 }

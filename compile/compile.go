@@ -3,9 +3,11 @@ package compile
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/refract"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // MediaTypeAPIBlueprint is the one media type that needs special handling here.
@@ -132,9 +134,25 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		return nil, annotations
 	}
 
+	response := compileResponse(element.Child("httpResponse"))
+
+	// A schema vertrag cannot compile validates nothing, and validation is
+	// the wrong place to say so: failing a transaction there would blame the
+	// server for the description's problem, and passing it silently — which
+	// is what happened — tells the reader their body was checked when nothing
+	// checked it. So it is said here, once, about the document, naming the
+	// operation, in the same place as every other diagnostic about the
+	// description.
+	for _, unusable := range unusableSchemas(*request, response) {
+		annotations = append(annotations, Annotation{
+			Type: "warning", Component: "apiDescription", Message: unusable,
+			Name: name, Origin: &originCopy,
+		})
+	}
+
 	return &Transaction{
 		Request:  *request,
-		Response: compileResponse(element.Child("httpResponse")),
+		Response: response,
 		Name:     name,
 		Origin:   origin,
 		// The identifier sits on the transition rather than the transaction,
@@ -145,6 +163,37 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		Security:    compileSecurity(element.FindParent("transition")),
 		Tags:        compileTags(element.FindParent("transition")),
 	}, annotations
+}
+
+// unusableSchemas reports the schemas on a transaction that cannot be
+// compiled, and so would check nothing.
+func unusableSchemas(request Request, response Response) []string {
+	var out []string
+
+	if err := validate.Usable(json.RawMessage(request.Schema)); err != nil {
+		out = append(out, fmt.Sprintf(
+			"the request body schema cannot be read, so nothing generated from it "+
+				"would be shaped by it: %v", err))
+	}
+	if err := validate.Usable(json.RawMessage(response.Schema)); err != nil {
+		out = append(out, fmt.Sprintf(
+			"the response body schema cannot be read, so the response body will not "+
+				"be validated against it: %v", err))
+	}
+
+	names := make([]string, 0, len(response.HeaderSchemas))
+	for header := range response.HeaderSchemas {
+		names = append(names, header)
+	}
+	sort.Strings(names)
+	for _, header := range names {
+		if err := validate.Usable(response.HeaderSchemas[header]); err != nil {
+			out = append(out, fmt.Sprintf(
+				"the schema for response header %q cannot be read, so its value will "+
+					"not be validated: %v", header, err))
+		}
+	}
+	return out
 }
 
 // compileTags reads the operation's tags off the transition, where the parser
