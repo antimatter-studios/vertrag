@@ -3,6 +3,7 @@ package fuzz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/antimatter-studios/vertrag/generate"
@@ -77,6 +78,13 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 		outcome.Sent = true
 
 		reply, err := send(ctx, rendered)
+		if errors.Is(err, ErrSkipped) {
+			// A hook took this probe out of the run; nothing was sent, so
+			// nothing is concluded.
+			outcome.Sent = false
+			outcomes = append(outcomes, outcome)
+			continue
+		}
 		if err != nil {
 			outcome.Finding = &CoverageFinding{Probe: probe, Subject: subject, Value: rendered,
 				Message: fmt.Sprintf("the request could not be completed: %v", err)}

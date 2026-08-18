@@ -17,7 +17,6 @@ import (
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/fuzz"
 	"github.com/antimatter-studios/vertrag/generate"
-	"github.com/antimatter-studios/vertrag/hooks"
 	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
@@ -329,22 +328,11 @@ func runRun(args []string) error {
 	// Hook files run in a worker process. Starting it is a hard failure: a
 	// suite whose hooks did not load would authenticate nothing and skip
 	// nothing, and report a wall of failures that say nothing about the API.
-	if len(settings.Hookfiles) > 0 {
-		client, err := hooks.Start(ctx, hooks.Options{
-			Language:    settings.Language,
-			Hookfiles:   settings.Hookfiles,
-			Host:        settings.HooksWorkerHandlerHost,
-			Port:        settings.HooksWorkerHandlerPort,
-			Timeout:     settings.HooksWorkerTimeout,
-			ConnectWait: settings.HooksWorkerConnectWait,
-			Stderr:      os.Stderr,
-		})
-		if err != nil {
-			return fmt.Errorf("loading hooks: %w", err)
-		}
-		defer client.Stop()
-		engine.Hooks = client
+	stopHooks, err := startHooks(ctx, engine, settings)
+	if err != nil {
+		return err
 	}
+	defer stopHooks()
 
 	results, err := engine.Run(ctx, transactions)
 	if err != nil {
