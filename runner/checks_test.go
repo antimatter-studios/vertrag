@@ -397,3 +397,71 @@ func TestASlowResponseIsReportedWithoutFailingTheContract(t *testing.T) {
 		t.Errorf("status = %s, findings = %v, want a clean pass", results[0].Status, results[0].Beyond)
 	}
 }
+
+// TestAPacedRunIsNotJudgedSlowForItsOwnPause is the distinction the bound has
+// to make, and the bug it was written for.
+//
+// `transport.delay` exists so a run can spare a server that throttles. The
+// bound was measured over the whole transaction, so that pause was spent
+// against it: a suite with `delay: 500ms` and `max-response-time: 750ms`
+// reported the server as slow when the server had answered instantly, and the
+// only thing slow about the run was the courtesy it had been configured to
+// extend. The two settings could not be used together at all.
+//
+// The server here answers at once and the pause is four times the bound, so
+// there is nothing for the check to find unless it is timing the run's own
+// waiting.
+func TestAPacedRunIsNotJudgedSlowForItsOwnPause(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sources := []compile.Transaction{
+		{Name: "first", Request: compile.Request{Method: "GET", URI: "/one"},
+			Response: compile.Response{Status: "200"}},
+		{Name: "second", Request: compile.Request{Method: "GET", URI: "/two"},
+			Response: compile.Response{Status: "200"}},
+	}
+
+	engine, err := NewWithTransport(server.URL, Transport{Delay: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("NewWithTransport: %v", err)
+	}
+	engine.Checks = Checks{MaxResponseTime: 50 * time.Millisecond}
+
+	results, err := engine.Run(context.Background(), sources)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The second transaction is the one that waited, and it has to be over the
+	// bound as a whole for this test to be testing anything: on a build where
+	// pacing had quietly stopped working every transaction would be under the
+	// bound and the run would pass for the wrong reason.
+	if results[1].Duration <= 50*time.Millisecond {
+		t.Fatalf("the second transaction took %s, which is inside the bound; the run never paced itself",
+			results[1].Duration)
+	}
+
+	for i, result := range results {
+		if result.Status != StatusPass || len(result.Beyond) != 0 {
+			t.Errorf("transaction %d: status = %s, findings = %v; the server answered at once "+
+				"and the pause is the run's own", i, result.Status, result.Beyond)
+		}
+		// Both measurements survive, and they say different things. Duration
+		// still means what every reporter prints it as — how long this
+		// transaction cost the run — and the bound is judged on the other one.
+		if result.ResponseTime > 50*time.Millisecond {
+			t.Errorf("transaction %d: the server was timed at %s against an instant answer",
+				i, result.ResponseTime)
+		}
+		if result.ResponseTime <= 0 {
+			t.Errorf("transaction %d: the exchange was not timed at all", i)
+		}
+		if result.ResponseTime > result.Duration {
+			t.Errorf("transaction %d: the exchange (%s) cannot outlast the transaction (%s)",
+				i, result.ResponseTime, result.Duration)
+		}
+	}
+}

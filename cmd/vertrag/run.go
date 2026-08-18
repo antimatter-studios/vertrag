@@ -84,7 +84,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.sequence, "sequence", false, "order the run by the links the description declares, filling each step's parameters from the response of the step it follows")
 	fs.BoolVar(&f.checkHeaderSchema, "check-header-schema", false, "validate response header values against the schemas the description gives them")
 	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
-	fs.DurationVar(&f.maxResponseTime, "max-response-time", 0, "report any transaction that took longer than this, e.g. 750ms (0 = do not time them)")
+	fs.DurationVar(&f.maxResponseTime, "max-response-time", 0, "report any response that took longer than this to arrive, e.g. 750ms; --delay and retry backoff are not counted (0 = do not time them)")
 	fs.IntVar(&f.workers, "workers", 1, "send this many transactions at once; refused with --sequence or hooks, which are ordering contracts")
 	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html, junit, har or vcr (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")

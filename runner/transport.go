@@ -130,7 +130,15 @@ func (t Transport) client() (*http.Client, error) {
 
 // do sends one request, retrying network failures the number of times the
 // transport allows, with a short backoff. It never retries a response.
-func (r *Runner) do(request *http.Request) (*http.Response, error) {
+//
+// The duration it returns is the attempt that produced the response, and
+// nothing else: not the backoff waited between attempts, and not the attempts
+// that failed. It is half of what --max-response-time is judged against, and a
+// bound on a response is a statement about the server — a run that chose to
+// wait 250ms before asking again would otherwise report the server for a pause
+// vertrag took on its own initiative. How long the whole transaction took,
+// retries and all, is Result.Duration, and every reporter already prints it.
+func (r *Runner) do(request *http.Request) (*http.Response, time.Duration, error) {
 	attempts := r.Transport.Retries + 1
 	backoff := 250 * time.Millisecond
 
@@ -140,7 +148,7 @@ func (r *Runner) do(request *http.Request) (*http.Response, error) {
 			select {
 			case <-time.After(backoff):
 			case <-request.Context().Done():
-				return nil, request.Context().Err()
+				return nil, 0, request.Context().Err()
 			}
 			backoff *= 2
 			// A body reader is spent after the first attempt; rewind it the
@@ -148,23 +156,24 @@ func (r *Runner) do(request *http.Request) (*http.Response, error) {
 			if request.GetBody != nil {
 				body, err := request.GetBody()
 				if err != nil {
-					return nil, err
+					return nil, 0, err
 				}
 				request.Body = body
 			}
 		}
 
+		sent := time.Now()
 		response, err := r.Client.Do(request)
 		if err == nil {
-			return response, nil
+			return response, time.Since(sent), nil
 		}
 		// A cancelled run stops now; it is not a network failure to retry.
 		if errors.Is(err, context.Canceled) {
-			return nil, err
+			return nil, 0, err
 		}
 		lastErr = err
 	}
-	return nil, lastErr
+	return nil, 0, lastErr
 }
 
 // pace throttles the run's requests to one every Delay, and is the reason

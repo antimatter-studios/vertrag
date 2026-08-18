@@ -58,16 +58,21 @@ type Checks struct {
 	// you would be wrong for every project, which is why there is no default
 	// bound rather than a generous one.
 	//
-	// What is measured is Result.Duration, the whole transaction: the pauses a
-	// run imposes on itself count towards it, so `--delay` and a retried
-	// network failure both spend a bound that the server is not responsible
-	// for. Pacing a run and timing it are therefore not a combination that
-	// says anything, and it is worth knowing which of the two you are doing.
+	// What is measured is Result.ResponseTime — the exchange alone — and not
+	// Result.Duration, which is the whole transaction. The two differ by
+	// everything the run does around the request: the pause `transport.delay`
+	// takes to spare a throttled server, the backoff before a retried network
+	// failure, the hooks. Judging the bound on the whole of it meant a suite
+	// with `delay: 500ms` and `max-response-time: 750ms` reported the server
+	// as slow when the server had answered at once, and the only slow thing in
+	// the run was the courtesy it had been configured to extend.
 	MaxResponseTime time.Duration
 }
 
-// run performs the enabled checks and returns what they found.
-func (c Checks) run(expected, actual validate.Message, elapsed time.Duration) []string {
+// run performs the enabled checks and returns what they found. responseTime is
+// how long the server took, which is not in the message pair and has to be
+// passed alongside it.
+func (c Checks) run(expected, actual validate.Message, responseTime time.Duration) []string {
 	var findings []string
 
 	if c.ServerError {
@@ -99,7 +104,7 @@ func (c Checks) run(expected, actual validate.Message, elapsed time.Duration) []
 	// four seconds took four seconds whichever of the documented responses it
 	// turned out to be, and an error path is where a timeout most often hides
 	// — the retry loop nobody bounded, the lookup that only misses.
-	if finding, found := checkResponseTime(c.MaxResponseTime, elapsed); found {
+	if finding, found := checkResponseTime(c.MaxResponseTime, responseTime); found {
 		findings = append(findings, finding)
 	}
 	return findings
@@ -153,7 +158,12 @@ func checkContentType(expected, actual validate.Message) (string, bool) {
 	return "", false
 }
 
-// checkResponseTime reports a transaction slower than the bound the run set.
+// checkResponseTime reports a response slower than the bound the run set.
+//
+// A response rather than a transaction, and the distinction is the whole point
+// of the separate measurement: what is judged is the time the server spent, not
+// the time the run spent, so a paced or retried run is not reported for waits
+// it chose to take. See Result.ResponseTime.
 //
 // A bound of zero is not "answer instantly", it is "do not time this at all" —
 // there is no bound an unconfigured run could apply that would not be an
@@ -165,8 +175,8 @@ func checkContentType(expected, actual validate.Message) (string, bool) {
 // was promised, and the only thing wrong is a bound that lives in the run's
 // configuration. Reporting it as though the document had been violated would
 // send the reader to edit a document that says nothing about time.
-func checkResponseTime(bound, elapsed time.Duration) (string, bool) {
-	if bound <= 0 || elapsed <= bound {
+func checkResponseTime(bound, responseTime time.Duration) (string, bool) {
+	if bound <= 0 || responseTime <= bound {
 		return "", false
 	}
 
@@ -174,9 +184,9 @@ func checkResponseTime(bound, elapsed time.Duration) (string, bool) {
 	// them — except under a bound finer than a millisecond, where rounding
 	// would report "took 0s, longer than the 500µs bound" and read as a fault
 	// in the checker rather than a slow response.
-	took := elapsed.Round(time.Millisecond)
+	took := responseTime.Round(time.Millisecond)
 	if bound < time.Millisecond {
-		took = elapsed
+		took = responseTime
 	}
 	return "the response took " + took.String() +
 		", longer than the " + bound.String() + " this run allows", true

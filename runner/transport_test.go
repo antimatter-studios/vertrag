@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -420,5 +422,63 @@ func TestDelayThrottlesTheStreamNotEachWorker(t *testing.T) {
 	if floor := 4 * delay; span < floor {
 		t.Errorf("six requests spanned %s; a %s stream delay makes that at least %s — workers paced independently",
 			span, delay, floor)
+	}
+}
+
+// failsOnce answers the second attempt and drops the first, standing in for a
+// connection that is reset once. A real server cannot be made to do this
+// reliably — net/http retries some connection errors itself, and which ones
+// depends on whether the connection was reused — so the failure is injected
+// here instead of raced for.
+type failsOnce struct{ calls int }
+
+func (f *failsOnce) RoundTrip(*http.Request) (*http.Response, error) {
+	f.calls++
+	if f.calls == 1 {
+		return nil, errors.New("read: connection reset by peer")
+	}
+	return &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader("")),
+	}, nil
+}
+
+// TestARetriedRequestIsNotTimedForItsBackoff is the other half of the pacing
+// case in checks_test.go, and it fails the same way: the backoff between
+// attempts is a pause vertrag decided to take, so charging it to the server
+// would report a slow API where there was a flaky link and a tool being
+// patient about it.
+func TestARetriedRequestIsNotTimedForItsBackoff(t *testing.T) {
+	engine, err := NewWithTransport("http://example.invalid", Transport{Retries: 1})
+	if err != nil {
+		t.Fatalf("NewWithTransport: %v", err)
+	}
+	stub := &failsOnce{}
+	engine.Client = &http.Client{Transport: stub}
+
+	request, err := http.NewRequestWithContext(context.Background(),
+		"GET", "http://example.invalid/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	response, exchange, err := engine.do(request)
+	if err != nil {
+		t.Fatalf("do after one retry: %v", err)
+	}
+	defer response.Body.Close()
+
+	// The backoff really happened, or the measurement below is being taken
+	// over a run that never waited and proves nothing.
+	if waited := time.Since(started); waited < 250*time.Millisecond {
+		t.Fatalf("the whole call took %s, so the 250ms backoff was not waited", waited)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("the stub saw %d attempts, want 2", stub.calls)
+	}
+	if exchange > 50*time.Millisecond {
+		t.Errorf("the answering attempt was timed at %s; the backoff is in the measurement", exchange)
 	}
 }
