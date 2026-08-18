@@ -49,7 +49,15 @@ func TestGoldenTransactions(t *testing.T) {
 
 	for _, dir := range sortedKeys(mediaTypes) {
 		t.Run(dir, func(t *testing.T) {
+			// Two sources, one recording. oracle/corpus is the set the
+			// differential against Dredd runs over, so everything in it must
+			// compile the way Dredd does. compile/testdata/descriptions is
+			// vertrag's own: documents where it deliberately does more than
+			// Dredd — fills a specimen body, carries a list example — and so
+			// must never sit in the differential's path, but must not regress
+			// either. Both are pinned the same way.
 			documents := documentsIn(t, filepath.Join(root, "oracle", "corpus", dir))
+			documents = append(documents, documentsIn(t, filepath.Join(root, "compile", "testdata", "descriptions", dir))...)
 			if len(documents) == 0 {
 				t.Skipf("no source documents in %s", dir)
 			}
@@ -226,7 +234,7 @@ func repoRoot(t *testing.T) string {
 // that project against its own generator's output.
 func TestRealGeneratorSpecCarriesTheArrayParameter(t *testing.T) {
 	root := repoRoot(t)
-	document := filepath.Join(root, "oracle", "corpus", "openapi3", "real-generator-array-param.yml")
+	document := filepath.Join(root, "compile", "testdata", "descriptions", "openapi3", "real-generator-array-param.yml")
 	source, err := os.ReadFile(document)
 	if err != nil {
 		t.Fatalf("reading %s: %v", document, err)
