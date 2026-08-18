@@ -9,6 +9,60 @@ import (
 	"pgregory.net/rapid"
 )
 
+// TestEverySchemaDrawsSomethingSoRapidCanShrink guards a defect whose symptom
+// points nowhere near its cause.
+//
+// rapid PANICS when a generator consumes no randomness at all — "group did not
+// use any data from bitstream" — and outside `go test` that panic reaches the
+// caller as a failed check with no message, no value and no status: a finding
+// blaming a subject for nothing. Four branches did it, and every one describes
+// a value with exactly one legal spelling, so no draw looked necessary — an
+// invalid boolean, `{type: null}`, an object naming no properties, and a number
+// whose bounds meet. An object with no properties is an ordinary OpenAPI
+// request body, and a boolean is what every GraphQL `Boolean!` argument
+// compiles to.
+//
+// The fix is one throwaway draw in each, which is what the const branch has
+// always done. The property is checked rather than the four cases, because the
+// next schema to acquire a single legal value will not look like any of them.
+func TestEverySchemaDrawsSomethingSoRapidCanShrink(t *testing.T) {
+	schemas := map[string]Schema{
+		"a boolean":                    {"type": "boolean"},
+		"null":                         {"type": "null"},
+		"an object with no properties": {"type": "object"},
+		"an object with an empty properties map": {"type": "object",
+			"properties": map[string]any{}},
+		"an array of fixed zero length": {"type": "array", "minItems": 0, "maxItems": 0,
+			"items": map[string]any{"type": "string"}},
+		"an enum of one member": {"enum": []any{"ONLY"}},
+		"a const":               {"const": 7},
+		"one type in a list":    {"type": []any{"boolean"}},
+		"an integer pinned by its bounds": {"type": "integer",
+			"minimum": 5, "maximum": 5},
+		"a number pinned by its bounds": {"type": "number", "minimum": 5, "maximum": 5},
+		"a string of fixed length":      {"type": "string", "minLength": 0, "maxLength": 0},
+	}
+
+	for name, schema := range schemas {
+		for _, mode := range []Mode{Valid, Invalid} {
+			t.Run(fmt.Sprintf("%s/%s", name, drawMode(mode)), func(t *testing.T) {
+				// A panic inside the generator fails this check, which is the
+				// whole assertion: the value itself is not in question.
+				rapid.Check(t, func(rt *rapid.T) {
+					Value(schema, mode).Draw(rt, "value")
+				})
+			})
+		}
+	}
+}
+
+func drawMode(mode Mode) string {
+	if mode == Valid {
+		return "valid"
+	}
+	return "invalid"
+}
+
 // drawOnce produces one value, which is how a caller outside a property test
 // gets a single case.
 func drawOnce(t *testing.T, schema string, mode Mode) any {

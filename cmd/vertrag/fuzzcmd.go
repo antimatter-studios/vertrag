@@ -548,7 +548,10 @@ func printFinding(engine *runner.Runner, transaction compile.Transaction, target
 	fmt.Printf("\n%s %s\n", paint(reporter.Red, "finding:"), transaction.Name)
 	fmt.Printf("  %s\n", finding.Message)
 	fmt.Printf("  %s %s %s\n", paint(reporter.Dim, "request:"), request.Method, request.URI)
-	fmt.Printf("  %s %s\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
+	// %v rather than %s: a body is text, but a parameter can be a list and a
+	// GraphQL argument can be a number, a boolean or an object. %s renders
+	// those as `%!s(int64=5)`, which is the line the reader most needs.
+	fmt.Printf("  %s %v\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
 	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
 		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro: "), repro)
