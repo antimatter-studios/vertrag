@@ -58,11 +58,14 @@ auth:
 	}
 }
 
-// The boundary that keeps two testers honest: vertrag's own keys are read only
-// from a vertrag file. Dredd ignores keys it does not know without a word, so
-// honouring `auth` from a dredd.yml would have vertrag authenticated and Dredd
-// not, testing different things from one file that looks shared.
-func TestAuthIsIgnoredInADreddFile(t *testing.T) {
+// `auth` is read from whatever file it was found in — see
+// TestTagIsHonouredWhateverTheFileIsCalled for why it used to be refused from
+// this one, and why that gate went with the dredd.yml fallback.
+//
+// This is the key the gate existed for: authenticating vertrag's run and not
+// Dredd's was the concrete way two testers could disagree about what they
+// tested. It is safe now because vertrag never picks this file up on its own.
+func TestAuthIsHonouredWhateverTheFileIsCalled(t *testing.T) {
 	path := writeConfig(t, "dredd.yml", `
 spec: ./api.yml
 endpoint: http://localhost:4210
@@ -76,19 +79,12 @@ auth:
 		t.Fatalf("Load: %v", err)
 	}
 
-	if settings.Auth.Configured() {
-		t.Error("auth was honoured from a dredd.yml")
+	if !settings.Auth.Configured() {
+		t.Error("auth was not honoured from a file named dredd.yml")
 	}
-	if len(settings.Notes) == 0 {
-		t.Fatal("no note explaining why auth was ignored")
+	if settings.Auth.Login.Path != "/auth/login" || settings.Auth.Cookie != "jwt_token" {
+		t.Errorf("Auth = %+v", settings.Auth)
 	}
-	note := strings.Join(settings.Notes, "\n")
-	for _, want := range []string{"auth", "dredd.yml", "vertrag.yml"} {
-		if !strings.Contains(note, want) {
-			t.Errorf("note does not mention %q: %s", want, note)
-		}
-	}
-	// "not supported yet" would be false — it is supported, from the other file.
 	if len(settings.Unsupported) != 0 {
 		t.Errorf("auth was reported as unsupported: %v", settings.Unsupported)
 	}

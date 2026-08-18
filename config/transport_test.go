@@ -32,10 +32,9 @@ transport:
 	}
 }
 
-// `transport` changes how requests are sent, so it crosses the same boundary
-// as `auth`: honoured from a vertrag file, refused with a note from a
-// dredd.yml where Dredd would silently ignore it.
-func TestTransportIsIgnoredInADreddFile(t *testing.T) {
+// `transport` is read from whatever file it was found in, like every other key
+// — see TestTagIsHonouredWhateverTheFileIsCalled for what changed.
+func TestTransportIsHonouredWhateverTheFileIsCalled(t *testing.T) {
 	path := writeConfig(t, "dredd.yml", `
 spec: ./api.yml
 endpoint: http://localhost:4210
@@ -47,11 +46,8 @@ transport:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if settings.Transport.Timeout != 0 {
-		t.Errorf("transport was honoured from a dredd.yml: %+v", settings.Transport)
-	}
-	if note := strings.Join(settings.Notes, "\n"); !strings.Contains(note, "`transport`") {
-		t.Errorf("no note names `transport` as ignored:\n%s", note)
+	if settings.Transport.Timeout != 10*time.Second {
+		t.Errorf("Transport.Timeout = %v, want 10s", settings.Transport.Timeout)
 	}
 }
 

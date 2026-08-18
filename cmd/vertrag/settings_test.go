@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 // TestAFlagWinsOverTheConfigFile pins the one rule the settings merge follows.
 //
@@ -97,5 +101,62 @@ func TestRepeatableFlagsAccumulate(t *testing.T) {
 	}
 	if len(settings.Only) != 1 {
 		t.Errorf("only = %v, want one", settings.Only)
+	}
+}
+
+// TestAStrandedDreddFileIsRefusedNotIgnored pins the one place the removal of
+// the dredd.yml fallback could have gone quietly wrong.
+//
+// vertrag used to discover a dredd.yml, so a project holding only that one was
+// fully configured. Now it is not discovered — and the tempting implementation,
+// passing over it, is the dangerous one: the run would start with no endpoint,
+// no headers and no skips, most likely against whatever host the description
+// happens to name, and the only evidence would be a wall of connection errors
+// naming a port nobody asked for. So it refuses, and names the rename.
+func TestAStrandedDreddFileIsRefusedNotIgnored(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("dredd.yml", []byte("spec: ./api.yml\nendpoint: http://configured:4210\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := settingsFor(runFlags{})
+	if err == nil {
+		t.Fatal("a dredd.yml and no vertrag.yml should be refused, not silently ignored")
+	}
+	// The message has to carry the fix, not just the complaint.
+	for _, want := range []string{"dredd.yml", "vertrag.yml", "--config"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %q: %v", want, err)
+		}
+	}
+}
+
+// TestANamedDreddFileIsReadInFull is the other half: refusing to *discover* the
+// file is not refusing to read it. Someone who points at it gets everything in
+// it, including the keys that used to be gated on the name.
+func TestANamedDreddFileIsReadInFull(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("dredd.yml", []byte("spec: ./api.yml\nendpoint: http://configured:4210\nworkers: 4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	settings, err := settingsFor(runFlags{configPath: "dredd.yml"})
+	if err != nil {
+		t.Fatalf("settingsFor: %v", err)
+	}
+	if settings.Endpoint != "http://configured:4210" {
+		t.Errorf("endpoint = %q, want the named file's", settings.Endpoint)
+	}
+	if settings.Workers != 4 {
+		t.Errorf("Workers = %d, want 4 — a named file is read in full", settings.Workers)
+	}
+}
+
+// TestNoConfigAtAllIsStillFine guards the refusal against overreach: an empty
+// directory is not an error, it is the command line supplying everything.
+func TestNoConfigAtAllIsStillFine(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if _, err := settingsFor(runFlags{positional: []string{"api.yml", "http://x"}}); err != nil {
+		t.Errorf("no config file present should not be an error: %v", err)
 	}
 }

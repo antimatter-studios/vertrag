@@ -4,13 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
 
 func write(t *testing.T, contents string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "dredd.yml")
+	path := filepath.Join(t.TempDir(), "vertrag.yml")
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("writing config: %v", err)
 	}
@@ -173,10 +174,11 @@ func TestExplicitFalseOverridesDefault(t *testing.T) {
 	}
 }
 
-// TestDiscoveryPrefersVertragFile pins the upgrade path: a project keeps its
-// dredd.yml and vertrag reads it, and the day it adds a vertrag.yml that one
-// takes over.
-func TestDiscoveryPrefersVertragFile(t *testing.T) {
+// TestDiscoveryFindsOnlyVertragFiles pins the removal of the dredd.yml
+// fallback. Discovery used to end with dredd.yml and dredd.yaml, which made
+// adopting vertrag a no-op and made the meaning of a key depend on the name of
+// the file it sat in. A project migrating now renames the file.
+func TestDiscoveryFindsOnlyVertragFiles(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
 
@@ -185,19 +187,41 @@ func TestDiscoveryPrefersVertragFile(t *testing.T) {
 	}
 
 	os.WriteFile("dredd.yml", []byte("blueprint: a.yml\n"), 0o600)
-	if got := Discover(); got != "dredd.yml" {
-		t.Errorf("Discover() = %q, want dredd.yml", got)
+	if got := Discover(); got != "" {
+		t.Errorf("Discover() = %q, want a dredd.yml to be passed over", got)
 	}
-	if !IsDreddFile("dredd.yml") {
-		t.Error("dredd.yml should be recognised as Dredd's own")
+	// Passed over, but not unnoticed: the caller refuses to run over it rather
+	// than starting with no configuration while one sits in the directory.
+	if got := DreddFile(); got != "dredd.yml" {
+		t.Errorf("DreddFile() = %q, want dredd.yml to be seen", got)
 	}
 
 	os.WriteFile("vertrag.yml", []byte("blueprint: b.yml\n"), 0o600)
 	if got := Discover(); got != "vertrag.yml" {
-		t.Errorf("Discover() = %q, want vertrag.yml to win", got)
+		t.Errorf("Discover() = %q, want vertrag.yml", got)
 	}
-	if IsDreddFile("vertrag.yml") {
-		t.Error("vertrag.yml is not a Dredd file")
+}
+
+// TestBothFilesPresentReadsOnlyTheVertragOne pins the case the removal must not
+// break: a project running both testers keeps a file per tester, and vertrag
+// reads its own without a word about the other. DreddFile is about a stranded
+// file, not any file.
+func TestBothFilesPresentReadsOnlyTheVertragOne(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+
+	os.WriteFile("dredd.yml", []byte("spec: dredds.yml\nendpoint: http://dredd\n"), 0o600)
+	os.WriteFile("vertrag.yml", []byte("spec: ours.yml\nendpoint: http://ours\n"), 0o600)
+
+	settings, err := Load(Discover())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.Spec != "ours.yml" || settings.Endpoint != "http://ours" {
+		t.Errorf("read the wrong file: spec=%q endpoint=%q", settings.Spec, settings.Endpoint)
+	}
+	if note := strings.Join(settings.Notes, "\n"); strings.Contains(note, "dredd.yml") {
+		t.Errorf("a dredd.yml alongside a vertrag.yml is simply not read, and needs no note:\n%s", note)
 	}
 }
 

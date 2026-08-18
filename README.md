@@ -17,14 +17,14 @@ the responses against what was promised.
 
 It began as a Go implementation of [Dredd](https://github.com/antimatter-studios/dredd),
 whose upstream is archived, and stays compatible with the things a project
-depends on — `dredd.yml`, hook files, and the names hooks address transactions
-by. Where Dredd is simply wrong, vertrag is not: see
+depends on — the configuration keys, hook files, and the names hooks address
+transactions by. Where Dredd is simply wrong, vertrag is not: see
 [Where vertrag differs](#where-vertrag-differs-from-dredd).
 
 > **Status: usable for OpenAPI 3 and OpenAPI 2.** vertrag reads a description,
 > sends the requests it promises, validates the responses and exits non-zero on
-> failure — with an existing `dredd.yml` and Node.js hook files working
-> unchanged. See [Roadmap](#roadmap).
+> failure — with an existing Dredd configuration and Node.js hook files
+> working unchanged. See [Roadmap](#roadmap).
 
 ## Install
 
@@ -77,8 +77,8 @@ testers. A pinned checksum makes that impossible rather than unlikely.
 
 ## Use
 
-A project already configured for Dredd needs no arguments — vertrag reads the
-same `dredd.yml`:
+A configured project needs no arguments — vertrag reads `./vertrag.yml`, whose
+keys are a superset of Dredd's, so migrating is `mv dredd.yml vertrag.yml`:
 
 ```console
 $ vertrag run
@@ -167,12 +167,17 @@ checks:
   header-schema: false             # off by default; see below
 ```
 
-Coming from Dredd, a `dredd.yml` is read when no vertrag file is present and
-every key it understands means the same thing here — so the upgrade is to change
-nothing, and the migration is to rename the file. That fallback is a
-convenience with an expected end rather than a second supported format: as the
-two diverge it will be removed. vertrag's own settings are read only from a
-vertrag file.
+Coming from Dredd, every key a `dredd.yml` understands means the same thing
+here, so the migration is `mv dredd.yml vertrag.yml` and nothing else. vertrag
+used to read a `dredd.yml` where no vertrag file was present, which made
+adoption a no-op; that fallback is gone. It meant a key's meaning depended on
+the name of the file holding it — vertrag's own settings had to be refused from
+one of the two names, or two testers reading one shared-looking file would have
+silently tested different things. A directory holding only a `dredd.yml` is now
+told to rename it rather than run with no configuration at all.
+
+A file named with `--config` is read in full whatever it is called, including
+`--config dredd.yml`: naming a file says what finding one cannot.
 
 `header-schema` validates a response header's value against the JSON Schema the
 description gave it — so an `X-Rate-Limit` documented as a non-negative integer
@@ -229,12 +234,6 @@ transactions did not run rather than only that they did not — a skip list is
 where a suite's debt collects, and one that states its reasons is one somebody
 can work through. An entry matching no transaction is reported rather than
 ignored; it usually means something was renamed.
-
-These keys change what is sent or run, so they are read only from a
-`vertrag.yml`. Dredd ignores keys it does not recognise **without a word**, so
-honouring them from a `dredd.yml` would leave vertrag authenticated and Dredd
-not — two testers disagreeing about what they tested, from one file that looks
-shared. A `dredd.yml` carrying them says where to move them.
 
 Anything that must look at a *response* is still a hook, and hooks are
 unchanged. The line is deliberate: config covers what does not vary, and no
@@ -317,7 +316,8 @@ is why it was verified long before any parser existed. A parse failure is
 therefore always a parser failure, never an ambiguous end-to-end one.
 
 It has also been run against a real API: 51 paths and 140 transactions of a
-production OpenAPI 3 service, with its own `dredd.yml` and a 431-line hook file,
+production OpenAPI 3 service, with its own Dredd configuration and a 431-line
+hook file,
 against a live server. vertrag and Dredd reported the same 35 passing, 15
 failing, 90 skipped — the same fifteen failures, not merely the same count.
 
@@ -364,7 +364,7 @@ vertrag keeps that shape:
 | `validate` | Response validation (Gavel) | Done, oracle-verified |
 | `runner` | Sending requests, judging responses | Done |
 | `hooks` | Running Node.js hook files | Done |
-| `config` | Reading `vertrag.yml`, and `dredd.yml` while that lasts | Done |
+| `config` | Reading `vertrag.yml` | Done |
 | `reporter` | cli, dot, markdown, html, JUnit output | Done |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
@@ -383,7 +383,7 @@ when it reproduces its pair.
    [inpace](https://github.com/semdatex/inpace) uses
 3. ~~Response validation~~ — done, oracle-verified against Gavel
 4. ~~Transaction runner~~ — done
-5. ~~Hooks and `dredd.yml`~~ — done; hook files run unchanged
+5. ~~Hooks and configuration~~ — done; hook files run unchanged
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
 7. ~~Reporters~~ — done; cli, dot, markdown, html and JUnit XML
 8. ~~Adversarial input generation, with shrinking~~ — done; `vertrag fuzz`
@@ -411,9 +411,10 @@ recorded.
 Compatibility is kept where it is convention and dropped where Dredd is wrong.
 
 **Kept**, because breaking it breaks working projects and improves nothing:
-`dredd.yml`, the hook API and its wire protocol, and the names hooks address
-transactions by. There is no better transaction name — only the one already
-written in someone's hook file.
+every configuration key, the hook API and its wire protocol, and the names hooks
+address transactions by. There is no better transaction name — only the one
+already written in someone's hook file. The *filename* is not on this list — a
+`dredd.yml` is no longer discovered, and renaming it is the migration.
 
 **Dropped**, because reproducing a defect makes the tests wrong:
 

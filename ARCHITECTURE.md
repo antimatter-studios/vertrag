@@ -14,7 +14,7 @@ alphabetical.
 | `validate` | Whether a response matches what was promised |
 | `uritemplate` | URI template expansion |
 | `yamldoc` | YAML/JSON navigation that keeps source positions |
-| `config` | Reads `vertrag.yml`, and the `dredd.yml` it is a superset of |
+| `config` | Reads `vertrag.yml`, whose keys are a superset of Dredd's |
 | `runner` | Sends the transactions and judges what comes back |
 | `hooks` | Runs Node.js hook files and lets them rewrite transactions |
 | `reporter` | Renders results — a terminal log or dots, a Markdown or HTML document, JUnit XML for CI |
