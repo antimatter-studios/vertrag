@@ -58,6 +58,16 @@ func (r *refusals) noteLogin() { r.loginSeen = true }
 // which credentials exist, so a 401 to a generated username is the endpoint
 // doing its job. It is the same exemption a path parameter's 404 already
 // gets — a well-formed identifier that names nothing — for the same reason.
+//
+// The general rule the two share, worth stating because the next case will
+// not look like either: generation can produce anything the caller must
+// SHAPE, and nothing the caller must POSSESS. A credential, a lease, a
+// one-time token, an idempotency key already spent, an id that names a real
+// row — none can be drawn from a schema, and a refusal of an invented one
+// says nothing about the contract. Where an operation turns on something
+// possessed, valid-mode probing is skipped and invalid-mode probing is not:
+// a malformed request is malformed whatever the caller holds, so a 5xx from
+// one remains a finding worth having.
 func (r *refusals) isLogin(transaction compile.Transaction) bool {
 	if !r.login.matches(transaction) {
 		return false
