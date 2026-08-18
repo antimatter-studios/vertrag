@@ -455,6 +455,13 @@ func rejectsBody(r *http.Request, matched route) (string, bool) {
 	if isMultipart(r) {
 		return rejectsMultipart(r, matched)
 	}
+	// A form-encoded body is what an HTML form posts. A real server parses
+	// the fields and reads each to the type its schema declares, and that is
+	// what is judged — never the raw `a=1&b=x` text against a JSON Schema,
+	// which would refuse every form ever sent.
+	if isFormEncoded(r) {
+		return rejectsForm(r, matched)
+	}
 
 	if strings.TrimSpace(matched.request.Schema) == "" || r.Body == nil {
 		return "", false
@@ -669,6 +676,69 @@ func rejectsMultipart(r *http.Request, matched route) (string, bool) {
 		return "the multipart body carries no part named " + field, true
 	}
 	return "", false
+}
+
+// isFormEncoded reports whether the request declares a form-encoded body.
+func isFormEncoded(r *http.Request) bool {
+	media := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
+	return media == "application/x-www-form-urlencoded"
+}
+
+// rejectsForm parses a form-encoded body the way a real server does — each
+// field read to the type its property schema declares — and validates the
+// resulting object against the schema. A field that does not parse as its
+// declared type stays text, which the schema then rejects: exactly the
+// behaviour of a handler that validated its input.
+func rejectsForm(r *http.Request, matched route) (string, bool) {
+	if strings.TrimSpace(matched.request.Schema) == "" {
+		return "", false
+	}
+	if err := r.ParseForm(); err != nil {
+		return "the form body could not be parsed: " + err.Error(), true
+	}
+
+	var schema map[string]any
+	if json.Unmarshal([]byte(matched.request.Schema), &schema) != nil {
+		return "", false
+	}
+	properties, _ := schema["properties"].(map[string]any)
+
+	object := make(map[string]any, len(r.PostForm))
+	for name := range r.PostForm {
+		text := r.PostForm.Get(name)
+		property, _ := properties[name].(map[string]any)
+		object[name] = readFormField(property, text)
+	}
+
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return "", false
+	}
+	if result := validate.AgainstSchema(json.RawMessage(matched.request.Schema), string(encoded)); !result.Valid {
+		return "the form body is not permitted: " + strings.Join(result.Errors, "; "), true
+	}
+	return "", false
+}
+
+// readFormField parses one field's text to the type its schema declares, or
+// leaves it as text when it does not parse — which is what the schema will
+// then reject.
+func readFormField(property map[string]any, text string) any {
+	declared, _ := property["type"].(string)
+	switch declared {
+	case "integer", "number":
+		if n, err := strconv.ParseFloat(text, 64); err == nil {
+			return n
+		}
+	case "boolean":
+		switch text {
+		case "true":
+			return true
+		case "false":
+			return false
+		}
+	}
+	return text
 }
 
 // readLimit bounds what ParseMultipartForm keeps in memory. Generous for a

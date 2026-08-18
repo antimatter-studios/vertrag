@@ -201,7 +201,9 @@ func runFuzz(args []string) error {
 type target struct {
 	subject fuzz.Subject
 	schema  generate.Schema
-	apply   func(compile.Request, any) (compile.Request, error)
+	// media is the body's bare media type; empty for a parameter.
+	media string
+	apply func(compile.Request, any) (compile.Request, error)
 }
 
 // probeTargets lists what can be generated for a request: its body, when the
@@ -213,26 +215,30 @@ type target struct {
 // returned separately: that is a description someone should look at, not a
 // decision this made.
 func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.Subject) {
-	// A body is generated as JSON, so it can only be sent where JSON is what
-	// the operation takes. A multipart schema describes the PARTS of a body
-	// rather than a document, and carrying it — which generation needs, to
-	// assemble those parts — must not be mistaken for permission to post a JSON
-	// object at an upload endpoint. Doing so gets a 400 that says nothing about
-	// the schema.
-	if strings.TrimSpace(request.Schema) != "" && acceptsJSONBody(request) {
+	// A body is generated in the layout its content type asks for: JSON,
+	// form-encoded, or multipart. A media type generation cannot speak is
+	// left alone rather than sent as JSON — posting a JSON object at an
+	// upload endpoint gets a 400 that says nothing about the schema.
+	if strings.TrimSpace(request.Schema) != "" {
 		schema, err := decodeSchema(request.Schema)
+		media := bodyMediaType(request)
 		switch {
 		case err != nil:
 			unreadable = append(unreadable, fuzz.Subject{In: fuzz.InBody})
+		case !fuzz.SpeaksBody(media, schema):
+			// Not an error and not unreadable: a description asking for a
+			// body vertrag has no layout for. Counted with the schema-less
+			// operations by the caller.
 		default:
 			targets = append(targets, target{
 				subject: fuzz.Subject{In: fuzz.InBody},
 				schema:  schema,
+				media:   media,
 				apply: func(r compile.Request, value any) (compile.Request, error) {
 					body, ok := value.(string)
 					if !ok {
 						// Only a parameter can be a list; a body is always the
-						// JSON text the generator serialised.
+						// text the wire form serialised.
 						return r, fmt.Errorf("a request body must be text, got %T", value)
 					}
 					r.Body = body
@@ -342,7 +348,7 @@ func probeAll(
 				var finding fuzz.Finding
 				var found bool
 				if target.subject.In == fuzz.InBody {
-					finding, found = fuzz.Probe(ctx, target.schema, mode, send, options)
+					finding, found = fuzz.ProbeBody(ctx, target.media, target.schema, mode, send, options)
 				} else {
 					finding, found = fuzz.ProbeParameter(ctx, target.subject, target.schema, mode, send, options)
 				}
@@ -553,17 +559,15 @@ func refused(status, expected int) bool {
 	return status == 401 || status == 403
 }
 
-// acceptsJSONBody reports whether the request's own content type is JSON.
-func acceptsJSONBody(request compile.Request) bool {
+// bodyMediaType is the request's bare Content-Type — parameters such as
+// charset and boundary removed — or empty when none is stated, which
+// generation treats as JSON.
+func bodyMediaType(request compile.Request) string {
 	for _, header := range request.Headers {
 		if !strings.EqualFold(header.Name, "Content-Type") {
 			continue
 		}
-		media := strings.ToLower(strings.TrimSpace(strings.SplitN(header.Value, ";", 2)[0]))
-		return media == "application/json" ||
-			strings.HasSuffix(media, "+json")
+		return strings.ToLower(strings.TrimSpace(strings.SplitN(header.Value, ";", 2)[0]))
 	}
-	// No content type stated and a schema present: JSON is what every other
-	// part of this assumes, and generating for it is the useful default.
-	return true
+	return ""
 }
