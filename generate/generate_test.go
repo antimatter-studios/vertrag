@@ -2,6 +2,7 @@ package generate
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/validate"
@@ -244,19 +245,31 @@ func TestInvalidArraysAreSometimesStillArrays(t *testing.T) {
 // in a bounded range, the maximum itself must come up more than rarely. It is
 // the value a `<` written for `<=` gets wrong, and a generator that visits it
 // once in twenty-five cases will miss that handler in most twenty-case runs.
+//
+// The sample is deliberately much larger than the assertion needs, and that is
+// the whole point of the loop. Measuring a proportion is only as good as the
+// number of draws behind it: one draw per check gave 100 samples of a ~21.5%
+// event, which swings between 16 and 29 run to run, and CI duly failed once at
+// 9 — a healthy generator called broken, on a test whose job is to notice an
+// unhealthy one. Fifty draws per check puts the estimate within a point of the
+// truth every time, so the threshold below separates "reaches the boundary" from
+// "visits it once in twenty-five" on evidence rather than on luck.
 func TestValidIntegersReachTheirBoundaries(t *testing.T) {
 	schema := Schema{"type": "integer", "minimum": 1, "maximum": 1000}
+	const perCheck = 50
 	atMax, draws := 0, 0
 	rapid.Check(t, func(rt *rapid.T) {
-		draws++
-		if n, ok := Value(schema, Valid).Draw(rt, "v").(int64); ok && n == 1000 {
-			atMax++
+		for i := range perCheck {
+			draws++
+			if n, ok := Value(schema, Valid).Draw(rt, fmt.Sprintf("v%d", i)).(int64); ok && n == 1000 {
+				atMax++
+			}
 		}
 	})
-	// rapid's default is 100 checks; the ladder-and-boundary mix reaches the
-	// maximum in roughly a quarter of them. Ten is well under that and well
-	// over the four rapid alone managed.
-	if draws >= 50 && atMax < 10 {
-		t.Errorf("the maximum was drawn %d times in %d; the range's far end is not being reached", atMax, draws)
+	// The measured rate is a little over a fifth. A tenth is comfortably below
+	// that and comfortably above the twenty-fifth this exists to catch.
+	if want := draws / 10; draws >= 50*perCheck && atMax < want {
+		t.Errorf("the maximum was drawn %d times in %d, fewer than the %d expected; the range's far end is not being reached",
+			atMax, draws, want)
 	}
 }
