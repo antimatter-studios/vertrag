@@ -49,11 +49,14 @@ func runFuzz(args []string) error {
 	fs.Var(&methods, "method", "probe only transactions using this method (repeatable)")
 	var tags stringList
 	fs.Var(&tags, "tag", "probe only transactions whose operation carries this tag (repeatable)")
+	var transport transportFlags
+	addTransportFlags(fs, &transport)
 
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
 	}
+	transport.noteGiven(fs)
 
 	modes, err := parseModes(*mode)
 	if err != nil {
@@ -74,6 +77,7 @@ func runFuzz(args []string) error {
 	settings.Only = append(settings.Only, only...)
 	settings.Method = append(settings.Method, methods...)
 	settings.Tag = append(settings.Tag, tags...)
+	transport.apply(&settings.Transport)
 
 	if err := settings.Validate(); err != nil {
 		return err
@@ -121,7 +125,10 @@ func runFuzz(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	engine := runner.New(settings.Endpoint)
+	engine, err := newEngine(settings)
+	if err != nil {
+		return err
+	}
 	engine.ExtraHeaders = settings.Header
 
 	// Probing needs the credential as much as a run does: without it an

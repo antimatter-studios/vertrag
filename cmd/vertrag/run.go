@@ -42,6 +42,8 @@ type runFlags struct {
 	methods stringList
 	tags    stringList
 
+	transport transportFlags
+
 	// positional are the arguments left after the flags: a description and an
 	// endpoint, either of which a config file may supply instead.
 	positional []string
@@ -65,12 +67,14 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
 	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
 	fs.Var(&f.tags, "tag", "run only transactions whose operation carries this tag (repeatable)")
+	addTransportFlags(fs, &f.transport)
 
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return f, err
 	}
 	f.positional = positional
+	f.transport.noteGiven(fs)
 	return f, nil
 }
 
@@ -136,6 +140,7 @@ func settingsFor(f runFlags) (config.Config, error) {
 	settings.Only = append(settings.Only, f.only...)
 	settings.Method = append(settings.Method, f.methods...)
 	settings.Tag = append(settings.Tag, f.tags...)
+	f.transport.apply(&settings.Transport)
 
 	// A reporter named on the command line replaces the file's list rather than
 	// adding to it: someone asking for one format wants that format, not it and
@@ -232,7 +237,10 @@ func runRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	engine := runner.New(settings.Endpoint)
+	engine, err := newEngine(settings)
+	if err != nil {
+		return err
+	}
 	engine.ExtraHeaders = settings.Header
 
 	if err := applyConfiguredRules(ctx, engine, settings, transactions); err != nil {

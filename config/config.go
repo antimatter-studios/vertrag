@@ -75,6 +75,10 @@ type Config struct {
 	// read only from a vertrag file — see Discover.
 	Auth Auth
 
+	// Transport is how requests reach the server: timeout, retries, pacing,
+	// TLS trust and proxy. Zero values are vertrag's defaults.
+	Transport Transport
+
 	// Skip takes transactions out of the run. Read only from a vertrag file.
 	Skip []SkipRule
 
@@ -260,10 +264,33 @@ type file struct {
 	// vertrag's own.
 	Checks *checksFile `yaml:"checks"`
 	Auth   *authFile   `yaml:"auth"`
+	// Transport is vertrag's own: how requests reach the server.
+	Transport *transportFile `yaml:"transport"`
 	// Skip is `any` because an entry may be written either way — see toSkipRules.
 	Skip []any `yaml:"skip"`
 	// Tag narrows the run to operations carrying one of these tags.
 	Tag []string `yaml:"tag"`
+}
+
+// Transport is the `transport` section, resolved.
+type Transport struct {
+	Timeout  time.Duration
+	Retries  int
+	Delay    time.Duration
+	Insecure bool
+	CACert   string
+	Proxy    string
+}
+
+// transportFile is the `transport` section as written. Durations are Go
+// duration strings ("10s", "250ms") so a reader never has to guess the unit.
+type transportFile struct {
+	Timeout  *string `yaml:"timeout"`
+	Retries  *int    `yaml:"retries"`
+	Delay    *string `yaml:"delay"`
+	Insecure *bool   `yaml:"insecure"`
+	CACert   *string `yaml:"ca-cert"`
+	Proxy    *string `yaml:"proxy"`
 }
 
 // authFile is the `auth` section. Dredd has no equivalent: authenticating a
@@ -346,6 +373,9 @@ func Load(path string) (Config, error) {
 	if parsed.Auth != nil {
 		own = append(own, "`auth`")
 	}
+	if parsed.Transport != nil {
+		own = append(own, "`transport`")
+	}
 	if len(parsed.Skip) > 0 {
 		own = append(own, "`skip`")
 	}
@@ -370,6 +400,11 @@ func Load(path string) (Config, error) {
 	default:
 		if parsed.Auth != nil {
 			applyAuth(&config.Auth, *parsed.Auth)
+		}
+		if parsed.Transport != nil {
+			if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
+				return config, fmt.Errorf("%s: transport: %w", path, err)
+			}
 		}
 		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
 		config.Tag = append(config.Tag, parsed.Tag...)
@@ -453,6 +488,41 @@ func toSkipRules(entries []any) []SkipRule {
 		}
 	}
 	return rules
+}
+
+// applyTransport reads the transport section, rejecting a duration it
+// cannot parse rather than silently running with the default.
+func applyTransport(t *Transport, parsed transportFile) error {
+	if parsed.Timeout != nil {
+		d, err := time.ParseDuration(*parsed.Timeout)
+		if err != nil {
+			return fmt.Errorf("timeout %q: %w", *parsed.Timeout, err)
+		}
+		t.Timeout = d
+	}
+	if parsed.Delay != nil {
+		d, err := time.ParseDuration(*parsed.Delay)
+		if err != nil {
+			return fmt.Errorf("delay %q: %w", *parsed.Delay, err)
+		}
+		t.Delay = d
+	}
+	if parsed.Retries != nil {
+		if *parsed.Retries < 0 {
+			return fmt.Errorf("retries must not be negative, got %d", *parsed.Retries)
+		}
+		t.Retries = *parsed.Retries
+	}
+	if parsed.Insecure != nil {
+		t.Insecure = *parsed.Insecure
+	}
+	if parsed.CACert != nil {
+		t.CACert = *parsed.CACert
+	}
+	if parsed.Proxy != nil {
+		t.Proxy = *parsed.Proxy
+	}
+	return nil
 }
 
 func applyAuth(auth *Auth, parsed authFile) {
