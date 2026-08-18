@@ -37,6 +37,7 @@ import (
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/yamldoc"
 )
 
 // Step is one transaction in the order a plan runs it.
@@ -75,7 +76,14 @@ func Build(transactions []compile.Transaction) Plan {
 	plan := Plan{Steps: make([]Step, 0, len(transactions))}
 
 	byOperation := map[string][]int{}
+	byPathMethod := map[pathMethod][]int{}
 	for i, transaction := range transactions {
+		// The template is the path as the document wrote it, which is what an
+		// operationRef points at; the expanded URI is not.
+		if template := transaction.Request.Template; template != "" {
+			key := pathMethod{path: templatePath(template), method: strings.ToLower(transaction.Request.Method)}
+			byPathMethod[key] = append(byPathMethod[key], i)
+		}
 		if transaction.OperationID != "" {
 			byOperation[transaction.OperationID] = append(byOperation[transaction.OperationID], i)
 		}
@@ -90,7 +98,7 @@ func Build(transactions []compile.Transaction) Plan {
 
 	for source, transaction := range transactions {
 		for _, l := range transaction.Links {
-			targets, note := resolveTarget(l, byOperation)
+			targets, note := resolveTarget(l, byOperation, byPathMethod)
 			if note != "" {
 				plan.Notes = append(plan.Notes, note)
 				continue
@@ -131,7 +139,7 @@ func Build(transactions []compile.Transaction) Plan {
 // One operation can compile to several transactions — a document offering two
 // response content types describes two exchanges of the same operation — and a
 // link naming it means all of them.
-func resolveTarget(l compile.Link, byOperation map[string][]int) ([]int, string) {
+func resolveTarget(l compile.Link, byOperation map[string][]int, byPathMethod map[pathMethod][]int) ([]int, string) {
 	switch {
 	case l.OperationID != "":
 		targets, found := byOperation[l.OperationID]
@@ -142,15 +150,74 @@ func resolveTarget(l compile.Link, byOperation map[string][]int) ([]int, string)
 		return targets, ""
 
 	case l.OperationRef != "":
-		// An operationRef is a JSON Reference to the operation. Following one
-		// means resolving a pointer into the document that produced these
-		// transactions, which the compiled form no longer carries.
-		return nil, "link " + l.Name + " uses operationRef, which vertrag does not follow yet; " +
-			"give the target an operationId to sequence it"
+		// A local operationRef points at an operation by its place in the
+		// document: `#/paths/~1items~1{itemId}/get`. The compiled transactions
+		// no longer carry the document, but they carry what that pointer
+		// identifies — the path template and the method — so the pointer can
+		// be read and matched. A reference into ANOTHER document cannot be:
+		// nothing here has that document, and guessing which local operation
+		// it meant would sequence a run by a link the description never made.
+		path, method, ok := operationPointer(l.OperationRef)
+		if !ok {
+			return nil, "link " + l.Name + " uses operationRef " + l.OperationRef +
+				", which points outside this document or does not name an operation; " +
+				"give the target an operationId to sequence it"
+		}
+		targets, found := byPathMethod[pathMethod{path: path, method: method}]
+		if !found {
+			return nil, "link " + l.Name + " points at " + strings.ToUpper(method) + " " + path +
+				", which this description does not define"
+		}
+		return targets, ""
 
 	default:
 		return nil, "link " + l.Name + " names no target operation"
 	}
+}
+
+// templatePath strips a URI template's query expression, leaving the path an
+// operationRef names: `/items/{id}{?filter}` is `/items/{id}` in the document.
+func templatePath(template string) string {
+	if i := strings.IndexAny(template, "{"); i >= 0 {
+		// Only a query expression is stripped — `{?x}` or `{&x}` — never a
+		// path variable, which is part of the path the document declares.
+		if j := strings.Index(template, "{?"); j >= 0 {
+			return template[:j]
+		}
+		if j := strings.Index(template, "{&"); j >= 0 {
+			return template[:j]
+		}
+	}
+	return template
+}
+
+// pathMethod identifies an operation the way an operationRef does.
+type pathMethod struct {
+	path   string
+	method string
+}
+
+// operationPointer reads `#/paths/<escaped path>/<method>` into its parts.
+//
+// The escaping is JSON Pointer's: `~1` is a slash and `~0` a tilde, and they
+// unescape in that order — reversing it would turn `~01` into a slash where
+// the document wrote a literal `~1`.
+func operationPointer(ref string) (path, method string, ok bool) {
+	// Only a pointer into THIS document. A reference naming a file cannot be
+	// resolved from compiled transactions.
+	if !strings.HasPrefix(ref, "#/") {
+		return "", "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(ref, "#/"), "/")
+	if len(parts) != 3 || parts[0] != "paths" {
+		return "", "", false
+	}
+	path = strings.ReplaceAll(strings.ReplaceAll(parts[1], "~1", "/"), "~0", "~")
+	method = strings.ToLower(parts[2])
+	if !yamldoc.IsHTTPMethod(method) {
+		return "", "", false
+	}
+	return path, method, true
 }
 
 // wouldCycle reports whether making target depend on source closes a loop.

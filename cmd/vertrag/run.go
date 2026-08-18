@@ -81,7 +81,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
 	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in reports (repeatable)")
-	fs.StringVar(&f.phases, "phases", "", "what to run, comma-separated: examples (always), coverage, fuzz — e.g. examples,coverage")
+	fs.StringVar(&f.phases, "phases", "", "what to run, comma-separated: examples (always), coverage, fuzz, stateful — e.g. examples,stateful")
 	addTransportFlags(fs, &f.transport)
 
 	positional, err := parseInterspersed(fs, args)
@@ -343,6 +343,13 @@ func runRun(args []string) error {
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
 				map[generate.Mode]bool{generate.Valid: true, generate.Invalid: true}, 0, settings.Color, refused)
 			results = append(results, prefixed("coverage", phaseResults)...)
+			if phaseErr != nil && phaseErr != errFailed {
+				return phaseErr
+			}
+			probeFindings = probeFindings || phaseErr == errFailed
+		case config.PhaseStateful:
+			phaseResults, phaseErr := runStateful(ctx, engine, transactions, settings.Color)
+			results = append(results, prefixed("stateful", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr
 			}

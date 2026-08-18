@@ -244,6 +244,26 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 	return r.send(ctx, newTransaction(source, r.Endpoint, r.headersFor(source)))
 }
 
+// Prepare builds the transaction that would be sent for a source, with the
+// endpoint resolved and the run's headers and credential attached.
+//
+// It is exported for the stateful phase, which sends a chain of transactions
+// with values threaded between them and so needs the prepared form before it
+// goes out — the same form hooks and the sequencer already act on.
+func (r *Runner) Prepare(source compile.Transaction) *Transaction {
+	return newTransaction(source, r.Endpoint, r.headersFor(source))
+}
+
+// Deliver sends a prepared transaction and returns what came back, without
+// validating it, running hooks, or recording a result. Send is the same thing
+// from an unprepared source; this is for a caller that had to prepare first.
+func (r *Runner) Deliver(ctx context.Context, transaction *Transaction) (validate.Message, error) {
+	return r.send(ctx, transaction)
+}
+
+// SentRequest is the request as it actually went out — see sentRequest.
+func (t *Transaction) SentRequest() Request { return t.sentRequest() }
+
 // Run executes every transaction in order and returns the results.
 //
 // Order is the document's order, which is what makes a description that creates

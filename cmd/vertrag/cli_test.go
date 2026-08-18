@@ -54,6 +54,30 @@ func serve(t *testing.T, name string, faults ...corpus.Fault) (endpoint, descrip
 	return http.URL, path
 }
 
+// serveStateful is serve with a server that mints real identifiers, which is
+// what a chain needs: a create whose response carries an id the read can
+// actually be followed to.
+func serveStateful(t *testing.T, name string, faults ...corpus.Fault) (endpoint, description string) {
+	t.Helper()
+
+	server, err := corpus.NewNamed(name, faults...)
+	if err != nil {
+		t.Fatalf("building the server: %v", err)
+	}
+	http := httptest.NewServer(server.Stateful().Handler())
+	t.Cleanup(http.Close)
+
+	source, err := corpus.Load(name)
+	if err != nil {
+		t.Fatalf("loading: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), name+".yml")
+	if err := os.WriteFile(path, source, 0o600); err != nil {
+		t.Fatalf("writing the description: %v", err)
+	}
+	return http.URL, path
+}
+
 func runCommand(t *testing.T, binary string, args ...string) (output string, code int) {
 	t.Helper()
 
