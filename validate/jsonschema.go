@@ -38,18 +38,49 @@ var englishPrinter = message.NewPrinter(language.English)
 // what the OpenAPI 3.0 path produces and therefore the safer assumption.
 func draftFor(schema map[string]any) *jsonschema.Draft {
 	declared, _ := schema["$schema"].(string)
+	if draft, known := draftNamed(declared); known {
+		return draft
+	}
+	return jsonschema.Draft4
+}
+
+// draftNamed reads a `$schema` URI, and says whether it named anything.
+//
+// Split from draftFor so that the answer to "would this be recognised?" comes
+// from the same table as the answer to "read it as what?". A parser choosing
+// the `$schema` it stamps has to know which dialects survive the trip: an
+// unrecognised URI is not refused here, it is silently read as draft-04, so a
+// description declaring a dialect nobody implements would have its 2020-12
+// schemas validated under draft-04 rules and pass bodies that violate them.
+func draftNamed(declared string) (*jsonschema.Draft, bool) {
 	switch {
 	case strings.Contains(declared, "2020-12"):
-		return jsonschema.Draft2020
+		return jsonschema.Draft2020, true
 	case strings.Contains(declared, "2019-09"):
-		return jsonschema.Draft2019
+		return jsonschema.Draft2019, true
 	case strings.Contains(declared, "draft-07"):
-		return jsonschema.Draft7
+		return jsonschema.Draft7, true
 	case strings.Contains(declared, "draft-06"):
-		return jsonschema.Draft6
+		return jsonschema.Draft6, true
+	case strings.Contains(declared, "draft-04"):
+		return jsonschema.Draft4, true
 	default:
-		return jsonschema.Draft4
+		return nil, false
 	}
+}
+
+// KnownDialect reports whether a `$schema` URI names a dialect this validator
+// implements.
+//
+// Exported for the description parsers, which decide what `$schema` to stamp on
+// the schemas they emit. OpenAPI 3.1 lets a document name its own dialect, and
+// passing that name through unexamined is the failure this answers: the
+// validator has no way to say "I do not know this one" at validation time —
+// it reads an unfamiliar URI as draft-04 and carries on — so the question has
+// to be asked while there is still a document to warn about.
+func KnownDialect(uri string) bool {
+	_, known := draftNamed(uri)
+	return known
 }
 
 // AgainstSchema reports whether a body satisfies a JSON Schema.

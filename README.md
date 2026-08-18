@@ -266,6 +266,29 @@ different questions. `run` is deterministic and belongs in CI as a regression
 gate; generation is exploratory, and a run that discovers something new on a
 Tuesday is a feature there and a broken build here.
 
+### Webhooks are read, checked, and not sent
+
+`webhooks` is OpenAPI 3.1's, and it points the other way: a path is a request
+you send to the API, a webhook is a request the API sends to a receiver of
+yours. vertrag is a client, and the description carries no address for that
+receiver, so sending one would mean POSTing `accountDeleted` at the endpoint
+under test — an API being sent requests it never said it would answer, with
+whatever came back reported as a contract result.
+
+So they are read rather than run. Every Path Item under `webhooks` is validated
+exactly as one under `paths` is, and every operation it declares is named and
+counted in a warning saying it was not sent — the same reasoning as [mutations
+in a GraphQL schema](#graphql). A description whose entire surface is webhooks
+used to produce an empty run that read as a pass; now it produces a run that
+says what it did not cover.
+
+`jsonSchemaDialect` is read too. A 3.1 document may say which JSON Schema
+dialect its schemas are written in, and vertrag validates them under the
+dialect they claim — draft-04 through 2020-12, plus the OAS base dialect the
+specification defaults to. A dialect it cannot honour is reported rather than
+passed through, because an unrecognised `$schema` is read as draft-04 and would
+quietly under-enforce every constraint in the file.
+
 ## GraphQL
 
 A GraphQL schema is a description too, so vertrag tests one the same way:
