@@ -198,7 +198,52 @@ func drawInteger(t *rapid.T, schema Schema, mode Mode) any {
 	if high < low {
 		high = low
 	}
-	return rapid.Int64Range(low, high).Draw(t, "integer")
+	return spreadInt(t, low, high)
+}
+
+// spreadInt draws an integer across a range in a way that actually reaches
+// its far end.
+//
+// rapid.Int64Range biases toward small magnitudes — right for shrinking,
+// weak for coverage. Measured over a hundred draws in [1, 1000] it reached
+// the maximum itself 4 times; the maximum is exactly where a `<` written for
+// `<=` fails, and a handler wrong only at the boundary was asked once in
+// twenty-five cases. So the draw is one of three, chosen per case: the
+// boundaries themselves, a flat ladder across the range, or rapid's own
+// biased draw — which keeps shrinking effective, since a failing large draw
+// still shrinks toward the smallest value that fails. Measured after: the
+// maximum is drawn about one case in four.
+func spreadInt(t *rapid.T, low, high int64) int64 {
+	if low == high {
+		return low
+	}
+	switch rapid.SampledFrom([]string{"boundary", "spread", "biased"}).Draw(t, "spread") {
+	case "boundary":
+		return rapid.SampledFrom([]int64{low, high}).Draw(t, "edge")
+	case "spread":
+		// A ladder of points across the range, sampled flat: every rapid
+		// numeric generator biases toward small magnitudes, so a "uniform"
+		// offset drawn from one is not uniform. SampledFrom over precomputed
+		// points IS flat, and eleven of them (each tenth of the range) is
+		// enough to reach the far end every few cases while staying
+		// deterministic and shrinkable.
+		points := make([]int64, 0, 11)
+		span := high - low
+		for i := int64(0); i <= 10; i++ {
+			// Computed as low + span*i/10 in a way that cannot overflow for
+			// the ranges schemas state; a span too wide for that is capped.
+			var point int64
+			if span < math.MaxInt64/10 {
+				point = low + span*i/10
+			} else {
+				point = low + (span/10)*i
+			}
+			points = append(points, point)
+		}
+		return rapid.SampledFrom(points).Draw(t, "point")
+	default:
+		return rapid.Int64Range(low, high).Draw(t, "integer")
+	}
 }
 
 func drawNumber(t *rapid.T, schema Schema, mode Mode) any {

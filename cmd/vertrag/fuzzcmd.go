@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,6 +40,7 @@ func runFuzz(args []string) error {
 	seed := fs.Uint64("seed", 0, "replay a previous run (0 picks one and reports it)")
 	mode := fs.String("mode", "both", "which values to send: valid, invalid, or both")
 	reporterName := fs.String("reporter", "", "also emit the probe results through a reporter: cli, dot, markdown, html, or junit")
+	whole := fs.Bool("whole-request", false, "also draw every parameter and the body together per case, to reach bugs in their interaction (findings then name the request, not one part)")
 	output := fs.String("output", "", "write the --reporter output to a file instead of stdout")
 	noColor := fs.Bool("no-color", false, "disable coloured output")
 	var headers stringList
@@ -170,7 +172,7 @@ func runFuzz(args []string) error {
 	results, runErr := probeAll(ctx, engine, probeable, modes, skipped, fuzz.Options{
 		Cases: *cases,
 		Seed:  *seed,
-	}, settings.Color)
+	}, settings.Color, *whole)
 
 	// The narrative above is the fuzz report; a --reporter is for machines
 	// and pipelines, so it comes in addition rather than instead. The config
@@ -286,6 +288,7 @@ func probeAll(
 	skipped int,
 	options fuzz.Options,
 	color bool,
+	whole bool,
 ) ([]runner.Result, error) {
 	findings := 0
 	requests := 0
@@ -390,6 +393,64 @@ func probeAll(
 				}
 			}
 		}
+
+		// The second pass, when asked for: every part drawn together, so a
+		// bug that only shows when two inputs meet is reachable. Skipped
+		// when the operation offers fewer than two parts — the per-target
+		// pass has already asked everything there is to ask.
+		if whole && len(targets) >= 2 {
+			for _, mode := range modes {
+				if ctx.Err() != nil {
+					return results, ctx.Err()
+				}
+				if mode == generate.Valid && !base.ok {
+					continue
+				}
+				wholeName := transaction.Name + " · whole request · " + modeName(mode)
+				parts := make([]fuzz.Part, 0, len(targets))
+				byLabel := map[string]target{}
+				for _, tg := range targets {
+					label := fuzz.PartLabel(tg.subject)
+					parts = append(parts, fuzz.Part{Subject: tg.subject, Schema: tg.schema, Media: tg.media})
+					byLabel[label] = tg
+				}
+
+				sendWhole := func(ctx context.Context, values map[string]any) (validate.Message, error) {
+					request := transaction.Request
+					for label, value := range values {
+						var err error
+						if request, err = byLabel[label].apply(request, value); err != nil {
+							return validate.Message{}, err
+						}
+					}
+					attempt := transaction
+					attempt.Request = request
+					requests++
+					return engine.Send(ctx, attempt)
+				}
+
+				finding, found := fuzz.ProbeWhole(ctx, parts, mode, sendWhole, options)
+				if !found {
+					results = append(results, runner.Result{
+						Name: wholeName, Status: runner.StatusPass,
+						Request: sentAs(engine, transaction.Request),
+					})
+					continue
+				}
+				findings++
+				printWholeFinding(engine, transaction, byLabel, finding, color)
+				failed := transaction.Request
+				for label, value := range finding.Values {
+					if r, err := byLabel[label].apply(failed, value); err == nil {
+						failed = r
+					}
+				}
+				results = append(results, runner.Result{
+					Name: wholeName, Status: runner.StatusFail,
+					Request: sentAs(engine, failed), Errors: []string{finding.Message},
+				})
+			}
+		}
 	}
 
 	fmt.Printf("\n%d operation(s) probed over %d body and parameter target(s), %d request(s) sent, %d finding(s)",
@@ -442,6 +503,40 @@ func printFinding(engine *runner.Runner, transaction compile.Transaction, target
 	fmt.Printf("  %s\n", finding.Message)
 	fmt.Printf("  %s %s %s\n", paint(reporter.Dim, "request:"), request.Method, request.URI)
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
+	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
+	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
+		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro: "), repro)
+	}
+}
+
+// printWholeFinding is printFinding for a request drawn whole: every part's
+// value is shown, and the culprit — the one drawn invalid — is named when
+// there is one, so the reader still has somewhere to start.
+func printWholeFinding(engine *runner.Runner, transaction compile.Transaction, byLabel map[string]target, finding fuzz.WholeFinding, color bool) {
+	paint := func(code, text string) string { return reporter.Paint(color, code, text) }
+
+	request := transaction.Request
+	labels := make([]string, 0, len(finding.Values))
+	for label := range finding.Values {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
+		if sent, err := byLabel[label].apply(request, finding.Values[label]); err == nil {
+			request = sent
+		}
+	}
+
+	fmt.Printf("\n%s %s\n", paint(reporter.Red, "finding:"), transaction.Name)
+	fmt.Printf("  %s\n", finding.Message)
+	fmt.Printf("  %s %s %s\n", paint(reporter.Dim, "request:"), request.Method, request.URI)
+	for _, label := range labels {
+		mark := ""
+		if label == finding.Culprit {
+			mark = " " + paint(reporter.Red, "(drawn invalid)")
+		}
+		fmt.Printf("  %s %v%s\n", paint(reporter.Dim, label+":"), finding.Values[label], mark)
+	}
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
 	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
 		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro: "), repro)

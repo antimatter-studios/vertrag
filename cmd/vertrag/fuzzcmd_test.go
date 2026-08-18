@@ -636,3 +636,104 @@ func TestFuzzFormBodiesAgainstACarefulServer(t *testing.T) {
 		t.Errorf("not a clean, non-empty run:\n%s", output)
 	}
 }
+
+// pagedAPI has two integer query parameters that are each fine on their own.
+const pagedAPI = `openapi: 3.0.3
+info:
+  title: Paged
+  version: 1.0.0
+paths:
+  /rows:
+    get:
+      summary: Page
+      parameters:
+        - name: limit
+          in: query
+          example: 10
+          schema: {type: integer, minimum: 1, maximum: 1000}
+        - name: offset
+          in: query
+          example: 0
+          schema: {type: integer, minimum: 0, maximum: 1000}
+      responses:
+        '200':
+          description: rows
+          content:
+            application/json:
+              schema: {type: object}
+`
+
+// interactionBug validates each parameter correctly on its own — the bounds
+// are enforced, non-numbers get a 400 — and crashes only when the two
+// TOGETHER ask for more than it can address: limit*offset past a small
+// buffer. Per-part probing never reaches it, because whichever parameter is
+// being varied, the other sits at its tiny documented example (10 or 0) and
+// the product stays small. Only drawing both at once gets there.
+func interactionBug() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit, err1 := strconv.Atoi(r.URL.Query().Get("limit"))
+		offset, err2 := strconv.Atoi(r.URL.Query().Get("offset"))
+		if err1 != nil || err2 != nil || limit < 1 || limit > 1000 || offset < 0 || offset > 1000 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if limit*offset > 100_000 {
+			// The interaction: fine individually, fatal together.
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+}
+
+func fuzzPagedOutput(t *testing.T, endpoint string, extra ...string) (string, error) {
+	t.Helper()
+	description := filepath.Join(t.TempDir(), "paged.yml")
+	if err := os.WriteFile(description, []byte(pagedAPI), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"--endpoint", endpoint, "--no-color", "--seed", "9"}, extra...)
+	args = append(args, description)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	defer func() { os.Stdout = real }()
+	captured := make(chan string, 1)
+	go func() {
+		text, _ := io.ReadAll(read)
+		captured <- string(text)
+	}()
+	runErr := runFuzz(args)
+	write.Close()
+	return <-captured, runErr
+}
+
+// TestWholeRequestReachesAnInteractionBug is the reason the mode exists, as
+// a pair: per-part probing cannot find this bug and must report a clean run;
+// whole-request probing must find it. If the first half ever starts finding
+// it, the server is wrong; if the second half stops, the mode is.
+func TestWholeRequestReachesAnInteractionBug(t *testing.T) {
+	server := httptest.NewServer(interactionBug())
+	defer server.Close()
+
+	// Per-part only: valid mode varies one parameter with the other at its
+	// example, so limit*offset never grows. Clean.
+	output, err := fuzzPagedOutput(t, server.URL, "--cases", "80", "--mode", "valid")
+	if err != nil {
+		t.Fatalf("per-part probing found the interaction bug, which it should not be able to reach:\n%s", output)
+	}
+
+	// Whole request: both drawn together, and the product gets large.
+	output, err = fuzzPagedOutput(t, server.URL, "--cases", "80", "--mode", "valid", "--whole-request")
+	if !errors.Is(err, errFailed) {
+		t.Fatalf("whole-request probing missed the interaction bug (err=%v):\n%s", err, output)
+	}
+	if !strings.Contains(output, "whole request") || !strings.Contains(output, "with every part valid") {
+		t.Errorf("the finding is not reported as a whole-request one:\n%s", output)
+	}
+	if !strings.Contains(output, "query.limit:") || !strings.Contains(output, "query.offset:") {
+		t.Errorf("the finding does not show every part's value:\n%s", output)
+	}
+}
