@@ -92,6 +92,18 @@ func query(t *testing.T, transaction Transaction) string {
 	return body.Query
 }
 
+// variables returns the values the request carries for the query's variables.
+func variables(t *testing.T, transaction Transaction) map[string]any {
+	t.Helper()
+	var body struct {
+		Variables map[string]any `json:"variables"`
+	}
+	if err := json.Unmarshal([]byte(transaction.Request.Body), &body); err != nil {
+		t.Fatalf("the request body is not JSON: %v\n%s", err, transaction.Request.Body)
+	}
+	return body.Variables
+}
+
 func transactionNamed(t *testing.T, result GraphQLResult, name string) Transaction {
 	t.Helper()
 	for _, transaction := range result.Transactions {
@@ -214,7 +226,7 @@ func TestTransactionNamesAreStableAndReadable(t *testing.T) {
 	schema := testSchema()
 	first := CompileGraphQL(schema, GraphQLOptions{Mutations: true}, "schema.graphql")
 
-	want := []string{"Query > version", "Query > viewer", "Query > search",
+	want := []string{"Query > version", "Query > viewer", "Query > userById", "Query > search",
 		"Mutation > ping", "Mutation > deleteAccount"}
 	var got []string
 	for _, transaction := range first.Transactions {
@@ -344,39 +356,74 @@ func TestAMutationIsNotBuiltUnlessItWasAskedFor(t *testing.T) {
 	}
 }
 
-// Round three generates argument values. Until it does, a field that cannot be
-// asked for without them is withheld and says so — sending it bare would put a
-// query the server refuses on the wire and report the refusal as though the
-// API were at fault.
-func TestAFieldThatRequiresArgumentsIsWithheldWithItsReason(t *testing.T) {
-	result := CompileGraphQL(testSchema(), GraphQLOptions{}, "schema.graphql")
+// A required argument is now a value vertrag generates, so the field it made
+// unaskable becomes an ordinary transaction: a variable declared on the
+// operation, `$id` passed at the field, and the value in `variables`.
+func TestAFieldWithARequiredArgumentIsSentWithAGeneratedValue(t *testing.T) {
+	result := CompileGraphQL(testSchema(), GraphQLOptions{MaxDepth: 1}, "schema.graphql")
+	transaction := transactionNamed(t, result, "Query > userById")
 
-	for _, transaction := range result.Transactions {
-		if transaction.Name == "Query > userById" {
-			t.Fatalf("userById(id: ID!) was compiled without a value for `id`:\n%s", query(t, transaction))
-		}
+	want := strings.Join([]string{
+		"query userById($id: ID!) {",
+		"  userById(id: $id) {",
+		"    id",
+		"    name",
+		"  }",
+		"}",
+	}, "\n")
+	if got := query(t, transaction); got != want {
+		t.Errorf("query =\n%s\nwant\n%s", got, want)
+	}
+	if got := variables(t, transaction); got["id"] != "1" {
+		t.Errorf("variables = %v, want the generated id under `id`", got)
 	}
 
-	var reason string
 	for _, withheld := range result.Withheld {
 		if withheld.Name == "Query > userById" {
-			reason = withheld.Reason
+			t.Errorf("userById is still withheld: %s", withheld.Reason)
 		}
 	}
-	if reason != WithheldArguments {
-		t.Errorf("userById was withheld for %q, want the argument reason", reason)
+}
+
+// The value's JSON Schema comes from the ARGUMENT's type, not from the request
+// body's shape, and it is what the probing phases generate from. GraphQL's ID
+// admits a string or an integer, so both are declared: typing it as a string
+// alone would have the invalid mode send 12345 and report a validation bypass
+// against a server doing exactly what the specification says.
+func TestAnArgumentCarriesTheJSONSchemaOfItsOwnType(t *testing.T) {
+	result := CompileGraphQL(testSchema(), GraphQLOptions{MaxDepth: 1}, "schema.graphql")
+	transaction := transactionNamed(t, result, "Query > userById")
+
+	arguments := transaction.Request.GraphQLArguments
+	if len(arguments) != 1 {
+		t.Fatalf("arguments = %+v, want one", arguments)
+	}
+	if got := arguments[0].Schema; got != `{"type":["string","integer"]}` {
+		t.Errorf("schema = %s", got)
+	}
+	if !arguments[0].Possessed {
+		t.Error("an ID argument is not marked as one whose value must already exist")
 	}
 }
 
 // An argument is required only when it is non-null AND has no default: the
 // server applies the default for one that is left out, so `search(term: String
-// = "x")` is perfectly askable.
-func TestAnArgumentWithADefaultDoesNotWithholdTheField(t *testing.T) {
+// = "x")` is askable without a value.
+//
+// It is still DECLARED, and left out of `variables`. An undefined variable is
+// how GraphQL says the argument was not written at all — so the server's own
+// default stands, exactly as before — while the declaration is what lets a
+// probing phase fill the argument in without rewriting the query.
+func TestAnArgumentWithADefaultIsDeclaredButLeftUnset(t *testing.T) {
 	result := CompileGraphQL(testSchema(), GraphQLOptions{}, "schema.graphql")
 	transaction := transactionNamed(t, result, "Query > search")
 
-	if got := query(t, transaction); strings.Contains(got, "term") {
-		t.Errorf("the default was written into the query rather than left to the server:\n%s", got)
+	got := query(t, transaction)
+	if !strings.HasPrefix(got, "query search($term: String) {\n  search(term: $term) {") {
+		t.Errorf("the optional argument was not declared as a variable:\n%s", got)
+	}
+	if values := variables(t, transaction); len(values) != 0 {
+		t.Errorf("variables = %v, want none: the server applies its own default", values)
 	}
 }
 

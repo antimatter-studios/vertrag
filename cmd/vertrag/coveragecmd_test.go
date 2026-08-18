@@ -96,7 +96,7 @@ func TestCoverageIsCleanAgainstACarefulServer(t *testing.T) {
 		t.Errorf("not a clean, non-empty run:\n%s", output)
 	}
 	// Every parameter has bounds, so every one must have been probed.
-	if !strings.Contains(output, "3 body and parameter target(s)") {
+	if !strings.Contains(output, "3 body, parameter and argument target(s)") {
 		t.Errorf("all three parameters should be covered:\n%s", output)
 	}
 }

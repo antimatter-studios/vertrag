@@ -111,6 +111,22 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 			}
 			value := generate.Value(part.Schema, partMode).Draw(t, label)
 
+			// Pinned here, between the draw and the render, exactly as in the
+			// per-part loop. It was not, and that was a hole rather than an
+			// omission of no consequence: `fuzz --whole-request` draws a body
+			// of its own and sends it, so a run with `dry_run` pinned held it
+			// on every per-part probe and released it on every whole-request
+			// one — the single arrangement in which a caller believes the
+			// interlock is on and it is off. Pins' own documentation claims no
+			// path exists from a draw to the wire that skips it, and this is
+			// what makes that true.
+			value, engaged := opts.Pin.ApplyTo(part.Subject, part.Schema, value)
+			for _, name := range engaged {
+				if opts.Engaged != nil {
+					opts.Engaged[name]++
+				}
+			}
+
 			// Each part must have the wire form its location allows and the
 			// validity it was drawn for — the same discipline per-part
 			// probing applies, or a generator limitation on one part would
@@ -145,11 +161,11 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 		// The subject judged is the culprit part in Invalid mode — a bypass
 		// is attributed to it — and the whole request otherwise, which the
 		// message names as such rather than as any one part.
-		subject := Subject{In: InWhole}
+		subject := wholeSubject(parts)
 		if culprit != "" {
 			subject = byLabel[culprit].Subject
 		}
-		if message, bad := judgeWhole(mode, subject, reply.StatusCode); bad {
+		if message, bad := judgeWhole(mode, subject, reply); bad {
 			found = WholeFinding{Mode: mode, Values: values, Status: reply.StatusCode,
 				Message: message, Culprit: culprit}
 			t.Fatalf("%s", message)
@@ -169,8 +185,8 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 // judgeWhole is judge, worded for a whole request. A path-parameter 404 is
 // forgiven only when the path parameter is the culprit or every part is
 // valid — the same exemption per-part probing gives, for the same reason.
-func judgeWhole(mode generate.Mode, subject Subject, status string) (string, bool) {
-	message, bad := judge(mode, subject, status)
+func judgeWhole(mode generate.Mode, subject Subject, reply validate.Message) (string, bool) {
+	message, bad := judge(mode, subject, reply)
 	if !bad {
 		return "", false
 	}
@@ -180,23 +196,53 @@ func judgeWhole(mode generate.Mode, subject Subject, status string) (string, boo
 	return message, true
 }
 
+// wholeSubject names the request as a whole, and remembers when every part of
+// it is a GraphQL argument.
+//
+// Without that the valid-mode pass over a GraphQL operation would be judged on
+// its status, which is 200 whatever the server thought of the request — so a
+// server refusing every one of them would pass, silently, which is the exact
+// failure the GraphQL body check exists to prevent. The possession exemption
+// carries over the same way: a whole request one of whose parts is a made-up
+// identifier is as exempt as that part alone.
+func wholeSubject(parts []Part) Subject {
+	subject := Subject{In: InWhole}
+	for _, part := range parts {
+		if part.Subject.In != InArgument {
+			return Subject{In: InWhole}
+		}
+		subject.byBody = true
+		subject.Possessed = subject.Possessed || part.Subject.Possessed
+	}
+	return subject
+}
+
 // formFor picks the wire form for a part.
 func formFor(part Part) wire {
-	if part.Subject.In == InBody {
+	switch part.Subject.In {
+	case InBody:
 		form, ok := BodyForm(part.Media, part.Schema)
 		if !ok {
 			return bodyForm()
 		}
 		return form
+	case InArgument:
+		return argumentForm()
 	}
 	return parameterForm(part.Subject, part.Schema)
 }
 
 // PartLabel is the stable key a part's value travels under: "body", or
-// "<in>.<name>" for a parameter, so a finding can be read without the parts.
+// "<in>.<name>" for a parameter or an argument, so a finding can be read
+// without the parts.
 func PartLabel(subject Subject) string {
 	if subject.In == InBody || subject.In == "" {
 		return "body"
+	}
+	if subject.In == InArgument && subject.Where != "" {
+		// Two fields of one query can declare the same argument name, so the
+		// field it belongs to is part of what identifies it.
+		return subject.In + "." + subject.Where + "." + subject.Name
 	}
 	return subject.In + "." + subject.Name
 }

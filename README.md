@@ -330,11 +330,28 @@ rather than assumed. Interfaces and unions are selected with inline fragments,
 and a field that came from one is not required in the response: it is there
 only when the object turned out to be that type.
 
-Not built yet: argument values. A field whose arguments are required is
-withheld rather than sent bare, because a query missing an argument is one the
-server refuses — a failure report about vertrag's own query rather than about
-the API. `search(term: String = "x")` is sent, because an argument with a
-default is not required.
+**Argument values are generated from the argument's own type.** A GraphQL
+schema states no example request, so `user(id: ID!)` cannot be asked without
+vertrag composing one. Each argument becomes a JSON Schema — `Int` with its
+32-bit bounds, `ID` as a string or an integer, an enum as its members, an input
+object as an object — and the value travels in the query's `variables`, never
+written into the document. That is what makes `coverage` and `fuzz` mean
+something against a schema: they vary one argument at a time and read the
+verdict out of the reply's `errors`, because a GraphQL endpoint answers 200 to
+its own refusals.
+
+Two things are still withheld, and both are named and counted. An argument
+typed as a **custom scalar** has no value space the schema describes, so
+anything generated for one is a guess and its rejection would be a finding
+about vertrag. And a **generated identifier names nothing**: vertrag can shape
+an id but cannot possess one, so a GraphQL error from an operation carrying one
+is not reported as a failure — the same exemption a path parameter's 404 gets.
+The run says which operations are in that position before it prints a result.
+
+`fuzz.pin` holds an argument by name, exactly as it holds a body field:
+`pin: {dryRun: true}` fixes that argument in every generated query, in the
+baseline request as well, and a pin naming an argument no field declares stops
+the run before anything is sent.
 
 ## Configuration
 
@@ -705,8 +722,11 @@ when it reproduces its pair.
 10. Generated input across a sequence, rather than one operation at a time
 11. ~~GraphQL schemas → transactions, sent and validated~~ — done; queries by
     default, mutations on request
-12. Generated ARGUMENT values for GraphQL fields, which is what makes the
-    probing phases mean anything against a schema
+12. ~~Generated ARGUMENT values for GraphQL fields~~ — done; `coverage` and
+    `fuzz` probe a schema one argument at a time, and `fuzz.pin` holds one
+13. Stateful sequences over a GraphQL schema, which has no links to follow —
+    what corresponds to one is a field returning something you can ask more
+    about
 
 ## Not supported: API Blueprint
 

@@ -72,6 +72,47 @@ func (p Pins) Covers(schema generate.Schema, name string) bool {
 	return declared
 }
 
+// ApplyTo holds the pinned values for one subject, and reports which pins
+// engaged.
+//
+// A body and a GraphQL argument are pinned differently because the pinned thing
+// sits in a different place. A pin names a FIELD of a generated body, so it is
+// held inside the object. A GraphQL argument IS the value — `dryRun: Boolean`
+// is an argument of the field, not a property of some object — so the pin
+// replaces the whole of what was drawn.
+//
+// Both are then applied, in that order, and the second is not redundant: an
+// input-object argument can itself carry a `dryRun` field, and a caller who
+// wrote one pin means it about the argument and about the field alike.
+//
+// Replacing the whole value has a consequence worth stating, because it looks
+// like a bug from the outside: an invalid-mode probe of a pinned argument never
+// sends anything. The pinned value is by definition the one the caller wants,
+// so it satisfies the schema, so the case fails the validity check and is
+// abandoned. That is the right outcome — the argument the caller pinned is the
+// one they do not want varied — and it is why the engagement count is reported.
+func (p Pins) ApplyTo(subject Subject, schema generate.Schema, value any) (any, []string) {
+	if len(p) == 0 {
+		return value, nil
+	}
+
+	var engaged []string
+	if subject.In == InArgument {
+		if pinned, held := p[subject.Name]; held {
+			value = pinned
+			engaged = append(engaged, subject.Name)
+		}
+	}
+
+	value, inside := p.Apply(schema, value)
+	for _, name := range inside {
+		if !contains(engaged, name) {
+			engaged = append(engaged, name)
+		}
+	}
+	return value, engaged
+}
+
 // Apply holds the pinned fields at their values, and reports which ones it
 // actually set.
 //
@@ -113,19 +154,26 @@ func (p Pins) Apply(schema generate.Schema, value any) (any, []string) {
 // separately, because a pin legitimately applies to a subset — `dry_run`
 // belongs to the ordering endpoints, not to `GET /health`. Matching nowhere is
 // the error; matching somewhere is the feature.
-func CheckPins(pins Pins, schemas []generate.Schema) error {
+//
+// arguments are the GraphQL argument names the run will generate for, and they
+// are checked on exactly the same terms. A GraphQL schema has no request body
+// to declare a field in — the dangerous flag is an ARGUMENT, `createOrder(input:
+// ..., dryRun: Boolean)` — so a check that looked only at bodies would refuse
+// every pin written for a schema, and the caller who worked around it by
+// removing the pin would have removed the interlock.
+func CheckPins(pins Pins, schemas []generate.Schema, arguments []string) error {
 	if len(pins) == 0 {
 		return nil
 	}
 
 	var unmatched []string
 	for _, name := range pins.Names() {
-		matched := false
+		matched := contains(arguments, name)
 		for _, schema := range schemas {
-			if pins.Covers(schema, name) {
-				matched = true
+			if matched {
 				break
 			}
+			matched = pins.Covers(schema, name)
 		}
 		if !matched {
 			unmatched = append(unmatched, name)
@@ -135,12 +183,12 @@ func CheckPins(pins Pins, schemas []generate.Schema) error {
 		return nil
 	}
 
-	subject := "a field"
+	subject := "a field or argument"
 	if len(unmatched) > 1 {
-		subject = "fields"
+		subject = "fields or arguments"
 	}
 	return fmt.Errorf(
-		"fuzz.pin names %s no request body in this description declares: %s. "+
+		"fuzz.pin names %s nothing in this description declares: %s. "+
 			"A pin that matches nothing is not a safety control, it only looks like one — "+
 			"check the spelling against the schema, or remove it",
 		subject, strings.Join(unmatched, ", "))

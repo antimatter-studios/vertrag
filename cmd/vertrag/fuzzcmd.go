@@ -123,7 +123,8 @@ type target struct {
 }
 
 // probeTargets lists what can be generated for a request: its body, when the
-// description gave the body a schema, and every parameter that carries one.
+// description gave the body a schema, every parameter that carries one, and
+// every GraphQL argument the query passes.
 //
 // A parameter whose schema describes an array or an object is left out rather
 // than attempted, because there is no single string that unambiguously carries
@@ -164,6 +165,34 @@ func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.
 		}
 	}
 
+	// A GraphQL request carries no body schema and no parameters; what it does
+	// carry is one schema per ARGUMENT, built from the argument's own type. The
+	// value goes into the query's `variables`, which is the only part of the
+	// request a generated value may occupy — the document itself is vertrag's
+	// and a value substituted into it would be a different query.
+	for _, argument := range request.GraphQLArguments {
+		if strings.TrimSpace(argument.Schema) == "" {
+			continue
+		}
+		subject := fuzz.Subject{
+			In: fuzz.InArgument, Name: argument.Name,
+			Where: argument.Field, Possessed: argument.Possessed,
+		}
+
+		schema, err := decodeSchema(argument.Schema)
+		if err != nil {
+			unreadable = append(unreadable, subject)
+			continue
+		}
+		targets = append(targets, target{
+			subject: subject,
+			schema:  schema,
+			apply: func(r compile.Request, value any) (compile.Request, error) {
+				return r.SetGraphQLArgument(argument, value)
+			},
+		})
+	}
+
 	for _, parameter := range request.Parameters {
 		if strings.TrimSpace(parameter.Schema) == "" {
 			continue
@@ -191,6 +220,41 @@ func probeTargets(request compile.Request) (targets []target, unreadable []fuzz.
 	return targets, unreadable
 }
 
+// pinnable lists everything in a run a pin could name: the schema of every
+// generated body, and the name of every generated GraphQL argument.
+//
+// Both phases collect it identically because both check the pin identically. A
+// pin that engaged on one phase and matched nothing on the other would be a
+// pin only half the time, and the half it was not is the half nobody watches.
+func pinnable(transactions []compile.Transaction) ([]generate.Schema, []string) {
+	var bodies []generate.Schema
+	var arguments []string
+	for _, transaction := range transactions {
+		targets, _ := probeTargets(transaction.Request)
+		for _, t := range targets {
+			switch t.subject.In {
+			case fuzz.InBody:
+				bodies = append(bodies, t.schema)
+			case fuzz.InArgument:
+				arguments = append(arguments, t.subject.Name)
+			}
+		}
+	}
+	return bodies, arguments
+}
+
+// pinScope names what a run is holding the pin in, so the line it prints
+// describes the run in front of it rather than the common case.
+func pinScope(bodies []generate.Schema, arguments []string) string {
+	switch {
+	case len(bodies) == 0:
+		return "argument"
+	case len(arguments) == 0:
+		return "body"
+	}
+	return "body and argument"
+}
+
 // probeAll runs every target of every operation through every requested mode,
 // reports as it goes, and returns one result per probe so a --reporter can
 // render the run the way it renders a contract run.
@@ -211,20 +275,12 @@ func probeAll(
 	// generated values into the field the caller believed was fixed. Checking
 	// after the first request would be checking too late.
 	if len(options.Pin) > 0 {
-		var bodies []generate.Schema
-		for _, transaction := range transactions {
-			targets, _ := probeTargets(transaction.Request)
-			for _, t := range targets {
-				if t.subject.In == fuzz.InBody {
-					bodies = append(bodies, t.schema)
-				}
-			}
-		}
-		if err := fuzz.CheckPins(options.Pin, bodies); err != nil {
+		bodies, arguments := pinnable(transactions)
+		if err := fuzz.CheckPins(options.Pin, bodies, arguments); err != nil {
 			return nil, err
 		}
 		options.Engaged = map[string]int{}
-		fmt.Printf("pinned in every generated body: %s\n", options.Pin.Describe())
+		fmt.Printf("pinned in every generated %s: %s\n", pinScope(bodies, arguments), options.Pin.Describe())
 	}
 	if len(options.Accept) > 0 {
 		options.Suppression = &fuzz.Suppression{}
@@ -311,9 +367,12 @@ func probeAll(
 
 				var finding fuzz.Finding
 				var found bool
-				if target.subject.In == fuzz.InBody {
+				switch target.subject.In {
+				case fuzz.InBody:
 					finding, found = fuzz.ProbeBody(ctx, target.media, target.schema, mode, send, options)
-				} else {
+				case fuzz.InArgument:
+					finding, found = fuzz.ProbeArgument(ctx, target.subject, target.schema, mode, send, options)
+				default:
 					finding, found = fuzz.ProbeParameter(ctx, target.subject, target.schema, mode, send, options)
 				}
 
@@ -422,7 +481,7 @@ func probeAll(
 		}
 	}
 
-	fmt.Printf("\n%d operation(s) probed over %d body and parameter target(s), %d request(s) sent, %d finding(s)",
+	fmt.Printf("\n%d operation(s) probed over %d body, parameter and argument target(s), %d request(s) sent, %d finding(s)",
 		len(transactions), probed, requests, findings)
 	if unattributable > 0 {
 		fmt.Printf(", %d valid-input probe(s) skipped because the operation fails as documented",
@@ -694,6 +753,18 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 		return baseline{}
 	}
 
+	// A GraphQL endpoint answers 200 to its own refusals, so the status alone
+	// would call every broken operation a working one — and the whole point of
+	// the baseline is to know which operations work before anything is blamed
+	// on a generated value. It matters most for exactly the operations this
+	// round added: `userById` is sent with an id vertrag invented, and on most
+	// servers that id names nothing, which is the operation NOT working as
+	// documented and every valid-mode finding against it being unattributable.
+	if transaction.GraphQL != nil {
+		working := status == expectedStatus(transaction) && !graphqlErrored(reply.Body)
+		return baseline{ok: working, refused: refused(status, expectedStatus(transaction))}
+	}
+
 	// Judged against what the description promised rather than against 2xx: an
 	// operation documented as returning 404 is working when it returns one.
 	//
@@ -716,6 +787,27 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 	}
 }
 
+// expectedStatus is the status the description promised, or 0 when it promised
+// nothing readable.
+func expectedStatus(transaction compile.Transaction) int {
+	status, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
+	if err != nil {
+		return 0
+	}
+	return status
+}
+
+// graphqlErrored reports whether a GraphQL reply carried errors.
+func graphqlErrored(body string) bool {
+	var document struct {
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(body), &document); err != nil {
+		return false
+	}
+	return len(document.Errors) > 0
+}
+
 // pinnedBody holds the pinned fields in a request's own body.
 //
 // Only JSON is handled, and anything that does not parse as a JSON object is
@@ -730,6 +822,9 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 func pinnedBody(request compile.Request, pin fuzz.Pins) (compile.Request, bool) {
 	if len(pin) == 0 || strings.TrimSpace(request.Body) == "" {
 		return request, false
+	}
+	if len(request.GraphQLArguments) > 0 {
+		return pinnedArguments(request, pin)
 	}
 	var body map[string]any
 	if err := json.Unmarshal([]byte(request.Body), &body); err != nil {
@@ -757,6 +852,34 @@ func pinnedBody(request compile.Request, pin fuzz.Pins) (compile.Request, bool) 
 	}
 	request.Body = string(encoded)
 	return request, true
+}
+
+// pinnedArguments holds the pinned arguments in a GraphQL request's variables.
+//
+// It differs from pinnedBody in the one way that matters, and the difference is
+// deliberate rather than an inconsistency. pinnedBody replaces only a field the
+// example already carries, because inventing one would make a documented
+// example into something the description never described. A GraphQL argument
+// left out of `variables` is not absent from the request — it is the server's
+// own default, and `dryRun: Boolean = false` is exactly the shape of default a
+// pin exists to override. So a pinned argument the field DECLARES is set
+// whether or not the compiled example gave it a value, and one the field does
+// not declare is still left alone.
+func pinnedArguments(request compile.Request, pin fuzz.Pins) (compile.Request, bool) {
+	held := false
+	for _, argument := range request.GraphQLArguments {
+		value, pinned := pin[argument.Name]
+		if !pinned {
+			continue
+		}
+		updated, err := request.SetGraphQLArgument(argument, value)
+		if err != nil {
+			continue
+		}
+		request = updated
+		held = true
+	}
+	return request, held
 }
 
 // baseline is what one baseline request established.

@@ -139,10 +139,10 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 	}
 	// The same two paths `run` reads: API Elements for the formats that have
 	// resources and methods, a schema straight to transactions for GraphQL.
-	// These commands cannot probe a GraphQL schema yet — see
-	// graphqlPhaseNotes — but they must still read one, or the answer to
-	// `vertrag fuzz schema.graphql` is a description that could not be read
-	// rather than a probe that has nothing to generate.
+	// What these commands then probe in a schema is its ARGUMENTS — one
+	// generated value per argument, from the argument's own type — which is
+	// why the note about probing a schema being pointless is gone from
+	// graphqlPhaseNotes and only the stateful phase is still named there.
 	result, withheld, err := transactionsFor(source, settings.Spec, settings)
 	if err != nil {
 		return nil, err
@@ -173,7 +173,8 @@ func prepareProbes(f *probeFlags, fs *flag.FlagSet, positional []string) (*probe
 	// between a quiet run that tested little and one a reader can trust.
 	probeable, skipped := partitionBySchema(transactions)
 	if len(probeable) == 0 {
-		fmt.Printf("No operation carries a schema for its body or for any parameter, so there is nothing to probe.\n")
+		fmt.Printf("No operation carries a schema for its body, for any parameter or for any GraphQL " +
+			"argument, so there is nothing to probe.\n")
 		if skipped > 0 {
 			fmt.Printf("%d transaction(s) were passed over for that reason.\n", skipped)
 		}

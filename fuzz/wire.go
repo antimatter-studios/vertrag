@@ -60,6 +60,39 @@ func bodyForm() wire {
 	}
 }
 
+// argumentForm carries a GraphQL argument's value in the request's
+// `variables`, where it stays a JSON value rather than becoming text.
+//
+// It is not bodyForm, and the difference is the whole reason it exists: a body
+// IS the JSON document, so bodyForm renders the value to a string and hands
+// that over. An argument is one entry of a document the caller assembles, so
+// the value must arrive as a value — rendered to a string it would be encoded
+// again and the server would receive the JSON text `"42"` where the schema said
+// integer, then be reported for refusing it.
+//
+// There is only ever one reading. GraphQL's own coercion is what the value then
+// passes through, and it is judged against the schema built from the very type
+// that coercion uses.
+func argumentForm() wire {
+	return wire{
+		render: func(value any) (any, bool) {
+			if _, err := json.Marshal(value); err != nil {
+				// A value that will not serialise is a generator problem
+				// rather than a server one.
+				return nil, false
+			}
+			return value, true
+		},
+		interpret: func(rendered any) []string {
+			encoded, err := json.Marshal(rendered)
+			if err != nil {
+				return nil
+			}
+			return []string{string(encoded)}
+		},
+	}
+}
+
 // parameterForm sends a parameter as the single string a path segment, a query
 // value or a header field can hold.
 func parameterForm(subject Subject, schema generate.Schema) wire {
