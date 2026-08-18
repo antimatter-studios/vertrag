@@ -20,7 +20,7 @@ import (
 // name.
 var hookSource = map[string]string{
 	"nodejs": `
-const hooks = require('vertrag-hooks');
+const hooks = require('vertrag_hooks');
 
 hooks.beforeEach((transaction) => {
   transaction.request.headers['X-Each'] = 'ran';
@@ -186,7 +186,7 @@ def by_glob(transaction):
 // languages: one bad hook must not stop the suite from reporting.
 func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 	source := map[string]string{
-		"nodejs": "require('vertrag-hooks').beforeEach(() => { throw new Error('deliberate'); });",
+		"nodejs": "require('vertrag_hooks').beforeEach(() => { throw new Error('deliberate'); });",
 		"python": "import vertrag_hooks as hooks\n@hooks.before_each\ndef boom(t):\n    raise RuntimeError('deliberate')\n",
 	}
 
@@ -222,15 +222,15 @@ func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 	}
 }
 
-// TestBothModuleNamesWorkInNode: `vertrag-hooks` is the name to write here
-// and `vertrag_hooks` is Python's spelling of it, forced there because a
-// hyphen is a syntax error in a Python import. Both resolve so that nobody
-// moving between the two hook files is caught out by a character they had no
-// say in. The bare `hooks` Dredd used does not, and the next test says so.
+// TestBothModuleNamesWorkInNode: `vertrag_hooks` is the one name, in both
+// languages — the underscore is what makes that possible, since a hyphen is a
+// syntax error in a Python import. The hyphenated form still resolves here
+// because reaching for it is a natural slip for a JavaScript developer. The
+// bare `hooks` Dredd used does not, and the next test says so.
 func TestBothModuleNamesWorkInNode(t *testing.T) {
 	interpreterFor(t, "nodejs")
 
-	for _, name := range []string{"vertrag-hooks", "vertrag_hooks"} {
+	for _, name := range []string{"vertrag_hooks", "vertrag-hooks"} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "hooks.js")

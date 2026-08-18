@@ -54,19 +54,24 @@ const hooks = {
 // Hook files ask for this module by name. Nothing on disk provides it, so it
 // is installed into the module cache before they load.
 //
-// Two spellings of one name. `vertrag-hooks` is the one to write here, since
-// a hyphen is what every other module a JavaScript developer imports looks
-// like; `vertrag_hooks` is the same name as Python must spell it, because
-// `import vertrag-hooks` is a syntax error there — the hyphen parses as
-// subtraction. Node's resolver takes any string, so it accepts both and
-// nobody moving between the two hook files is caught out by a character they
-// had no say in.
+// `vertrag_hooks` is THE name, here and in Python, and the underscore is why
+// it can be: `import vertrag-hooks` is a syntax error in Python, where the
+// hyphen parses as subtraction, so Python has no choice — while Node's
+// resolver takes any string and can therefore spell it either way. One name
+// in both languages beats each following its own convention, since the person
+// reading a hook file is likelier to be moving between them than comparing
+// vertrag against npm's naming habits.
 //
-// The bare `hooks` that Dredd used is deliberately NOT among them. There is
-// one Node hook file in the world that says it, its owners can change the
-// line in seconds, and carrying an alias named after an archived tool forever
-// to save them that is the wrong trade.
-const MODULE_NAMES = ['vertrag-hooks', 'vertrag_hooks'];
+// The hyphenated form still resolves, because reaching for it is a natural
+// slip for anyone who imports `ts-node` and `body-parser` all day, and
+// refusing a name costs somebody an afternoon to save nothing.
+//
+// The bare `hooks` that Dredd used is deliberately absent. There is one Node
+// hook file in the world that says it, its owners can change the line in
+// seconds, and a module named after an archived tool would otherwise sit in
+// this worker forever — with a real hazard attached, since a generic name
+// injected into the resolver shadows any genuine package of that name.
+const MODULE_NAMES = ['vertrag_hooks', 'vertrag-hooks'];
 
 function installHooksModule() {
   const id = 'vertrag-hooks';
