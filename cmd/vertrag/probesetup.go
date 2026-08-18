@@ -49,7 +49,7 @@ type probeFlags struct {
 func addProbeFlags(fs *flag.FlagSet, f *probeFlags, verb string) {
 	fs.StringVar(&f.configPath, "config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml found here)")
 	fs.StringVar(&f.endpoint, "endpoint", "", "base URL of the server under test")
-	fs.StringVar(&f.reporterName, "reporter", "", "also emit the results through a reporter: cli, dot, markdown, html, or junit")
+	fs.StringVar(&f.reporterName, "reporter", "", "also emit the results through a reporter: cli, dot, markdown, html, junit, har, or vcr")
 	fs.StringVar(&f.output, "output", "", "write the --reporter output to a file instead of stdout")
 	fs.BoolVar(&f.noColor, "no-color", false, "disable coloured output")
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in findings instead of <redacted>")

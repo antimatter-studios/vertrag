@@ -39,6 +39,12 @@ func TestEveryReporterRedactsCredentials(t *testing.T) {
 		"markdown": func(b *strings.Builder) Reporter { return Markdown{Out: b} },
 		"html":     func(b *strings.Builder) Reporter { return HTML{Out: b} },
 		"junit":    func(b *strings.Builder) Reporter { return JUnit{Out: b} },
+		// The two recording formats belong here more than any of the others do.
+		// A cassette is committed to a repository and replayed later, so a
+		// credential that reaches one travels further and lives longer than one
+		// in a terminal log ever could.
+		"har": func(b *strings.Builder) Reporter { return HAR{Out: b} },
+		"vcr": func(b *strings.Builder) Reporter { return VCR{Out: b} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out strings.Builder

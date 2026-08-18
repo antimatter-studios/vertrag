@@ -50,6 +50,16 @@ type Result struct {
 	Beyond     []string
 	Validation validate.Result
 	Duration   time.Duration
+
+	// Started is when the transaction began. A cassette needs a timestamp per
+	// exchange, and a HAR viewer draws its waterfall from this one — every
+	// entry stamped with the moment the report was written renders as a single
+	// stacked bar, which is a picture of nothing.
+	//
+	// It is zero for a result assembled rather than run: a transaction the plan
+	// never reached, or one of the results the probing commands build by hand.
+	// A reporter that needs a time for those supplies its own.
+	Started time.Time
 }
 
 // Request is what was sent, after hooks had their say.
@@ -567,9 +577,23 @@ func (r *Runner) fillUnrun(prepared []*Transaction, order []int, completed map[i
 	}
 }
 
+// runOne runs a transaction and stamps the result with when it started.
+//
+// The stamping is here rather than inside each result constructor because
+// attempt returns from eight places and a constructor that forgot would leave a
+// hole nothing but a cassette would ever notice — and it would notice it as one
+// entry silently dated to whenever the report was written.
 func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
 	started := time.Now()
+	result := r.attempt(ctx, transaction, started)
+	result.Started = started
+	return result
+}
 
+// attempt is the run itself. It takes the start rather than reading the clock so
+// that every duration it reports and the timestamp runOne stamps are measured
+// from the same instant.
+func (r *Runner) attempt(ctx context.Context, transaction *Transaction, started time.Time) Result {
 	if r.Hooks != nil {
 		if err := r.Hooks.BeforeEach(transaction); err != nil {
 			return transaction.errorResult(fmt.Sprintf("before hook: %v", err), time.Since(started))

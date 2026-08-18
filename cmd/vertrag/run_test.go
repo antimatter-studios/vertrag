@@ -261,7 +261,7 @@ func TestToAnnotations(t *testing.T) {
 // instead of one. The names are listed here rather than derived so that adding a
 // reporter without offering it, or offering one that was renamed, fails.
 func TestEveryDocumentedReporterCanBeBuilt(t *testing.T) {
-	for _, name := range []string{"cli", "", "dot", "markdown", "md", "html", "junit", "xunit"} {
+	for _, name := range []string{"cli", "", "dot", "markdown", "md", "html", "junit", "xunit", "har", "vcr", "cassette"} {
 		settings := config.Config{Reporters: []string{name}, Outputs: []string{filepath.Join(t.TempDir(), "report")}}
 		if _, closeReport, err := newReporter(settings); err != nil {
 			t.Errorf("reporter %q should be available: %v", name, err)

@@ -105,6 +105,10 @@ vertrag run --reporter junit --output report.xml
 
 vertrag run --reporter dot                          # one character per transaction
 vertrag run --reporter html --output report.html    # a page to publish
+
+# The traffic itself, rather than a verdict about it.
+vertrag run --reporter har --output run.har         # open it in devtools
+vertrag run --reporter vcr --output cassette.yml    # replay it from a suite
 ```
 
 ### Narrowing a run
@@ -127,6 +131,39 @@ stops the run and names itself, and a value matching no transaction is reported
 — an include matching nothing tests an API that looks like it has nothing to
 test, and an exclude matching nothing sends every request it was written to
 prevent.
+
+### Recordings
+
+Every other reporter says whether the API agreed with its description. A
+recording says what actually went over the wire, which is what somebody
+reproducing a CI failure on their own machine needs — and the alternative was
+rerunning the suite behind a proxy, which is exactly what they cannot do.
+
+`--reporter har` writes an HTTP Archive: the file a browser's network panel
+exports, and one that devtools, Insomnia, Postman and every HAR viewer imports.
+Each entry is named after the transaction it belongs to, so a wall of
+similar-looking requests reads as the run you remember.
+
+`--reporter vcr` writes a VCR cassette, the YAML format Ruby's VCR wrote first
+and vcrpy and Betamax copied. That is the one to commit: a suite can play the
+API's real answers back without the API being up.
+
+Both record only what was sent. A transaction a hook removed, or a sequenced
+step whose dependency failed, produces no entry — there was no traffic — so a
+recording holds fewer entries than the JUnit file beside it has test cases. A
+request that got no answer at all is still recorded, since that is usually the
+one worth resending.
+
+Credential header values are replaced with `<redacted>` in both, on by default,
+because a recording is committed and shared far more readily than a terminal log
+is. **Bodies are not touched**, the same as in every other reporter: there is no
+way to know which field of a payload is a secret, and guessing would hide the
+payload a failure exists to show. So a recording of a login exchange still holds
+the password that was posted — worth knowing before committing one.
+
+There is no `vertrag replay` yet. Recording is the half that pays for itself
+immediately; replaying needs a decision about how a recorded response is matched
+to a request, which is the whole of what makes a replay library opinionated.
 
 ### Sequences
 
@@ -401,7 +438,7 @@ vertrag keeps that shape:
 | `runner` | Sending requests, judging responses | Done |
 | `hooks` | Running Node.js hook files | Done |
 | `config` | Reading `vertrag.yml` | Done |
-| `reporter` | cli, dot, markdown, html, JUnit output | Done |
+| `reporter` | cli, dot, markdown, html, JUnit, HAR and VCR output | Done |
 
 Porting `compile` first was the cheap move: it is format-agnostic, so it covers
 API Blueprint, OpenAPI 2 and OpenAPI 3 at once, and Dredd ships pre-parsed API
@@ -421,7 +458,8 @@ when it reproduces its pair.
 4. ~~Transaction runner~~ — done
 5. ~~Hooks and configuration~~ — done; hook files run unchanged
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
-7. ~~Reporters~~ — done; cli, dot, markdown, html and JUnit XML
+7. ~~Reporters~~ — done; cli, dot, markdown, html, JUnit XML, and HAR and
+   VCR recordings of the traffic
 8. ~~Adversarial input generation, with shrinking~~ — done; `vertrag fuzz`
 9. ~~Stateful sequences from OpenAPI links~~ — done; `vertrag run --sequence`
 10. Generated input across a sequence, rather than one operation at a time
