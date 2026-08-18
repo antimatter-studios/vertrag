@@ -222,13 +222,16 @@ func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 	}
 }
 
-// TestBothModuleNamesWorkInNode: `vertrag-hooks` is the name to write, and
-// `hooks` is kept because hook files in the world already say it. Breaking a
-// working file to tidy a name would be a poor trade, so both resolve.
+// TestBothModuleNamesWorkInNode: `vertrag-hooks` is the name to write here,
+// `vertrag_hooks` is Python's spelling of it — forced there, since a hyphen
+// is a syntax error in a Python import — and `hooks` is kept because hook
+// files in the world already say it. All three resolve, because the cost of
+// accepting a name is nothing and the cost of rejecting one is somebody's
+// afternoon.
 func TestBothModuleNamesWorkInNode(t *testing.T) {
 	interpreterFor(t, "nodejs")
 
-	for _, name := range []string{"vertrag-hooks", "hooks"} {
+	for _, name := range []string{"vertrag-hooks", "vertrag_hooks", "hooks"} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "hooks.js")
