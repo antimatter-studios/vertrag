@@ -8,10 +8,6 @@ import (
 	"github.com/antimatter-studios/vertrag/validate"
 )
 
-// reportsResults is what every reporter satisfies; the interface proper lives
-// in package main, so the test names it locally.
-type reportsResults interface{ Report([]runner.Result) bool }
-
 func secretResult() runner.Result {
 	return runner.Result{
 		Name:   "a",
@@ -38,11 +34,11 @@ func TestEveryReporterRedactsCredentials(t *testing.T) {
 	SetSanitize(true)
 	t.Cleanup(func() { SetSanitize(true) })
 
-	for name, build := range map[string]func(*strings.Builder) reportsResults{
-		"cli":      func(b *strings.Builder) reportsResults { return CLI{Out: b} },
-		"markdown": func(b *strings.Builder) reportsResults { return Markdown{Out: b} },
-		"html":     func(b *strings.Builder) reportsResults { return HTML{Out: b} },
-		"junit":    func(b *strings.Builder) reportsResults { return JUnit{Out: b} },
+	for name, build := range map[string]func(*strings.Builder) Reporter{
+		"cli":      func(b *strings.Builder) Reporter { return CLI{Out: b} },
+		"markdown": func(b *strings.Builder) Reporter { return Markdown{Out: b} },
+		"html":     func(b *strings.Builder) Reporter { return HTML{Out: b} },
+		"junit":    func(b *strings.Builder) Reporter { return JUnit{Out: b} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out strings.Builder

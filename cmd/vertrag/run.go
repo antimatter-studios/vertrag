@@ -318,17 +318,12 @@ func runRun(args []string) error {
 	return nil
 }
 
-// Reporter renders a run's results and says whether it passed.
-type Reporter interface {
-	Report(results []runner.Result) bool
-}
-
 // newReporter builds the reporters the settings ask for, writing each to its
 // paired output file or to stdout when it has none.
 //
 // A report written to a file is for a machine, so it never carries colour.
-func newReporter(settings config.Config) (Reporter, func(), error) {
-	var reporters []Reporter
+func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
+	var reporters []reporter.Reporter
 	var files []*os.File
 
 	closeAll := func() {
@@ -375,22 +370,7 @@ func newReporter(settings config.Config) (Reporter, func(), error) {
 	if len(reporters) == 0 {
 		reporters = append(reporters, reporter.CLI{Out: os.Stdout, Color: settings.Color})
 	}
-	return multiReporter(reporters), closeAll, nil
-}
-
-// multiReporter runs several reporters over the same results, which is how a
-// pipeline gets a readable terminal log and a machine-readable file from one
-// run.
-type multiReporter []Reporter
-
-func (m multiReporter) Report(results []runner.Result) bool {
-	passed := true
-	for _, r := range m {
-		if !r.Report(results) {
-			passed = false
-		}
-	}
-	return passed
+	return reporter.Multi(reporters), closeAll, nil
 }
 
 // errFailed reports a run whose tests failed, as opposed to one that could not
