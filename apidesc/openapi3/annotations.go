@@ -558,18 +558,14 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 
 	out := d.validateKeys(schema, spec)
 
-	// A schema under additionalProperties describes what unlisted properties
-	// must look like. That is not acted on, and saying so is the difference
-	// between "checked and passed" and "never looked at".
-	if additional := schema.Get("additionalProperties"); additional.IsMapping() {
-		out = append(out, d.at(annotation{
-			class:   "warning",
-			message: "'Schema Object' 'additionalProperties' containing a Schema Object is currently unsupported",
-		}, additional))
-	}
-
 	// Subschemas are always full Schema Objects, even when reached from a
 	// parameter, so the stricter parameter rules do not propagate downwards.
+	// A schema under additionalProperties is one of them: it is converted and
+	// enforced like any other, so it is checked here rather than warned about
+	// — this used to claim it was unsupported while the validator acted on it.
+	if additional := schema.Get("additionalProperties"); additional.IsMapping() {
+		out = append(out, d.validateSchema(additional, specSchema)...)
+	}
 	for _, property := range schema.Get("properties").Entries() {
 		out = append(out, d.validateSchema(property.Value, specSchema)...)
 	}

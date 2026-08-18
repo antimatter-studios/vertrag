@@ -169,7 +169,6 @@
   "annotations": [
     "warning: 'Components Object' contains invalid key '/optional-without-value'",
     "warning: 'Components Object' contains invalid key '/required-mixed'",
-    "warning: 'Components Object' contains invalid key '/required-without-value'",
-    "warning: 'Schema Object' 'additionalProperties' containing a Schema Object is currently unsupported"
+    "warning: 'Components Object' contains invalid key '/required-without-value'"
   ]
 }
