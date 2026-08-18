@@ -196,6 +196,72 @@ func TestFuzzReportsNothingAgainstACarefulServer(t *testing.T) {
 	}
 }
 
+// TestFuzzReportsItsSeed pins the line that makes replay possible at all.
+//
+// The seed used to be chosen inside rapid and reported only into a log nothing
+// read, so a default run — seed zero — could never be replayed, despite the
+// README promising exactly that. The run now picks its own seed and prints it,
+// and this fails if that line ever goes quiet again.
+func TestFuzzReportsItsSeed(t *testing.T) {
+	server := httptest.NewServer(careful())
+	defer server.Close()
+
+	// An explicit seed is echoed back, so the value on screen is always the
+	// value in use.
+	output, err := fuzzOutput(t, server.URL)
+	if err != nil {
+		t.Fatalf("a correct server produced findings:\n%s", output)
+	}
+	if !strings.Contains(output, "seed: 9 (replay with --seed 9)") {
+		t.Errorf("the explicit seed is not reported:\n%s", output)
+	}
+
+	// A run left to pick its own must say which one it picked.
+	output, err = fuzzOutput(t, server.URL, "--seed", "0")
+	if err != nil {
+		t.Fatalf("a correct server produced findings:\n%s", output)
+	}
+	if reportedSeed(output) == 0 {
+		t.Errorf("no usable seed is reported for a run that picked its own:\n%s", output)
+	}
+}
+
+// reportedSeed digs the seed out of a run's output, zero when there is none.
+func reportedSeed(output string) uint64 {
+	for _, line := range strings.Split(output, "\n") {
+		rest, found := strings.CutPrefix(line, "seed: ")
+		if !found {
+			continue
+		}
+		number, _, _ := strings.Cut(rest, " ")
+		seed, err := strconv.ParseUint(number, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return seed
+	}
+	return 0
+}
+
+// TestFuzzReplaysExactly is the promise behind the seed line: the same seed
+// against the same server is the same run, byte for byte. Without this the
+// printed seed is decoration — a finding replayed with it would come back
+// different, and the first time that happens the report stops being trusted.
+func TestFuzzReplaysExactly(t *testing.T) {
+	server := httptest.NewServer(careless())
+	defer server.Close()
+
+	first, errFirst := fuzzOutput(t, server.URL, "--cases", "25", "--mode", "invalid")
+	second, errSecond := fuzzOutput(t, server.URL, "--cases", "25", "--mode", "invalid")
+
+	if !errors.Is(errFirst, errFailed) || !errors.Is(errSecond, errFailed) {
+		t.Fatalf("errs = %v, %v; want both runs to fail", errFirst, errSecond)
+	}
+	if first != second {
+		t.Errorf("two runs with the same seed differ:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
 // fuzzOutput runs `vertrag fuzz` against an endpoint and returns what it
 // printed, so a test can assert on the report a user would read.
 func fuzzOutput(t *testing.T, endpoint string, extra ...string) (string, error) {
