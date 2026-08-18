@@ -40,6 +40,19 @@ type Transport struct {
 	// private CA the system does not know. Empty means system roots only.
 	CACert string
 
+	// ClientCert is a PEM certificate to present when the server asks the
+	// client to prove who it is — mutual TLS, which an internal API often
+	// requires of everything that reaches it. Without one such a server refuses
+	// the handshake, so every transaction is a network failure and the run says
+	// nothing about the contract.
+	ClientCert string
+
+	// ClientCertKey is the private key for ClientCert. Empty means the key is
+	// in the certificate file itself, which is how openssl and the tools around
+	// it hand a pair over — so a working file does not have to be split in two
+	// to satisfy this.
+	ClientCertKey string
+
 	// Proxy is an HTTP(S) proxy URL. Empty means the environment's
 	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY, which Go's default transport honours.
 	Proxy string
@@ -54,7 +67,14 @@ func (t Transport) client() (*http.Client, error) {
 
 	base := http.DefaultTransport.(*http.Transport).Clone()
 
-	if t.Insecure || t.CACert != "" {
+	// A key with no certificate to present it with authenticates nobody, and the
+	// handshake would go out anonymous while whoever passed it believed
+	// otherwise. Said here rather than left to the server's refusal.
+	if t.ClientCert == "" && t.ClientCertKey != "" {
+		return nil, fmt.Errorf("%s is a client key with no certificate to go with it", t.ClientCertKey)
+	}
+
+	if t.Insecure || t.CACert != "" || t.ClientCert != "" {
 		tlsConfig := &tls.Config{InsecureSkipVerify: t.Insecure} //nolint:gosec // opt-in by flag
 		if t.CACert != "" {
 			pem, err := os.ReadFile(t.CACert)
@@ -69,6 +89,21 @@ func (t Transport) client() (*http.Client, error) {
 				return nil, fmt.Errorf("%s holds no PEM certificates", t.CACert)
 			}
 			tlsConfig.RootCAs = pool
+		}
+		if t.ClientCert != "" {
+			key := t.ClientCertKey
+			if key == "" {
+				key = t.ClientCert
+			}
+			// A certificate the client cannot load is a mistake in the
+			// invocation, and this is the last moment it can be reported as one.
+			// Left to the handshake it arrives as a connection error on every
+			// transaction, which reads as an API that is down.
+			pair, err := tls.LoadX509KeyPair(t.ClientCert, key)
+			if err != nil {
+				return nil, fmt.Errorf("reading the client certificate: %w", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{pair}
 		}
 		base.TLSClientConfig = tlsConfig
 	}

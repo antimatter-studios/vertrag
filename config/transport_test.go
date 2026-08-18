@@ -32,6 +32,29 @@ transport:
 	}
 }
 
+// A client certificate belongs in the file rather than on the command line:
+// the path to it is a property of the environment a suite runs in, not of one
+// run, and nobody should have to remember two paths to test an API that asks
+// who is calling.
+func TestAClientCertificateIsReadFromAVertragFile(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", `
+spec: ./api.yml
+endpoint: https://localhost:4210
+transport:
+  cert: /etc/ssl/client.crt
+  cert-key: /etc/ssl/client.key
+`)
+
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	tr := settings.Transport
+	if tr.ClientCert != "/etc/ssl/client.crt" || tr.ClientCertKey != "/etc/ssl/client.key" {
+		t.Errorf("Transport = %+v", tr)
+	}
+}
+
 // `transport` is read from whatever file it was found in, like every other key
 // — see TestTagIsHonouredWhateverTheFileIsCalled for what changed.
 func TestTransportIsHonouredWhateverTheFileIsCalled(t *testing.T) {
