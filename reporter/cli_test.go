@@ -125,13 +125,16 @@ func TestFailureCarriesARepro(t *testing.T) {
 	if !strings.Contains(output, `repro: curl -X POST 'http://localhost:4000/things'`) {
 		t.Errorf("no curl repro line:\n%s", output)
 	}
-	if strings.Contains(output, "topsecret") && !strings.Contains(output, "Authorization: Bearer topsecret") {
-		// The exchange block shows what was sent; only the PASTEABLE line
-		// must redact. If both leaked or both redacted, this needs a rethink.
-		t.Errorf("credential handling changed shape:\n%s", output)
+	// Every reporter redacts credentials now — a pasted terminal log leaks
+	// exactly like an archived file — so the secret must appear nowhere.
+	if strings.Contains(output, "topsecret") {
+		t.Errorf("a credential reached the report:\n%s", output)
 	}
 	if !strings.Contains(output, "'Authorization: <redacted>'") {
 		t.Errorf("the repro line does not redact the credential:\n%s", output)
+	}
+	if !strings.Contains(output, "Authorization: <redacted>") {
+		t.Errorf("the exchange block does not redact the credential:\n%s", output)
 	}
 }
 

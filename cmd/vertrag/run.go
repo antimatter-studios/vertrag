@@ -44,6 +44,8 @@ type runFlags struct {
 	operationIDs stringList
 	maxFailures  int
 	failFast     bool
+	noSanitize   bool
+	sanitizeHdrs stringList
 
 	transport transportFlags
 
@@ -73,6 +75,8 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.operationIDs, "operation-id", "run only transactions of this operationId (repeatable)")
 	fs.IntVar(&f.maxFailures, "max-failures", 0, "stop sending after this many failures or errors; the rest are reported as skipped (0 = never)")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
+	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
+	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in reports (repeatable)")
 	addTransportFlags(fs, &f.transport)
 
 	positional, err := parseInterspersed(fs, args)
@@ -154,6 +158,10 @@ func settingsFor(f runFlags) (config.Config, error) {
 		settings.MaxFailures = 1
 	}
 	f.transport.apply(&settings.Transport)
+	reporter.SetSanitize(!f.noSanitize)
+	for _, name := range f.sanitizeHdrs {
+		reporter.AddRedactedHeader(name)
+	}
 
 	// A reporter named on the command line replaces the file's list rather than
 	// adding to it: someone asking for one format wants that format, not it and

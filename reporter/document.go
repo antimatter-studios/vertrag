@@ -172,6 +172,6 @@ func writeHeaders(b *strings.Builder, headers map[string]string) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		fmt.Fprintf(b, "%s: %s\n", name, headers[name])
+		fmt.Fprintf(b, "%s: %s\n", name, Redact(name, headers[name]))
 	}
 }
