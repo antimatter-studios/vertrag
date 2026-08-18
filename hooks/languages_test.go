@@ -87,11 +87,10 @@ func TestBothLanguagesRunTheSameHooks(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client, err := Start(t.Context(), Options{
+			client, err := startWorker(t, Options{
 				Language:  language,
 				Hookfiles: []string{path},
 				Host:      "127.0.0.1",
-				Port:      freePort(t),
 			})
 			if err != nil {
 				t.Fatalf("starting the %s worker: %v", language, err)
@@ -156,9 +155,9 @@ def by_glob(transaction):
 		t.Fatal(err)
 	}
 
-	client, err := Start(t.Context(), Options{
+	client, err := startWorker(t, Options{
 		Language: "python", Hookfiles: []string{path},
-		Host: "127.0.0.1", Port: freePort(t),
+		Host: "127.0.0.1",
 	})
 	if err != nil {
 		t.Fatalf("starting the worker: %v", err)
@@ -200,9 +199,9 @@ func TestAThrowingHookFailsItsTransactionNotTheRun(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client, err := Start(t.Context(), Options{
+			client, err := startWorker(t, Options{
 				Language: language, Hookfiles: []string{path},
-				Host: "127.0.0.1", Port: freePort(t),
+				Host: "127.0.0.1",
 			})
 			if err != nil {
 				t.Fatalf("starting the worker: %v", err)
@@ -241,9 +240,9 @@ hooks.beforeEach((transaction) => { transaction.request.headers['X-Loaded'] = 'r
 				t.Fatal(err)
 			}
 
-			client, err := Start(t.Context(), Options{
+			client, err := startWorker(t, Options{
 				Language: "nodejs", Hookfiles: []string{path},
-				Host: "127.0.0.1", Port: freePort(t),
+				Host: "127.0.0.1",
 			})
 			if err != nil {
 				t.Fatalf("require('%s') did not resolve: %v", name, err)
@@ -274,9 +273,9 @@ func TestATypeScriptHookFileWithoutALoaderSaysWhatToInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, err := Start(t.Context(), Options{
+	client, err := startWorker(t, Options{
 		Language: "nodejs", Hookfiles: []string{path},
-		Host: "127.0.0.1", Port: freePort(t),
+		Host: "127.0.0.1",
 	})
 	if client != nil {
 		defer client.Stop()
@@ -310,9 +309,9 @@ func TestTheBareHooksNameIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, err := Start(t.Context(), Options{
+	client, err := startWorker(t, Options{
 		Language: "nodejs", Hookfiles: []string{path},
-		Host: "127.0.0.1", Port: freePort(t),
+		Host: "127.0.0.1",
 	})
 	if client != nil {
 		defer client.Stop()
