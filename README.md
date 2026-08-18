@@ -99,7 +99,8 @@ vertrag run openapi.yml http://localhost:4000
 vertrag run --dry-run openapi.yml   # what would be sent, without sending it
 vertrag compile openapi.yml         # the transactions, as JSON
 
-# JUnit XML for CI — Jenkins, GitLab, GitHub Actions
+# JUnit XML for CI — Jenkins, GitLab, GitHub Actions. The suite's <properties>
+# say which vertrag, description, endpoint and config file produced the report.
 vertrag run --reporter junit --output report.xml
 
 vertrag run --reporter dot                          # one character per transaction

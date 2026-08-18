@@ -176,3 +176,122 @@ func unescape(s string) string {
 		"&lt;", "<", "&gt;", ">", "&amp;", "&", "&#39;", "'", "&#34;", `"`, "&#xA;", "\n")
 	return replacer.Replace(s)
 }
+
+// TestJUnitCarriesProvenance pins that the report says which binary, which
+// description, which server and which config file produced it. The signature
+// line on stderr answers those questions at the terminal; the archived XML is
+// what anybody reads later, and until now it could not.
+func TestJUnitCarriesProvenance(t *testing.T) {
+	var out bytes.Buffer
+	JUnit{Out: &out, Run: Provenance{
+		Version:  "0.4.0",
+		Spec:     "./openapi.json",
+		Endpoint: "http://localhost:4000",
+		Config:   "vertrag.yml",
+	}}.Report([]runner.Result{{Name: "a", Status: runner.StatusPass}})
+	report := out.String()
+
+	var parsed junitSuite
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(report, xml.Header)), &parsed); err != nil {
+		t.Fatalf("output does not parse as XML: %v\n%s", err, report)
+	}
+	if parsed.Properties == nil {
+		t.Fatalf("no <properties> element:\n%s", report)
+	}
+
+	got := map[string]string{}
+	for _, p := range parsed.Properties.Properties {
+		got[p.Name] = p.Value
+	}
+	want := map[string]string{
+		"vertrag.version":  "0.4.0",
+		"vertrag.spec":     "./openapi.json",
+		"vertrag.endpoint": "http://localhost:4000",
+		"vertrag.config":   "vertrag.yml",
+	}
+	for name, value := range want {
+		if got[name] != value {
+			t.Errorf("property %s = %q, want %q", name, got[name], value)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("properties = %v, want exactly %v", got, want)
+	}
+
+	// The JUnit schema puts <properties> before the cases; consumers that
+	// validate against it reject the other order.
+	if strings.Index(report, "<properties>") > strings.Index(report, "<testcase") {
+		t.Errorf("<properties> should precede the first <testcase>:\n%s", report)
+	}
+}
+
+// TestJUnitOmitsUnknownProvenance pins two things: a value that is not known
+// is not emitted as an empty property, and a run that knows nothing about
+// itself has no <properties> element at all rather than an empty one.
+func TestJUnitOmitsUnknownProvenance(t *testing.T) {
+	var out bytes.Buffer
+	JUnit{Out: &out, Run: Provenance{
+		Version:  "0.4.0",
+		Spec:     "./openapi.json",
+		Endpoint: "http://localhost:4000",
+		// No config file: a run configured entirely from the command line.
+	}}.Report([]runner.Result{{Name: "a", Status: runner.StatusPass}})
+	report := out.String()
+
+	var parsed junitSuite
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(report, xml.Header)), &parsed); err != nil {
+		t.Fatalf("output does not parse as XML: %v\n%s", err, report)
+	}
+	for _, p := range parsed.Properties.Properties {
+		if p.Name == "vertrag.config" {
+			t.Errorf("a run without a config file should not report one: %q", p.Value)
+		}
+		if p.Value == "" {
+			t.Errorf("property %s emitted with an empty value", p.Name)
+		}
+	}
+	if len(parsed.Properties.Properties) != 3 {
+		t.Errorf("properties = %d, want 3:\n%s", len(parsed.Properties.Properties), report)
+	}
+
+	report, _ = junitReport(t, []runner.Result{{Name: "a", Status: runner.StatusPass}})
+	if strings.Contains(report, "<properties") {
+		t.Errorf("a report with no provenance should carry no <properties> element:\n%s", report)
+	}
+}
+
+// TestJUnitEscapesProvenance pins that the values are attribute-escaped. An
+// endpoint carries `&` the moment it has two query parameters, and a bare one
+// is invalid XML — the report the pipeline archived would then be unreadable
+// for the sake of the line meant to make it explicable.
+func TestJUnitEscapesProvenance(t *testing.T) {
+	var out bytes.Buffer
+	JUnit{Out: &out, Run: Provenance{
+		Version:  "0.4.0",
+		Spec:     `spec "quoted" <here>.json`,
+		Endpoint: "http://localhost:4000/?tenant=a&mock=1",
+		Config:   "it's.yml",
+	}}.Report([]runner.Result{{Name: "a", Status: runner.StatusPass}})
+	report := out.String()
+
+	var parsed junitSuite
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(report, xml.Header)), &parsed); err != nil {
+		t.Fatalf("a provenance value broke the document: %v\n%s", err, report)
+	}
+	got := map[string]string{}
+	for _, p := range parsed.Properties.Properties {
+		got[p.Name] = p.Value
+	}
+	if got["vertrag.endpoint"] != "http://localhost:4000/?tenant=a&mock=1" {
+		t.Errorf("endpoint round-tripped as %q", got["vertrag.endpoint"])
+	}
+	if got["vertrag.spec"] != `spec "quoted" <here>.json` {
+		t.Errorf("spec round-tripped as %q", got["vertrag.spec"])
+	}
+	if got["vertrag.config"] != "it's.yml" {
+		t.Errorf("config round-tripped as %q", got["vertrag.config"])
+	}
+	if strings.Contains(report, "a&mock") {
+		t.Errorf("a bare & reached the document:\n%s", report)
+	}
+}

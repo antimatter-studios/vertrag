@@ -341,7 +341,9 @@ func newReporter(settings config.Config) (Reporter, func(), error) {
 		case "html":
 			reporters = append(reporters, reporter.HTML{Out: destination, Details: settings.Details})
 		case "junit", "xunit":
-			reporters = append(reporters, reporter.JUnit{Out: destination})
+			// The report is what a pipeline archives, so it carries the run's
+			// provenance — the terminal has the signature line, the XML has this.
+			reporters = append(reporters, reporter.JUnit{Out: destination, Run: provenance(settings)})
 		default:
 			closeAll()
 			return nil, closeAll, fmt.Errorf(
