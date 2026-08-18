@@ -90,8 +90,12 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 	collector := &collector{}
 	var found WholeFinding
 	usable := 0
+	passed := map[string]bool{}
 
 	rapid.Check(collector, func(t *rapid.T) {
+		if opts.OutOfTime() {
+			return
+		}
 		culprit := ""
 		if mode == generate.Invalid {
 			culprit = rapid.SampledFrom(labels).Draw(t, "culprit")
@@ -121,6 +125,10 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 			}
 			values[label] = rendered
 		}
+		key := wireKey(values)
+		if passed[key] {
+			return
+		}
 		usable++
 
 		reply, err := send(ctx, values)
@@ -142,6 +150,7 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 				Message: message, Culprit: culprit}
 			t.Fatalf("%s", message)
 		}
+		passed[key] = true
 	})
 
 	if !collector.failed {

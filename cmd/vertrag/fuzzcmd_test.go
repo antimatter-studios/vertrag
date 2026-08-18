@@ -737,3 +737,25 @@ func TestWholeRequestReachesAnInteractionBug(t *testing.T) {
 		t.Errorf("the finding does not show every part's value:\n%s", output)
 	}
 }
+
+// TestMaxTimeReportsWhatWasNotReached: a spent time budget leaves the rest
+// of the run as skips with the reason, in the summary and in the results, so
+// a report that stopped early cannot pass for a run that finished.
+func TestMaxTimeReportsWhatWasNotReached(t *testing.T) {
+	server := httptest.NewServer(careful())
+	defer server.Close()
+
+	// A budget that is already spent by the time the first probe runs.
+	output, err := fuzzOutput(t, server.URL, "--cases", "20", "--max-time", "1ns")
+	if err != nil {
+		t.Fatalf("a spent budget is not a failure: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "not reached before --max-time ran out") {
+		t.Errorf("the summary does not say the budget ran out:\n%s", output)
+	}
+	if !strings.Contains(output, " 0 request(s) sent") && !strings.Contains(output, " 1 request(s) sent") {
+		// The baseline request may have gone out before the budget was
+		// checked; nothing beyond it should have.
+		t.Errorf("requests were sent past the budget:\n%s", output)
+	}
+}
