@@ -20,7 +20,7 @@ func (d *document) parseRequestBody(n node) []message {
 	if !body.IsMapping() {
 		return nil
 	}
-	return d.parseContent(body.Get("content"), true)
+	return d.parseContentFor(body.Get("content"), true, inRequest)
 }
 
 // parseResponses turns a Responses Object into the responses to expect.
@@ -44,7 +44,7 @@ func (d *document) parseResponses(n node) []message {
 			continue
 		}
 
-		messages := d.parseContent(response.Get("content"), true)
+		messages := d.parseContentFor(response.Get("content"), true, inResponse)
 		if len(messages) == 0 {
 			messages = []message{{}}
 		}
@@ -148,6 +148,13 @@ func (d *document) headerSchema(name string, declared node) string {
 // from, since testing an operation with inputs the description permits needs
 // the shape of a valid body rather than the single instance the example shows.
 func (d *document) parseContent(content node, withSchema bool) []message {
+	return d.parseContentFor(content, withSchema, inResponse)
+}
+
+// parseContentFor is parseContent told which half of the exchange it is
+// reading, so `readOnly` and `writeOnly` can mean what the specification says
+// they mean rather than being reported as unsupported.
+func (d *document) parseContentFor(content node, withSchema bool, dir direction) []message {
 	var messages []message
 
 	for _, member := range content.Entries() {
@@ -177,7 +184,7 @@ func (d *document) parseContent(content node, withSchema bool) []message {
 			}
 
 			if !msg.hasBody && schema.Valid() {
-				if value, ok := d.generateValue(schema, nil); ok {
+				if value, ok := d.generateValueFor(schema, nil, dir); ok {
 					if body, ok := renderBody(value, mediaType); ok {
 						msg.body, msg.hasBody = body, true
 					}
@@ -190,7 +197,7 @@ func (d *document) parseContent(content node, withSchema bool) []message {
 			// JSON Schema can be validated against.
 			if withSchema && schema.Valid() &&
 				(isJSONMediaType(mediaType) || isMultipartMediaType(mediaType) || isFormMediaType(mediaType)) {
-				if converted, ok := d.convertSchema(schema); ok {
+				if converted, ok := d.convertSchemaFor(schema, dir); ok {
 					msg.schema = converted
 				}
 			}
