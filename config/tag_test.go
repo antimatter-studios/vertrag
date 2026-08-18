@@ -88,3 +88,55 @@ max-failures: 3
 		t.Errorf("note does not name both keys:\n%s", note)
 	}
 }
+
+func TestPhasesFromVertragFile(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", `
+spec: ./api.yml
+endpoint: http://localhost:4210
+phases: [fuzz, coverage]
+fuzz:
+  seed: 7
+  cases: 10
+  whole-request: true
+`)
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// Order is fixed and examples is always first, whatever was written.
+	if strings.Join(settings.Phases, ",") != "examples,coverage,fuzz" {
+		t.Errorf("Phases = %v, want examples,coverage,fuzz", settings.Phases)
+	}
+	if settings.Fuzz.Seed != 7 || settings.Fuzz.Cases != 10 || !settings.Fuzz.WholeRequest {
+		t.Errorf("Fuzz = %+v", settings.Fuzz)
+	}
+}
+
+func TestPhasesIgnoredInADreddFile(t *testing.T) {
+	path := writeConfig(t, "dredd.yml", `
+spec: ./api.yml
+endpoint: http://localhost:4210
+phases: [coverage]
+`)
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(settings.Phases) != 0 {
+		t.Errorf("phases honoured from a dredd.yml: %v", settings.Phases)
+	}
+	if !strings.Contains(strings.Join(settings.Notes, "\n"), "`phases`") {
+		t.Errorf("no note names `phases` as ignored")
+	}
+}
+
+func TestUnknownPhaseIsAConfigError(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", `
+spec: ./api.yml
+endpoint: http://localhost:4210
+phases: [examples, fuzzing]
+`)
+	if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), "fuzzing") {
+		t.Errorf("Load err = %v, want the unknown phase named", err)
+	}
+}

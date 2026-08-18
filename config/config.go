@@ -84,6 +84,17 @@ type Config struct {
 	// means run everything. Read only from a vertrag file.
 	MaxFailures int
 
+	// Phases are what a run does: "examples" (the documented transactions,
+	// always first and on by default), then optionally "coverage" (every
+	// boundary each schema implies, deterministic) and "fuzz" (values drawn
+	// at random). Read only from a vertrag file. Empty means examples only,
+	// which is every run before phases existed.
+	Phases []string
+
+	// Fuzz pins the random phase for CI: a fixed seed makes it reproduce, and
+	// cases bounds its cost. Read only from a vertrag file.
+	Fuzz FuzzSettings
+
 	// Skip takes transactions out of the run. Read only from a vertrag file.
 	Skip []SkipRule
 
@@ -103,6 +114,16 @@ type Config struct {
 	// says "vertrag cannot do this yet", which is the wrong thing to say about
 	// a key that works perfectly well from the right file.
 	Notes []string
+}
+
+// FuzzSettings pin the fuzz phase of a run.
+type FuzzSettings struct {
+	// Seed reproduces a run; zero picks one and prints it.
+	Seed uint64
+	// Cases per body and parameter; zero means the default.
+	Cases int
+	// WholeRequest also draws every part together per case.
+	WholeRequest bool
 }
 
 // Checks selects the checks beyond Dredd's.
@@ -279,6 +300,16 @@ type file struct {
 	OperationID []string `yaml:"operation-id"`
 	// MaxFailures stops the run early.
 	MaxFailures *int `yaml:"max-failures"`
+	// Phases selects what a run does; Fuzz pins the fuzz phase.
+	Phases []string  `yaml:"phases"`
+	Fuzz   *fuzzFile `yaml:"fuzz"`
+}
+
+// fuzzFile is the `fuzz` section as written.
+type fuzzFile struct {
+	Seed         *uint64 `yaml:"seed"`
+	Cases        *int    `yaml:"cases"`
+	WholeRequest *bool   `yaml:"whole-request"`
 }
 
 // Transport is the `transport` section, resolved.
@@ -397,6 +428,12 @@ func Load(path string) (Config, error) {
 	if parsed.MaxFailures != nil {
 		own = append(own, "`max-failures`")
 	}
+	if len(parsed.Phases) > 0 {
+		own = append(own, "`phases`")
+	}
+	if parsed.Fuzz != nil {
+		own = append(own, "`fuzz`")
+	}
 	conditional := toHeaderRules(parsed.Header)
 	if len(conditional) > 0 {
 		own = append(own, "the conditional entries in `header`")
@@ -424,6 +461,24 @@ func Load(path string) (Config, error) {
 		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
 		config.Tag = append(config.Tag, parsed.Tag...)
 		config.OperationID = append(config.OperationID, parsed.OperationID...)
+		if len(parsed.Phases) > 0 {
+			phases, err := normalisePhases(parsed.Phases)
+			if err != nil {
+				return config, fmt.Errorf("%s: %w", path, err)
+			}
+			config.Phases = phases
+		}
+		if parsed.Fuzz != nil {
+			if parsed.Fuzz.Seed != nil {
+				config.Fuzz.Seed = *parsed.Fuzz.Seed
+			}
+			if parsed.Fuzz.Cases != nil {
+				config.Fuzz.Cases = *parsed.Fuzz.Cases
+			}
+			if parsed.Fuzz.WholeRequest != nil {
+				config.Fuzz.WholeRequest = *parsed.Fuzz.WholeRequest
+			}
+		}
 		if parsed.MaxFailures != nil {
 			if *parsed.MaxFailures < 0 {
 				return config, fmt.Errorf("%s: max-failures must not be negative, got %d", path, *parsed.MaxFailures)
@@ -511,6 +566,42 @@ func toSkipRules(entries []any) []SkipRule {
 	}
 	return rules
 }
+
+// Phase names, as written in `phases:` and --phases.
+const (
+	PhaseExamples = "examples"
+	PhaseCoverage = "coverage"
+	PhaseFuzz     = "fuzz"
+)
+
+// normalisePhases validates and orders a phase list. Order is fixed —
+// examples, coverage, fuzz — whatever order they were written in, because
+// the documented transactions establish the baseline the probing phases
+// judge against. Examples is always included: a run that only fuzzes is
+// `vertrag fuzz`, and a config that seems to ask for one is more likely a
+// mistake than an intent.
+func normalisePhases(names []string) ([]string, error) {
+	seen := map[string]bool{}
+	for _, name := range names {
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case PhaseExamples, PhaseCoverage, PhaseFuzz:
+			seen[strings.ToLower(strings.TrimSpace(name))] = true
+		default:
+			return nil, fmt.Errorf("unknown phase %q; phases are examples, coverage and fuzz", name)
+		}
+	}
+	out := []string{PhaseExamples}
+	if seen[PhaseCoverage] {
+		out = append(out, PhaseCoverage)
+	}
+	if seen[PhaseFuzz] {
+		out = append(out, PhaseFuzz)
+	}
+	return out, nil
+}
+
+// NormalisePhases is normalisePhases for the command line.
+func NormalisePhases(names []string) ([]string, error) { return normalisePhases(names) }
 
 // applyTransport reads the transport section, rejecting a duration it
 // cannot parse rather than silently running with the default.

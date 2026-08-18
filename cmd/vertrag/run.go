@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"sort"
@@ -14,6 +15,8 @@ import (
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
+	"github.com/antimatter-studios/vertrag/fuzz"
+	"github.com/antimatter-studios/vertrag/generate"
 	"github.com/antimatter-studios/vertrag/hooks"
 	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
@@ -46,6 +49,7 @@ type runFlags struct {
 	failFast     bool
 	noSanitize   bool
 	sanitizeHdrs stringList
+	phases       string
 
 	transport transportFlags
 
@@ -77,6 +81,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
 	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in reports (repeatable)")
+	fs.StringVar(&f.phases, "phases", "", "what to run, comma-separated: examples (always), coverage, fuzz — e.g. examples,coverage")
 	addTransportFlags(fs, &f.transport)
 
 	positional, err := parseInterspersed(fs, args)
@@ -161,6 +166,13 @@ func settingsFor(f runFlags) (config.Config, error) {
 	reporter.SetSanitize(!f.noSanitize)
 	for _, name := range f.sanitizeHdrs {
 		reporter.AddRedactedHeader(name)
+	}
+	if f.phases != "" {
+		phases, err := config.NormalisePhases(strings.Split(f.phases, ","))
+		if err != nil {
+			return settings, err
+		}
+		settings.Phases = phases
 	}
 
 	// A reporter named on the command line replaces the file's list rather than
@@ -311,11 +323,77 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	examplesPassed := passed(results)
 
-	if !report.Report(results) {
+	// The probing phases, when asked for, run over the SAME engine — same
+	// auth, same transport, same skips — and land in the same report, so a
+	// pipeline gets one file. Their results are named by phase, and their
+	// verdict is kept apart from the examples': a documented transaction that
+	// no longer passes is a regression to block on; a boundary the server
+	// mishandles is a bug to file. Same report, different exit code.
+	probeFindings := false
+	// One refusals for the whole run: the login operation is the same
+	// operation in both phases, and explaining it twice would read as two
+	// different things having happened.
+	refused := newRefusals(settings)
+	for _, phase := range settings.Phases {
+		switch phase {
+		case config.PhaseCoverage:
+			probeable, _ := partitionBySchema(transactions)
+			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
+				map[generate.Mode]bool{generate.Valid: true, generate.Invalid: true}, 0, settings.Color, refused)
+			results = append(results, prefixed("coverage", phaseResults)...)
+			if phaseErr != nil && phaseErr != errFailed {
+				return phaseErr
+			}
+			probeFindings = probeFindings || phaseErr == errFailed
+		case config.PhaseFuzz:
+			probeable, _ := partitionBySchema(transactions)
+			seed := settings.Fuzz.Seed
+			for seed == 0 {
+				seed = rand.Uint64()
+			}
+			fmt.Printf("fuzz seed: %d (replay with fuzz: {seed: %d} in vertrag.yml)\n", seed, seed)
+			phaseResults, phaseErr := probeAll(ctx, engine, probeable,
+				[]generate.Mode{generate.Valid, generate.Invalid}, 0,
+				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed}, settings.Color, settings.Fuzz.WholeRequest, refused)
+			results = append(results, prefixed("fuzz", phaseResults)...)
+			if phaseErr != nil && phaseErr != errFailed {
+				return phaseErr
+			}
+			probeFindings = probeFindings || phaseErr == errFailed
+		}
+	}
+
+	report.Report(results)
+	switch {
+	case !examplesPassed:
 		return errFailed
+	case probeFindings:
+		return errFindings
 	}
 	return nil
+}
+
+// passed reports whether every documented transaction passed or was skipped.
+func passed(results []runner.Result) bool {
+	for _, result := range results {
+		if result.Status == runner.StatusFail || result.Status == runner.StatusError {
+			return false
+		}
+	}
+	return true
+}
+
+// prefixed names probe results by their phase, so a report holding both
+// documented transactions and probes reads which is which.
+func prefixed(phase string, results []runner.Result) []runner.Result {
+	out := make([]runner.Result, 0, len(results))
+	for _, result := range results {
+		result.Name = phase + ": " + result.Name
+		out = append(out, result)
+	}
+	return out
 }
 
 // newReporter builds the reporters the settings ask for, writing each to its
@@ -377,6 +455,13 @@ func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
 // be carried out. The caller turns it into a non-zero exit status without
 // printing it as an error message.
 var errFailed = fmt.Errorf("some transactions failed")
+
+// errFindings reports a run whose documented transactions all passed but
+// whose probing phases found something. It is a different exit status from
+// errFailed on purpose: a contract regression blocks a merge, a discovered
+// bug files an issue, and a pipeline that cannot tell them apart treats both
+// as the first — or, more likely, learns to ignore both.
+var errFindings = fmt.Errorf("the probing phases found something")
 
 // resolveConfig loads a dredd.yml if one is named, given, or simply present.
 func resolveConfig(path string, positional []string) (config.Config, error) {
