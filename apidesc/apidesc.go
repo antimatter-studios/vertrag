@@ -42,9 +42,17 @@ type Result struct {
 // quoted and unquoted forms are spelled out instead; enumerating them is
 // exactly equivalent, since a backreference to an optional quote can only ever
 // match the same quote or none.
+//
+// The patch part is optional here where the reference requires it. The
+// specification does say `openapi` MUST be major.minor.patch, so `openapi:
+// 3.0` is a malformed document — but it appears in the wild, and the reference
+// pattern's answer to it is to fall through to API Blueprint and report "API
+// Blueprint is not supported". That is the least useful thing a tool can say
+// about an OpenAPI 3 file. It is read as OpenAPI 3 and the malformed version is
+// reported for what it is: see openapi3's version check.
 var (
 	openAPI3Pattern = regexp.MustCompile(
-		`(?:openapi|"openapi"|'openapi')\s*:\s*(?:3\.\d+\.\d+|"3\.\d+\.\d+"|'3\.\d+\.\d+')`)
+		`(?:openapi|"openapi"|'openapi')\s*:\s*(?:3\.\d+(?:\.\d+)?|"3\.\d+(?:\.\d+)?"|'3\.\d+(?:\.\d+)?')`)
 	openAPI2Pattern = regexp.MustCompile(`"?swagger"?\s*:\s*["']2\.0["']`)
 )
 

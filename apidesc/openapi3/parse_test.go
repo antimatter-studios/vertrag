@@ -1100,3 +1100,49 @@ func TestADocumentWithNoHeaderSchemasCarriesNone(t *testing.T) {
 		t.Errorf("header schemas = %v, want none", schemas)
 	}
 }
+
+// TestAMalformedVersionIsReportedNotFatal: the document is read, and the
+// version is reported as the thing to fix.
+func TestAMalformedVersionIsReportedNotFatal(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /a:
+    get:
+      summary: A
+      responses:
+        "200": {description: OK}
+`)
+
+	if len(result.Transactions) != 1 {
+		t.Fatalf("the document should still be read: %d transactions, annotations %v",
+			len(result.Transactions), result.Annotations)
+	}
+	if len(result.Annotations) != 1 {
+		t.Fatalf("annotations = %v, want one about the version", result.Annotations)
+	}
+	message := result.Annotations[0].Message
+	for _, want := range []string{"major.minor.patch", `"3.0"`, `"3.0.0"`} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the warning does not contain %s: %q", want, message)
+		}
+	}
+	if result.Annotations[0].Type != "warning" {
+		t.Errorf("a malformed version should not stop the run: %s", result.Annotations[0].Type)
+	}
+}
+
+// TestAWellFormedVersionSaysNothing keeps the warning from becoming noise.
+func TestAWellFormedVersionSaysNothing(t *testing.T) {
+	for _, version := range []string{"3.0.0", "3.0.3", "3.1.0", "3.1.1"} {
+		result := compileSource(t, `
+openapi: "`+version+`"
+info: {title: P, version: "1.0.0"}
+paths: {}
+`)
+		for _, annotation := range result.Annotations {
+			t.Errorf("version %s produced %q", version, annotation.Message)
+		}
+	}
+}

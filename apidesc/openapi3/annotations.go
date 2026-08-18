@@ -3,6 +3,7 @@ package openapi3
 import (
 	"fmt"
 	"github.com/antimatter-studios/vertrag/yamldoc"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -232,6 +233,7 @@ func (d *document) validate() []annotation {
 	}
 
 	out = append(out, d.validateKeys(root, specOpenAPI)...)
+	out = append(out, d.validateVersion(root.Get("openapi"))...)
 	out = append(out, d.reportDanglingReferences()...)
 
 	out = append(out, d.validateObject(root.Get("info"), specInfo,
@@ -620,6 +622,32 @@ func (d *document) validateSchema(schema node, spec objectSpec) []annotation {
 	}
 	return out
 }
+
+// validateVersion reports a version string the specification does not permit.
+//
+// `openapi` MUST be major.minor.patch, so `openapi: 3.0` is malformed. It is
+// still READ as OpenAPI 3 — the alternative, which the reference pattern
+// takes, is to not recognise the document at all and tell its author that API
+// Blueprint is unsupported, which is the least useful thing a tool can say
+// about an OpenAPI 3 file. So the document is parsed and the version is
+// reported for what it is: something to fix, not something that stops the run.
+func (d *document) validateVersion(version node) []annotation {
+	if !version.IsScalar() {
+		return nil
+	}
+	text := strings.TrimSpace(version.Str())
+	if text == "" || versionPattern.MatchString(text) {
+		return nil
+	}
+	return []annotation{d.at(annotation{
+		class: "warning",
+		message: fmt.Sprintf("'OpenAPI Object' 'openapi' is %q; the specification requires "+
+			"major.minor.patch, as in %q. It is being read as OpenAPI 3.", text, text+".0"),
+	}, version)}
+}
+
+// versionPattern is the specification's own: major.minor.patch.
+var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // validateObject checks an object's keys and then its children.
 func (d *document) validateObject(n node, spec objectSpec, children func(node) []annotation) []annotation {
