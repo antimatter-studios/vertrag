@@ -385,7 +385,8 @@ func runRun(args []string) error {
 		case config.PhaseCoverage:
 			probeable, _ := partitionBySchema(transactions)
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
-				map[generate.Mode]bool{generate.Valid: true, generate.Invalid: true}, 0, settings.Color, refused)
+				map[generate.Mode]bool{generate.Valid: true, generate.Invalid: true}, 0, settings.Color, refused,
+				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept})
 			results = append(results, prefixed("coverage", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr
@@ -407,7 +408,7 @@ func runRun(args []string) error {
 			fmt.Printf("fuzz seed: %d (replay with fuzz: {seed: %d} in vertrag.yml)\n", seed, seed)
 			phaseResults, phaseErr := probeAll(ctx, engine, probeable,
 				[]generate.Mode{generate.Valid, generate.Invalid}, 0,
-				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed}, settings.Color, settings.Fuzz.WholeRequest, refused)
+				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed, Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept}, settings.Color, settings.Fuzz.WholeRequest, refused)
 			results = append(results, prefixed("fuzz", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr

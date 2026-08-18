@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/antimatter-studios/vertrag/generate"
 )
@@ -39,7 +41,12 @@ type CoverageOutcome struct {
 // point of a deterministic pass is a complete answer to a fixed set of
 // questions, and "the server accepted maximum+1 AND minimum-1" is more useful
 // than the first of those alone.
-func Cover(ctx context.Context, subject Subject, mediaType string, schema generate.Schema, send Sender) []CoverageOutcome {
+// Cover takes Options for the safety settings only — Cases, Seed and Deadline
+// mean nothing to a deterministic sweep. It is here because a pin that held on
+// the fuzz phase and not on this one would be no pin at all: both phases
+// generate bodies, both send them, and the caller who wrote `dry_run: true`
+// meant it about every generated request.
+func Cover(ctx context.Context, subject Subject, mediaType string, schema generate.Schema, send Sender, opts Options) []CoverageOutcome {
 	rawSchema, err := json.Marshal(map[string]any(schema))
 	if err != nil {
 		return nil
@@ -62,7 +69,16 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 		}
 		outcome := CoverageOutcome{Probe: probe}
 
-		rendered, ok := form.render(probe.Value)
+		// Pinned between the boundary value and the wire, exactly as in the
+		// fuzz loop, so the two phases cannot disagree about what is held.
+		value, engaged := opts.Pin.Apply(schema, probe.Value)
+		for _, name := range engaged {
+			if opts.Engaged != nil {
+				opts.Engaged[name]++
+			}
+		}
+
+		rendered, ok := form.render(value)
 		if !ok {
 			outcomes = append(outcomes, outcome)
 			continue
@@ -88,6 +104,11 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 		if err != nil {
 			outcome.Finding = &CoverageFinding{Probe: probe, Subject: subject, Value: rendered,
 				Message: fmt.Sprintf("the request could not be completed: %v", err)}
+			outcomes = append(outcomes, outcome)
+			continue
+		}
+		if code, err := strconv.Atoi(strings.TrimSpace(reply.StatusCode)); err == nil && opts.Accept.Excuses(code) {
+			opts.Suppression.Record(code)
 			outcomes = append(outcomes, outcome)
 			continue
 		}

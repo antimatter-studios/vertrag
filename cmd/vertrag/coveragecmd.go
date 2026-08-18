@@ -48,7 +48,8 @@ func runCoverage(args []string) error {
 	defer set.stop()
 
 	results, runErr := coverAll(set.ctx, set.engine, set.probeable, wanted, set.skipped,
-		set.settings.Color, newRefusals(set.settings))
+		set.settings.Color, newRefusals(set.settings),
+		fuzz.Options{Pin: set.settings.Fuzz.Pin, Accept: set.settings.Fuzz.Accept})
 	if err := emitThrough(&shared, set.settings, results); err != nil {
 		return err
 	}
@@ -64,7 +65,31 @@ func coverAll(
 	skipped int,
 	color bool,
 	refused *refusals,
+	options fuzz.Options,
 ) ([]runner.Result, error) {
+	// The same interlock the fuzz phase applies, checked the same way and
+	// before the same first request. See probeAll: a pin that held on one
+	// probing phase and not the other would not be a pin.
+	if len(options.Pin) > 0 {
+		var bodies []generate.Schema
+		for _, transaction := range transactions {
+			targets, _ := probeTargets(transaction.Request)
+			for _, t := range targets {
+				if t.subject.In == fuzz.InBody {
+					bodies = append(bodies, t.schema)
+				}
+			}
+		}
+		if err := fuzz.CheckPins(options.Pin, bodies); err != nil {
+			return nil, err
+		}
+		options.Engaged = map[string]int{}
+		fmt.Printf("pinned in every generated body: %s\n", options.Pin.Describe())
+	}
+	if len(options.Accept) > 0 {
+		options.Suppression = &fuzz.Suppression{}
+	}
+
 	findings, sent, probed, unattributable, loginExempt := 0, 0, 0, 0, 0
 	var results []runner.Result
 
@@ -77,7 +102,7 @@ func coverAll(
 
 		// The same attribution rule as fuzz: valid probes are only meaningful
 		// against an operation that works as documented.
-		base := baselineWorks(ctx, engine, transaction)
+		base := baselineWorks(ctx, engine, transaction, options.Pin)
 		if base.refused {
 			refused.note(transaction)
 		}
@@ -100,7 +125,7 @@ func coverAll(
 				return skipAware(engine.Send(ctx, attempt))
 			}
 
-			for _, outcome := range fuzz.Cover(ctx, target.subject, target.media, target.schema, send) {
+			for _, outcome := range fuzz.Cover(ctx, target.subject, target.media, target.schema, send, options) {
 				if !wanted[outcome.Probe.Mode] {
 					continue
 				}
