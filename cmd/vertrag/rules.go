@@ -9,6 +9,7 @@ import (
 	"github.com/antimatter-studios/vertrag/auth"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
+	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
 )
 
@@ -32,14 +33,29 @@ import (
 // with the program's name cannot be mistaken for a transaction line by anything
 // anchoring on `^pass: METHOD `.
 func signature(settings config.Config) string {
-	parts := []string{"vertrag " + version}
-	if settings.Spec != "" {
-		parts = append(parts, settings.Spec+" → "+settings.Endpoint)
+	run := provenance(settings)
+	parts := []string{"vertrag " + run.Version}
+	if run.Spec != "" {
+		parts = append(parts, run.Spec+" → "+run.Endpoint)
 	}
-	if settings.Source != "" {
-		parts = append(parts, settings.Source)
+	if run.Config != "" {
+		parts = append(parts, run.Config)
 	}
 	return strings.Join(parts, " · ")
+}
+
+// provenance is the one place the four values that identify a run are put
+// together, so that the signature line on the terminal and the properties in
+// a JUnit report cannot say different things. The version is main's alone —
+// it is stamped into this package at build time — which is why the reporter
+// package is handed the value rather than asked to find it.
+func provenance(settings config.Config) reporter.Provenance {
+	return reporter.Provenance{
+		Version:  version,
+		Spec:     settings.Spec,
+		Endpoint: settings.Endpoint,
+		Config:   settings.Source,
+	}
 }
 
 // applyConfiguredRules puts the settings that shape requests onto an engine: the

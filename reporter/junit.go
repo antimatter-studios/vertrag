@@ -26,17 +26,78 @@ type JUnit struct {
 	Out io.Writer
 	// Name labels the suite in the CI interface.
 	Name string
+	// Run says what produced the report. It becomes the suite's <properties>.
+	Run Provenance
+}
+
+// Provenance names the run a report describes: which binary, which
+// description, which server, which config file.
+//
+// The same four values go to stderr as the signature line before a run
+// starts, and they are there because each has cost this project an afternoon
+// — "which config was read" and "which of the two hubs on this port
+// answered" were both unanswerable from the report. stderr is what a
+// terminal shows; a pipeline archives the report and discards the console,
+// so by the time anybody is reading the XML the line is gone. Carrying the
+// values in the report itself is what makes the archived artefact explain
+// itself.
+//
+// A value that is not known is left empty and is then not written, so a run
+// without a config file does not claim one.
+type Provenance struct {
+	Version  string
+	Spec     string
+	Endpoint string
+	Config   string
+}
+
+// properties renders the provenance as JUnit properties, in a fixed order so
+// two reports of the same run are byte-identical. Nil when nothing is known,
+// so the document carries no empty <properties/> element.
+func (p Provenance) properties() *junitProperties {
+	var list []junitProperty
+	add := func(name, value string) {
+		if value != "" {
+			list = append(list, junitProperty{Name: name, Value: value})
+		}
+	}
+	add("vertrag.version", p.Version)
+	add("vertrag.spec", p.Spec)
+	add("vertrag.endpoint", p.Endpoint)
+	add("vertrag.config", p.Config)
+
+	if len(list) == 0 {
+		return nil
+	}
+	return &junitProperties{Properties: list}
 }
 
 type junitSuite struct {
-	XMLName  xml.Name    `xml:"testsuite"`
-	Name     string      `xml:"name,attr"`
-	Tests    int         `xml:"tests,attr"`
-	Failures int         `xml:"failures,attr"`
-	Errors   int         `xml:"errors,attr"`
-	Skipped  int         `xml:"skipped,attr"`
-	Time     string      `xml:"time,attr"`
-	Cases    []junitCase `xml:"testcase"`
+	XMLName  xml.Name `xml:"testsuite"`
+	Name     string   `xml:"name,attr"`
+	Tests    int      `xml:"tests,attr"`
+	Failures int      `xml:"failures,attr"`
+	Errors   int      `xml:"errors,attr"`
+	Skipped  int      `xml:"skipped,attr"`
+	Time     string   `xml:"time,attr"`
+	// Properties precede the cases: that is the order the Ant schema fixed,
+	// and a consumer validating against it rejects the other.
+	Properties *junitProperties `xml:"properties,omitempty"`
+	Cases      []junitCase      `xml:"testcase"`
+}
+
+// junitProperties is the <properties> element: key/value pairs about the
+// suite as a whole, which every consumer that matters displays or ignores
+// harmlessly. The values are attributes, and encoding/xml escapes them, which
+// is what lets an endpoint carry `&` in a query string without producing a
+// document nothing can parse.
+type junitProperties struct {
+	Properties []junitProperty `xml:"property"`
+}
+
+type junitProperty struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
 }
 
 type junitCase struct {
@@ -60,7 +121,11 @@ type junitSkipped struct {
 
 // Report writes the document and returns true when the run passed.
 func (r JUnit) Report(results []runner.Result) bool {
-	suite := junitSuite{Name: r.suiteName(), Tests: len(results)}
+	suite := junitSuite{
+		Name:       r.suiteName(),
+		Tests:      len(results),
+		Properties: r.Run.properties(),
+	}
 
 	var total time.Duration
 	passed := true
