@@ -269,6 +269,48 @@ func TestFuzzReplaysExactly(t *testing.T) {
 	}
 }
 
+// TestFuzzWritesAJUnitReport pins the --reporter flag: a CI system consumes
+// probe results as a junit file, one testcase per probe, findings as failures
+// — without which fuzz results live only in a terminal scrollback nobody's
+// pipeline can act on.
+func TestFuzzWritesAJUnitReport(t *testing.T) {
+	server := httptest.NewServer(careless())
+	defer server.Close()
+
+	junitPath := filepath.Join(t.TempDir(), "fuzz.xml")
+	output, err := fuzzOutput(t, server.URL,
+		"--cases", "40", "--mode", "invalid", "--reporter", "junit", "--output", junitPath)
+
+	if !errors.Is(err, errFailed) {
+		t.Fatalf("err = %v, want the run to fail; output:\n%s", err, output)
+	}
+
+	// The narrative is unchanged by the flag: findings still reach stdout.
+	if !strings.Contains(output, "finding:") {
+		t.Errorf("the narrative went missing when a reporter was added:\n%s", output)
+	}
+
+	report, readErr := os.ReadFile(junitPath)
+	if readErr != nil {
+		t.Fatalf("no junit file was written: %v", readErr)
+	}
+	xml := string(report)
+	for _, want := range []string{
+		"<testsuite",
+		`path parameter &#34;id&#34; · invalid`,
+		"failed rather than rejected",
+	} {
+		if !strings.Contains(xml, want) {
+			t.Errorf("junit report missing %q:\n%s", want, xml)
+		}
+	}
+	// Probes that behaved appear as passing testcases, so the suite's totals
+	// describe what was tested rather than only what failed.
+	if !strings.Contains(xml, "tests=") || strings.Contains(xml, `tests="0"`) {
+		t.Errorf("the report does not count its probes:\n%s", xml)
+	}
+}
+
 // fuzzOutput runs `vertrag fuzz` against an endpoint and returns what it
 // printed, so a test can assert on the report a user would read.
 func fuzzOutput(t *testing.T, endpoint string, extra ...string) (string, error) {
