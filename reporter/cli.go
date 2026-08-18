@@ -155,7 +155,7 @@ func (r CLI) headers(indent string, headers map[string]string) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		fmt.Fprintf(r.Out, "%s%s\n", indent, r.paint(dim, name+": "+headers[name]))
+		fmt.Fprintf(r.Out, "%s%s\n", indent, r.paint(dim, name+": "+Redact(name, headers[name])))
 	}
 }
 

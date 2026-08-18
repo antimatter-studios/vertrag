@@ -7,20 +7,6 @@ import (
 	"github.com/antimatter-studios/vertrag/runner"
 )
 
-// redactedHeaders are the headers whose values a report must not repeat.
-//
-// A curl line is written to be pasted — into a terminal, a ticket, a chat
-// message — and the paste travels further than the terminal it came from.
-// The names cover what vertrag itself sends credentials in (auth's
-// Authorization and Cookie headers) plus the common API-key spellings.
-var redactedHeaders = map[string]bool{
-	"authorization":       true,
-	"proxy-authorization": true,
-	"cookie":              true,
-	"set-cookie":          true,
-	"x-api-key":           true,
-}
-
 // Curl renders the request as a command that repeats it.
 //
 // The URL is the absolute one the request was sent to; a line built from the
@@ -43,11 +29,7 @@ func Curl(request runner.Request) string {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		value := request.Headers[name]
-		if redactedHeaders[strings.ToLower(name)] {
-			value = "<redacted>"
-		}
-		b.WriteString(" -H " + shellQuote(name+": "+value))
+		b.WriteString(" -H " + shellQuote(name+": "+Redact(name, request.Headers[name])))
 	}
 
 	if request.Body != "" {

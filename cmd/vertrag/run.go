@@ -44,6 +44,8 @@ type runFlags struct {
 	operationIDs stringList
 	maxFailures  int
 	failFast     bool
+	noSanitize   bool
+	sanitizeHdrs stringList
 
 	transport transportFlags
 
@@ -73,6 +75,8 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.operationIDs, "operation-id", "run only transactions of this operationId (repeatable)")
 	fs.IntVar(&f.maxFailures, "max-failures", 0, "stop sending after this many failures or errors; the rest are reported as skipped (0 = never)")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
+	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
+	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in reports (repeatable)")
 	addTransportFlags(fs, &f.transport)
 
 	positional, err := parseInterspersed(fs, args)
@@ -154,6 +158,10 @@ func settingsFor(f runFlags) (config.Config, error) {
 		settings.MaxFailures = 1
 	}
 	f.transport.apply(&settings.Transport)
+	reporter.SetSanitize(!f.noSanitize)
+	for _, name := range f.sanitizeHdrs {
+		reporter.AddRedactedHeader(name)
+	}
 
 	// A reporter named on the command line replaces the file's list rather than
 	// adding to it: someone asking for one format wants that format, not it and
@@ -310,17 +318,12 @@ func runRun(args []string) error {
 	return nil
 }
 
-// Reporter renders a run's results and says whether it passed.
-type Reporter interface {
-	Report(results []runner.Result) bool
-}
-
 // newReporter builds the reporters the settings ask for, writing each to its
 // paired output file or to stdout when it has none.
 //
 // A report written to a file is for a machine, so it never carries colour.
-func newReporter(settings config.Config) (Reporter, func(), error) {
-	var reporters []Reporter
+func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
+	var reporters []reporter.Reporter
 	var files []*os.File
 
 	closeAll := func() {
@@ -367,22 +370,7 @@ func newReporter(settings config.Config) (Reporter, func(), error) {
 	if len(reporters) == 0 {
 		reporters = append(reporters, reporter.CLI{Out: os.Stdout, Color: settings.Color})
 	}
-	return multiReporter(reporters), closeAll, nil
-}
-
-// multiReporter runs several reporters over the same results, which is how a
-// pipeline gets a readable terminal log and a machine-readable file from one
-// run.
-type multiReporter []Reporter
-
-func (m multiReporter) Report(results []runner.Result) bool {
-	passed := true
-	for _, r := range m {
-		if !r.Report(results) {
-			passed = false
-		}
-	}
-	return passed
+	return reporter.Multi(reporters), closeAll, nil
 }
 
 // errFailed reports a run whose tests failed, as opposed to one that could not

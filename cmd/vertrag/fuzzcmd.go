@@ -51,6 +51,9 @@ func runFuzz(args []string) error {
 	fs.Var(&tags, "tag", "probe only transactions whose operation carries this tag (repeatable)")
 	var operationIDs stringList
 	fs.Var(&operationIDs, "operation-id", "probe only transactions of this operationId (repeatable)")
+	noSanitize := fs.Bool("no-sanitize", false, "show credential header values in findings instead of <redacted>")
+	var sanitizeHdrs stringList
+	fs.Var(&sanitizeHdrs, "sanitize-header", "also redact this header's value in findings (repeatable)")
 	var transport transportFlags
 	addTransportFlags(fs, &transport)
 
@@ -81,6 +84,10 @@ func runFuzz(args []string) error {
 	settings.Tag = append(settings.Tag, tags...)
 	settings.OperationID = append(settings.OperationID, operationIDs...)
 	transport.apply(&settings.Transport)
+	reporter.SetSanitize(!*noSanitize)
+	for _, name := range sanitizeHdrs {
+		reporter.AddRedactedHeader(name)
+	}
 
 	if err := settings.Validate(); err != nil {
 		return err
