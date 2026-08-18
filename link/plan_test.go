@@ -158,17 +158,54 @@ func TestAnUnknownTargetIsANoteNotAFailure(t *testing.T) {
 
 // TestOperationRefIsReportedRatherThanGuessed pins that the unsupported target
 // form says so, and says what to do instead.
-func TestOperationRefIsReportedRatherThanGuessed(t *testing.T) {
+// TestALocalOperationRefIsFollowed: a link may name its target by pointer
+// instead of by operationId — `#/paths/~1users~1{id}/get` — and documents
+// that give their operations no identifiers have no other way to say it.
+// The compiled transactions no longer carry the document, but they carry
+// what the pointer identifies: the path template and the method.
+func TestALocalOperationRefIsFollowed(t *testing.T) {
 	transactions := []compile.Transaction{
-		{OperationID: "a", Links: []compile.Link{{Name: "Ref", OperationRef: "#/paths/~1users/get"}}},
+		{
+			Name: "create", OperationID: "create",
+			Request: compile.Request{Method: "POST", Template: "/users"},
+			Links:   []compile.Link{{Name: "Read", OperationRef: "#/paths/~1users~1{id}/get"}},
+		},
+		{
+			Name:    "read",
+			Request: compile.Request{Method: "GET", Template: "/users/{id}"},
+		},
 	}
 
 	plan := Build(transactions)
-	if len(plan.Notes) != 1 {
-		t.Fatalf("got %d note(s), want 1", len(plan.Notes))
+	for _, note := range plan.Notes {
+		t.Errorf("a resolvable operationRef produced a note: %q", note)
 	}
-	if !containsText(plan.Notes[0], "operationId") {
-		t.Errorf("the note should say what to do instead: %q", plan.Notes[0])
+	if plan.Steps[1].After != 0 {
+		t.Errorf("read.After = %d, want it to follow create", plan.Steps[1].After)
+	}
+}
+
+// TestAnOperationRefThatCannotBeResolvedIsReported keeps the other half: a
+// pointer into another document cannot be followed from compiled
+// transactions, and guessing which local operation it meant would sequence a
+// run by a link the description never made. Same for one naming a path this
+// document does not define — and the note says which, because "unsupported"
+// and "misspelt" need different fixes.
+func TestAnOperationRefThatCannotBeResolvedIsReported(t *testing.T) {
+	external := []compile.Transaction{
+		{OperationID: "a", Links: []compile.Link{{Name: "Ref", OperationRef: "other.yaml#/paths/~1users/get"}}},
+	}
+	notes := Build(external).Notes
+	if len(notes) != 1 || !containsText(notes[0], "operationId") {
+		t.Errorf("an external operationRef should say what to do instead: %v", notes)
+	}
+
+	missing := []compile.Transaction{
+		{OperationID: "a", Links: []compile.Link{{Name: "Ref", OperationRef: "#/paths/~1users/get"}}},
+	}
+	notes = Build(missing).Notes
+	if len(notes) != 1 || !containsText(notes[0], "does not define") {
+		t.Errorf("a pointer at an undefined operation should say so: %v", notes)
 	}
 }
 

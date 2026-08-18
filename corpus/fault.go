@@ -60,6 +60,20 @@ const (
 	// the difference matters because one is a validation gap and the other is
 	// reachable from outside.
 	FaultCrashesOnBadInput Fault = "crashes-on-bad-input"
+
+	// FaultResourceLingersAfterDelete keeps serving a resource the server
+	// said it had deleted. A read after a successful DELETE should not find
+	// it; that it does is a use-after-free in the API's own terms, and no
+	// single request can reveal it — only a sequence can, which is why it
+	// exists here and not in the catalogue above.
+	FaultResourceLingersAfterDelete Fault = "resource-lingers-after-delete"
+
+	// FaultCreatedResourceMissing answers a creation with success and then
+	// cannot find what it claims to have created. The create passes on its
+	// own, the read passes on its own against some other identifier, and only
+	// following the link the description declares between them shows that the
+	// two disagree.
+	FaultCreatedResourceMissing Fault = "created-resource-missing"
 )
 
 // Faults lists every fault, which is what lets a test assert it has considered
@@ -76,6 +90,8 @@ func Faults() []Fault {
 		FaultAcceptsAnyBody,
 		FaultRejectsValidInput,
 		FaultCrashesOnBadInput,
+		FaultResourceLingersAfterDelete,
+		FaultCreatedResourceMissing,
 	}
 }
 

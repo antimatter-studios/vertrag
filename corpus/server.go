@@ -50,7 +50,11 @@ type Server struct {
 	// show they remove it.
 	stateful bool
 	minted   map[string]bool
-	nextID   int
+	// deleted remembers what was removed, so the lingering-resource fault has
+	// something to linger: a server that never held the id at all should 404
+	// whatever its faults.
+	deleted map[string]bool
+	nextID  int
 }
 
 // Stateful returns a copy of the server that mints identifiers.
@@ -59,6 +63,7 @@ func (s *Server) Stateful() *Server {
 	copied.answered = map[string]int{}
 	copied.stateful = true
 	copied.minted = map[string]bool{}
+	copied.deleted = map[string]bool{}
 	copied.nextID = 41
 	return &copied
 }
@@ -605,9 +610,22 @@ func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched 
 
 	// Reading something never created is a 404, which is precisely what a run
 	// in document order does before the create has happened.
-	if last != "" && !s.minted[last] {
+	//
+	// Unless the server is pretending a deleted resource is still there: that
+	// fault answers as though it existed, which is what a use-after-free
+	// looks like from outside.
+	if last != "" && !s.minted[last] && !(s.deleted[last] && s.faults.has(FaultResourceLingersAfterDelete)) {
 		writeJSON(w, http.StatusNotFound, `{"error":"no such widget"}`, nil)
 		return true
+	}
+
+	// A successful DELETE unmints: the resource is gone, and a later read of
+	// it must not find it. Without this the corpus could not tell a server
+	// that really deletes from one that only says it does.
+	if last != "" && strings.EqualFold(r.Method, http.MethodDelete) && status >= 200 && status <= 299 {
+		delete(s.minted, last)
+		s.deleted[last] = true
+		return false
 	}
 
 	// Only a successful creation mints. A faulted status is not a creation,
@@ -627,7 +645,12 @@ func (s *Server) statefulAnswer(w http.ResponseWriter, r *http.Request, matched 
 
 	s.nextID++
 	id := strconv.Itoa(s.nextID)
-	s.minted[id] = true
+	// The fault that claims a creation and stores nothing: the response is
+	// the same, so the create passes; only following the link to read it
+	// back shows the two disagree.
+	if !s.faults.has(FaultCreatedResourceMissing) {
+		s.minted[id] = true
+	}
 	body["id"] = s.nextID
 
 	rewritten, err := json.Marshal(body)

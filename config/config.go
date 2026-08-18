@@ -572,6 +572,8 @@ const (
 	PhaseExamples = "examples"
 	PhaseCoverage = "coverage"
 	PhaseFuzz     = "fuzz"
+	// PhaseStateful runs the chains the description's links describe.
+	PhaseStateful = "stateful"
 )
 
 // normalisePhases validates and orders a phase list. Order is fixed —
@@ -584,10 +586,10 @@ func normalisePhases(names []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, name := range names {
 		switch strings.ToLower(strings.TrimSpace(name)) {
-		case PhaseExamples, PhaseCoverage, PhaseFuzz:
+		case PhaseExamples, PhaseCoverage, PhaseFuzz, PhaseStateful:
 			seen[strings.ToLower(strings.TrimSpace(name))] = true
 		default:
-			return nil, fmt.Errorf("unknown phase %q; phases are examples, coverage and fuzz", name)
+			return nil, fmt.Errorf("unknown phase %q; phases are examples, coverage, fuzz and stateful", name)
 		}
 	}
 	out := []string{PhaseExamples}
@@ -596,6 +598,12 @@ func normalisePhases(names []string) ([]string, error) {
 	}
 	if seen[PhaseFuzz] {
 		out = append(out, PhaseFuzz)
+	}
+	// Stateful last: it runs whole lifecycles and leaves the server holding
+	// less than it started with, so anything judging the documented state
+	// should have run already.
+	if seen[PhaseStateful] {
+		out = append(out, PhaseStateful)
 	}
 	return out, nil
 }

@@ -184,9 +184,18 @@ func TestFaultsNotExercisedByARunAreListed(t *testing.T) {
 		corpus.FaultAcceptsAnyBody:      true,
 		corpus.FaultCrashesOnBadInput:   true,
 	}
+	// Reachable only by a SEQUENCE of requests: a create whose resource was
+	// never stored, and one that outlives its delete. Every request involved
+	// is answered exactly as documented, so no single-request phase can see
+	// either. Asserted in cmd/vertrag's stateful tests, which run the whole
+	// command against these servers rather than merely claiming it here.
+	reachedByStatefulPhase := map[corpus.Fault]bool{
+		corpus.FaultCreatedResourceMissing:     true,
+		corpus.FaultResourceLingersAfterDelete: true,
+	}
 
 	for _, fault := range corpus.Faults() {
-		if !reachedByRun[fault] && !reachedByGeneration[fault] {
+		if !reachedByRun[fault] && !reachedByGeneration[fault] && !reachedByStatefulPhase[fault] {
 			t.Errorf("%s is in the catalogue but no test claims to reach it", fault)
 		}
 	}
