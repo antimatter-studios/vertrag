@@ -163,6 +163,9 @@ loglevel: warning
 
 # Reporters pair with outputs by position, and an empty output means stdout — so
 # this writes a readable log to the terminal AND a machine-readable file.
-# Available: cli, dot, markdown, html, junit.
+# Available: cli, dot, markdown, html, junit, har, vcr. The last two record the
+# traffic rather than a verdict about it — a HAR file for devtools, a VCR
+# cassette for a replay library. Credential headers are redacted in both;
+# bodies are not, so a recording of a login still holds the password.
 reporter: [cli, junit]
 output: ["", report.xml]

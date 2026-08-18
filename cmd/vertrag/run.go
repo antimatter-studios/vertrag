@@ -86,7 +86,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
 	fs.DurationVar(&f.maxResponseTime, "max-response-time", 0, "report any transaction that took longer than this, e.g. 750ms (0 = do not time them)")
 	fs.IntVar(&f.workers, "workers", 1, "send this many transactions at once; refused with --sequence or hooks, which are ordering contracts")
-	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html or junit (overrides the config)")
+	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html, junit, har or vcr (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
 	fs.Var(&f.headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
@@ -489,10 +489,18 @@ func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
 			// The report is what a pipeline archives, so it carries the run's
 			// provenance — the terminal has the signature line, the XML has this.
 			reporters = append(reporters, reporter.JUnit{Out: destination, Run: provenance(settings)})
+		case "har":
+			// A cassette is traffic rather than verdicts, so it carries the
+			// same provenance for a stronger reason than the JUnit file does:
+			// a recording says what a server answered, and a recording that
+			// cannot name the server is a set of answers with no question.
+			reporters = append(reporters, reporter.HAR{Out: destination, Run: provenance(settings)})
+		case "vcr", "cassette":
+			reporters = append(reporters, reporter.VCR{Out: destination, Run: provenance(settings)})
 		default:
 			closeAll()
 			return nil, closeAll, fmt.Errorf(
-				"unknown reporter %q; vertrag has cli, dot, markdown, html and junit", name)
+				"unknown reporter %q; vertrag has cli, dot, markdown, html, junit, har and vcr", name)
 		}
 	}
 

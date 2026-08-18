@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/antimatter-studios/vertrag/auth"
 	"github.com/antimatter-studios/vertrag/compile"
@@ -32,16 +31,12 @@ import (
 // diagnostic vertrag already prints goes the same way, and a line that begins
 // with the program's name cannot be mistaken for a transaction line by anything
 // anchoring on `^pass: METHOD `.
+//
+// The joining lives in the reporter package because a cassette carries the same
+// line in its header, and a recording whose header disagrees with the terminal
+// it was produced at is the kind of small contradiction that costs an hour.
 func signature(settings config.Config) string {
-	run := provenance(settings)
-	parts := []string{"vertrag " + run.Version}
-	if run.Spec != "" {
-		parts = append(parts, run.Spec+" → "+run.Endpoint)
-	}
-	if run.Config != "" {
-		parts = append(parts, run.Config)
-	}
-	return strings.Join(parts, " · ")
+	return provenance(settings).Summary()
 }
 
 // provenance is the one place the four values that identify a run are put
