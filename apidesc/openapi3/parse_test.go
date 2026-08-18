@@ -393,6 +393,67 @@ paths:
 	}
 }
 
+// TestAdditionalPropertiesSchemaIsNotWarnedAbout pins the removal of a warning
+// that was false: a schema under additionalProperties is converted and
+// enforced (support_test.go proves the keyword acts), yet the parser said it
+// was "currently unsupported" — telling users their map-value constraints did
+// nothing, exactly when they did.
+func TestAdditionalPropertiesSchemaIsNotWarnedAbout(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /config:
+    get:
+      summary: Config
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+`)
+
+	for _, annotation := range result.Annotations {
+		t.Errorf("a supported construct produced %q", annotation.Message)
+	}
+}
+
+// TestAdditionalPropertiesSchemaIsStillChecked pins the other half of the same
+// change: the subschema is walked like any other, so a key vertrag genuinely
+// does nothing with is still reported when it hides inside one.
+func TestAdditionalPropertiesSchemaIsStillChecked(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.0.0"
+info: {title: P, version: "1.0.0"}
+paths:
+  /config:
+    get:
+      summary: Config
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  xml: {name: share}
+`)
+
+	if len(result.Annotations) != 1 {
+		t.Fatalf("annotations = %d, want the subschema's unsupported key reported: %v",
+			len(result.Annotations), result.Annotations)
+	}
+	if want := "'Schema Object' contains unsupported key 'xml'"; result.Annotations[0].Message != want {
+		t.Errorf("annotation = %q, want %q", result.Annotations[0].Message, want)
+	}
+}
+
 // TestInvalidKeysAreNotCollapsed pins the other half: each invalid key is a
 // separate mistake at a separate place.
 func TestInvalidKeysAreNotCollapsed(t *testing.T) {
