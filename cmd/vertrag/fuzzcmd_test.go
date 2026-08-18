@@ -160,6 +160,13 @@ func TestFuzzFindsParameterGapsEndToEnd(t *testing.T) {
 		}
 	}
 
+	// A finding must be repeatable with one paste, which takes the absolute
+	// address — the relative URI printed above only means something next to an
+	// endpoint the reader would have to reconstruct.
+	if !strings.Contains(output, "repro:  curl -X GET '"+server.URL) {
+		t.Errorf("no curl repro line carrying the endpoint:\n%s", output)
+	}
+
 	// The request shown is the one that failed, not the compiled example, or
 	// the report cannot be repeated by hand.
 	if !strings.Contains(output, "request: GET /things/") {

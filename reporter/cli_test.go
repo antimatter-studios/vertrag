@@ -105,6 +105,36 @@ func TestFailureShowsTheExchange(t *testing.T) {
 	}
 }
 
+// TestFailureCarriesARepro pins the curl line: a failure a reader cannot
+// repeat with one paste sends them back to re-running the whole suite, which
+// is what a written report exists to avoid.
+func TestFailureCarriesARepro(t *testing.T) {
+	output, _ := report(t, CLI{}, []runner.Result{{
+		Name:   "a",
+		Status: runner.StatusFail,
+		Request: runner.Request{
+			Method: "POST", URI: "/things",
+			URL:     "http://localhost:4000/things",
+			Headers: map[string]string{"Authorization": "Bearer topsecret"},
+			Body:    `{"sent":true}`,
+		},
+		Actual: validate.Message{StatusCode: "500"},
+		Errors: []string{"statusCode: wrong"},
+	}})
+
+	if !strings.Contains(output, `repro: curl -X POST 'http://localhost:4000/things'`) {
+		t.Errorf("no curl repro line:\n%s", output)
+	}
+	if strings.Contains(output, "topsecret") && !strings.Contains(output, "Authorization: Bearer topsecret") {
+		// The exchange block shows what was sent; only the PASTEABLE line
+		// must redact. If both leaked or both redacted, this needs a rethink.
+		t.Errorf("credential handling changed shape:\n%s", output)
+	}
+	if !strings.Contains(output, "'Authorization: <redacted>'") {
+		t.Errorf("the repro line does not redact the credential:\n%s", output)
+	}
+}
+
 // TestLongBodiesAreTruncated pins that one enormous payload cannot bury the
 // rest of the report.
 func TestLongBodiesAreTruncated(t *testing.T) {

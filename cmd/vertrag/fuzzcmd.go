@@ -316,7 +316,7 @@ func probeAll(
 					unprobeable++
 				default:
 					findings++
-					printFinding(transaction, target, finding, color)
+					printFinding(engine, transaction, target, finding, color)
 				}
 			}
 		}
@@ -349,7 +349,7 @@ func probeAll(
 	return nil
 }
 
-func printFinding(transaction compile.Transaction, target target, finding fuzz.Finding, color bool) {
+func printFinding(engine *runner.Runner, transaction compile.Transaction, target target, finding fuzz.Finding, color bool) {
 	paint := func(code, text string) string { return reporter.Paint(color, code, text) }
 
 	// The request shown is the one that produced the finding, not the compiled
@@ -365,6 +365,31 @@ func printFinding(transaction compile.Transaction, target target, finding fuzz.F
 	fmt.Printf("  %s %s %s\n", paint(reporter.Dim, "request:"), request.Method, request.URI)
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
+	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
+		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro: "), repro)
+	}
+}
+
+// sentAs renders a compiled request the way the runner sends it, so the
+// reproduction line carries the real address and the run-wide headers instead
+// of the fragment the description states.
+func sentAs(engine *runner.Runner, request compile.Request) runner.Request {
+	headers := make(map[string]string, len(request.Headers)+len(engine.ExtraHeaders))
+	for _, header := range request.Headers {
+		headers[header.Name] = header.Value
+	}
+	for _, extra := range engine.ExtraHeaders {
+		if name, value, found := strings.Cut(extra, ":"); found {
+			headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
+		}
+	}
+	return runner.Request{
+		Method:  request.Method,
+		URI:     request.URI,
+		Headers: headers,
+		Body:    request.Body,
+		URL:     engine.Endpoint + request.URI,
+	}
 }
 
 // partitionBySchema separates the operations generation can work on from those
