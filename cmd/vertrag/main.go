@@ -24,10 +24,18 @@ func main() {
 		// A run whose tests failed has already reported them in full; printing
 		// "vertrag: some transactions failed" underneath would add nothing.
 		// The exit status is what a CI pipeline reads.
-		if err != errFailed {
+		switch err {
+		case errFailed:
+			os.Exit(1)
+		case errFindings:
+			// Documented transactions passed; the probing phases found
+			// something. Distinct from 1 so a pipeline can gate on the
+			// contract and merely report the findings.
+			os.Exit(2)
+		default:
 			fmt.Fprintln(os.Stderr, "vertrag:", err)
+			os.Exit(1)
 		}
-		os.Exit(1)
 	}
 }
 
