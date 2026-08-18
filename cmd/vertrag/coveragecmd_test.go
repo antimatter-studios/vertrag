@@ -142,3 +142,95 @@ func TestCoverageWritesAJUnitReport(t *testing.T) {
 		t.Errorf("junit carries no failure for the off-by-one:\n%s", xml)
 	}
 }
+
+// stagedAPI documents an operation's success AND its failure responses,
+// the way a real description does — and the way a suite reaches the failure
+// variants is a header telling the mock which failure to stage.
+const stagedAPI = `openapi: 3.0.3
+info:
+  title: Staged
+  version: 1.0.0
+paths:
+  /things/{id}:
+    get:
+      summary: Read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          example: 7
+          schema: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: a thing
+          content:
+            application/json:
+              schema: {type: object}
+        '404':
+          description: no such thing
+        '500':
+          description: the server broke
+`
+
+// stagingMock breaks when — and only when — told to, exactly like a mock
+// hub driven by an X-Mock-Scenario header. Otherwise it is careful.
+func stagingMock() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("X-Mock-Scenario") {
+		case "broken":
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		case "absent":
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/things/"))
+		if err != nil || id < 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+}
+
+// TestProbesGoThroughTheSuccessVariantOnly reproduces the report from a real
+// suite: its mock stages a failure when a conditional header — keyed on the
+// transaction's EXPECTED status — asks it to. Probes sent through the 500
+// variant carried "please break", the mock broke, and 94 of 105 findings
+// said the server returned 500 for a generated value: true, and meaningless.
+// Probing asks how an operation handles unexpected input, which is only a
+// question against the request meant to succeed — so each operation is
+// probed once, through its lowest 2xx variant, and a careful mock produces
+// no findings however many failure variants the description documents.
+func TestProbesGoThroughTheSuccessVariantOnly(t *testing.T) {
+	server := httptest.NewServer(stagingMock())
+	defer server.Close()
+
+	dir := t.TempDir()
+	description := filepath.Join(dir, "staged.yml")
+	os.WriteFile(description, []byte(stagedAPI), 0o600)
+	cfg := filepath.Join(dir, "vertrag.yml")
+	os.WriteFile(cfg, []byte("spec: "+description+"\nendpoint: "+server.URL+"\nheader:\n  - {name: X-Mock-Scenario, value: absent, when: {status: 404}}\n  - {name: X-Mock-Scenario, value: broken, when: {status: 500}}\n"), 0o600)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	captured := make(chan string, 1)
+	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
+	err := runCoverage([]string{"--config", cfg, "--no-color"})
+	write.Close()
+	os.Stdout = real
+	output := <-captured
+
+	if err != nil {
+		t.Fatalf("a careful mock produced findings — probes went through a failure variant:\n%s", output)
+	}
+	// One operation, probed once: not once per documented response.
+	if !strings.Contains(output, "1 operation(s) covered") {
+		t.Errorf("the operation should be covered once, not per response variant:\n%s", output)
+	}
+	if strings.Contains(output, "returned 500") {
+		t.Errorf("a staged 500 was reported as a finding:\n%s", output)
+	}
+}
