@@ -83,8 +83,9 @@ Usage:
   vertrag compile [flags] <file>   Show the transactions a description yields
   vertrag version                  Print the version
 
-Run reads ./dredd.yml when it is present, so a project already configured for
-Dredd needs no arguments.
+Run reads ./vertrag.yml when it is present, so a configured project needs no
+arguments. A project arriving from Dredd renames its dredd.yml: every key it
+holds keeps working.
 
 `, version, buildDate)
 }

@@ -2,9 +2,16 @@
 //
 // The file is `vertrag.yml`, and it is a superset of Dredd's `dredd.yml`: every
 // key Dredd understands means the same thing here, and vertrag's own keys are
-// added alongside. A `dredd.yml` is still read when no vertrag file is present,
-// so adopting vertrag needs no change at all — and renaming the file is then
-// the whole of the migration.
+// added alongside. So migrating is a rename — but it is a rename that has to
+// happen, because a `dredd.yml` is no longer discovered. That fallback existed
+// to make adoption a no-op and it earned its removal: it meant the same key
+// meant different things depending on the name of the file holding it, and half
+// of vertrag's own settings had to be refused from one of the two names to stop
+// two testers silently disagreeing about what they tested. Now there is one
+// question — is this file mine? — and the answer is its name.
+//
+// A file named on the command line is read as vertrag's whatever it is called.
+// Naming a file is unambiguous about intent in a way that finding one is not.
 //
 // Options vertrag does not act on are accepted and reported rather than
 // rejected: a project that Dredd runs should not fail here over a key that only
@@ -14,7 +21,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -74,8 +80,7 @@ type Config struct {
 	// from would have missed it.
 	Checks Checks
 
-	// Auth logs the run in once and carries the result on every request. It is
-	// read only from a vertrag file — see Discover.
+	// Auth logs the run in once and carries the result on every request.
 	Auth Auth
 
 	// Transport is how requests reach the server: timeout, retries, pacing,
@@ -83,29 +88,29 @@ type Config struct {
 	Transport Transport
 
 	// MaxFailures stops the run after this many failures or errors; zero
-	// means run everything. Read only from a vertrag file.
+	// means run everything.
 	MaxFailures int
 
 	// Workers is how many transactions to send at once; zero or one is
-	// sequential. Read only from a vertrag file.
+	// sequential.
 	Workers int
 
 	// Phases are what a run does: "examples" (the documented transactions,
 	// always first and on by default), then optionally "coverage" (every
 	// boundary each schema implies, deterministic) and "fuzz" (values drawn
-	// at random). Read only from a vertrag file. Empty means examples only,
-	// which is every run before phases existed.
+	// at random). Empty means examples only, which is every run before phases
+	// existed.
 	Phases []string
 
 	// Fuzz pins the random phase for CI: a fixed seed makes it reproduce, and
-	// cases bounds its cost. Read only from a vertrag file.
+	// cases bounds its cost.
 	Fuzz FuzzSettings
 
-	// Skip takes transactions out of the run. Read only from a vertrag file.
+	// Skip takes transactions out of the run.
 	Skip []SkipRule
 
 	// ConditionalHeaders are the `header` entries written in vertrag's
-	// conditional form. Read only from a vertrag file.
+	// conditional form.
 	ConditionalHeaders []HeaderRule
 
 	// Source is the file these settings came from, or "" for defaults.
@@ -117,8 +122,9 @@ type Config struct {
 	Unsupported []string
 
 	// Notes are messages about the configuration to print verbatim. Unsupported
-	// says "vertrag cannot do this yet", which is the wrong thing to say about
-	// a key that works perfectly well from the right file.
+	// says "vertrag cannot do this yet", which is the wrong thing to say about a
+	// key that works and merely needs writing differently — a `blueprint` that is
+	// now spelled `spec`, say.
 	Notes []string
 }
 
@@ -250,36 +256,39 @@ func (a Auth) Configured() bool {
 	return a.Login.Path != "" || a.Header != "" || a.OAuth2.Configured()
 }
 
-// Filenames are tried in order. A vertrag file wins over a Dredd one, so a
-// project can add its own settings without touching what it already has.
-var Filenames = []string{"vertrag.yml", "vertrag.yaml", "dredd.yml", "dredd.yaml"}
+// Filenames are tried in order, and are vertrag's own. `dredd.yml` used to be
+// on the end of this list; DreddFilenames is what became of it.
+var Filenames = []string{"vertrag.yml", "vertrag.yaml"}
+
+// DreddFilenames are not read. They are still recognised, because a project
+// holding one and no vertrag file has configuration that is about to be
+// ignored, and being told is worth more than being right about it silently.
+var DreddFilenames = []string{"dredd.yml", "dredd.yaml"}
 
 // Discover finds a configuration file in the working directory.
-//
-// A vertrag file and a Dredd file are alternatives, not layers: the first found
-// is the whole configuration and the other is not read. Merging them would mean
-// a key's effect depended on a file it never mentions, and a setting silently
-// outranked from somewhere else is expensive to diagnose. A project running both
-// testers keeps a file per tester, each complete on its own.
-//
-// Reading dredd.yml is a migration convenience with an expected end, not a
-// second supported format. vertrag's own keys go only in a vertrag file, and as
-// the two formats diverge the fallback is expected to be removed — so anything
-// written here should be read as "still works for now".
 func Discover() string {
-	for _, name := range Filenames {
+	return firstPresent(Filenames)
+}
+
+// DreddFile names a Dredd configuration in the working directory, for the
+// caller to refuse over when Discover found nothing.
+//
+// It reports the file's presence and nothing about its contents: the point is
+// not to read it. A project running both testers keeps a file per tester, each
+// complete on its own — and in that project Discover succeeds, so this is never
+// consulted. It answers only the one case where a `dredd.yml` is the only
+// configuration there is, which used to work and now needs the rename.
+func DreddFile() string {
+	return firstPresent(DreddFilenames)
+}
+
+func firstPresent(names []string) string {
+	for _, name := range names {
 		if _, err := os.Stat(name); err == nil {
 			return name
 		}
 	}
 	return ""
-}
-
-// IsDreddFile reports whether a path names a Dredd configuration, which the
-// caller mentions so the reader knows a rename is available.
-func IsDreddFile(path string) bool {
-	base := filepath.Base(path)
-	return base == "dredd.yml" || base == "dredd.yaml"
 }
 
 // file mirrors dredd.yml. Every field is a pointer or slice so an absent key can
@@ -426,7 +435,7 @@ func Default() Config {
 	}
 }
 
-// Load reads a dredd.yml, layering it over the defaults.
+// Load reads a configuration file, layering it over the defaults.
 func Load(path string) (Config, error) {
 	config := Default()
 
@@ -442,111 +451,70 @@ func Load(path string) (Config, error) {
 
 	apply(&config, parsed)
 
-	// vertrag's own keys are honoured only from a vertrag file. Read out of a
-	// dredd.yml, `auth` would authenticate vertrag's run and not Dredd's — and
-	// Dredd ignores keys it does not recognise without a word — so a project
-	// running both would have the two quietly testing different things.
 	switch {
 	case parsed.Spec != nil && parsed.Blueprint != nil:
 		config.Notes = append(config.Notes, fmt.Sprintf(
 			"%s sets both `spec` and `blueprint`; using spec (%s). `blueprint` is the "+
 				"former name for the same setting and can be deleted.", path, config.Spec))
-	case parsed.Blueprint != nil && !IsDreddFile(path):
-		// Not said for a Dredd file, which is already told about renaming itself
-		// and does not need a second migration note in the same breath.
+	case parsed.Blueprint != nil:
 		config.Notes = append(config.Notes, fmt.Sprintf(
 			"%s uses `blueprint`, which still works and is no longer documented. It is "+
 				"now `spec` — the old name came from API Blueprint, the one format "+
 				"vertrag does not support.", path))
 	}
 
-	var own []string
+	// Every key in the file is applied, including vertrag's own.
+	//
+	// These ten used to be gated on the file's name: read out of a `dredd.yml`,
+	// `auth` would have authenticated vertrag's run and not Dredd's, and since
+	// Dredd ignores keys it does not recognise without a word, a project running
+	// both testers from what looked like a shared file would have had them
+	// quietly testing different things. The gate went when the fallback did —
+	// vertrag no longer discovers a `dredd.yml`, so no file reaches here except
+	// one that vertrag was pointed at, and refusing half the keys in a file
+	// someone named on the command line would be the surprising behaviour.
 	if parsed.Auth != nil {
-		own = append(own, "`auth`")
+		applyAuth(&config.Auth, *parsed.Auth)
 	}
 	if parsed.Transport != nil {
-		own = append(own, "`transport`")
+		if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
+			return config, fmt.Errorf("%s: transport: %w", path, err)
+		}
 	}
-	if len(parsed.Skip) > 0 {
-		own = append(own, "`skip`")
-	}
-	if len(parsed.Tag) > 0 {
-		own = append(own, "`tag`")
-	}
-	if len(parsed.OperationID) > 0 {
-		own = append(own, "`operation-id`")
-	}
-	if parsed.MaxFailures != nil {
-		own = append(own, "`max-failures`")
-	}
-	if parsed.Workers != nil {
-		own = append(own, "`workers`")
-	}
+	config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
+	config.Tag = append(config.Tag, parsed.Tag...)
+	config.OperationID = append(config.OperationID, parsed.OperationID...)
 	if len(parsed.Phases) > 0 {
-		own = append(own, "`phases`")
+		phases, err := normalisePhases(parsed.Phases)
+		if err != nil {
+			return config, fmt.Errorf("%s: %w", path, err)
+		}
+		config.Phases = phases
 	}
 	if parsed.Fuzz != nil {
-		own = append(own, "`fuzz`")
+		if parsed.Fuzz.Seed != nil {
+			config.Fuzz.Seed = *parsed.Fuzz.Seed
+		}
+		if parsed.Fuzz.Cases != nil {
+			config.Fuzz.Cases = *parsed.Fuzz.Cases
+		}
+		if parsed.Fuzz.WholeRequest != nil {
+			config.Fuzz.WholeRequest = *parsed.Fuzz.WholeRequest
+		}
 	}
-	conditional := toHeaderRules(parsed.Header)
-	if len(conditional) > 0 {
-		own = append(own, "the conditional entries in `header`")
+	if parsed.Workers != nil {
+		if *parsed.Workers < 1 {
+			return config, fmt.Errorf("%s: workers must be at least 1, got %d", path, *parsed.Workers)
+		}
+		config.Workers = *parsed.Workers
 	}
-
-	switch {
-	case len(own) == 0:
-	case IsDreddFile(path):
-		config.Notes = append(config.Notes, fmt.Sprintf(
-			"%s in %s %s ignored: keys that change what is sent or run are read "+
-				"only from a vertrag.yml, because Dredd ignores keys it does not "+
-				"know without a word, and the two testers would then disagree about "+
-				"what they tested from one file that looks shared. Move them to a "+
-				"vertrag.yml, which may hold everything %s does.",
-			strings.Join(own, " and "), path, plural(len(own), "is", "are"), path))
-	default:
-		if parsed.Auth != nil {
-			applyAuth(&config.Auth, *parsed.Auth)
+	if parsed.MaxFailures != nil {
+		if *parsed.MaxFailures < 0 {
+			return config, fmt.Errorf("%s: max-failures must not be negative, got %d", path, *parsed.MaxFailures)
 		}
-		if parsed.Transport != nil {
-			if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
-				return config, fmt.Errorf("%s: transport: %w", path, err)
-			}
-		}
-		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
-		config.Tag = append(config.Tag, parsed.Tag...)
-		config.OperationID = append(config.OperationID, parsed.OperationID...)
-		if len(parsed.Phases) > 0 {
-			phases, err := normalisePhases(parsed.Phases)
-			if err != nil {
-				return config, fmt.Errorf("%s: %w", path, err)
-			}
-			config.Phases = phases
-		}
-		if parsed.Fuzz != nil {
-			if parsed.Fuzz.Seed != nil {
-				config.Fuzz.Seed = *parsed.Fuzz.Seed
-			}
-			if parsed.Fuzz.Cases != nil {
-				config.Fuzz.Cases = *parsed.Fuzz.Cases
-			}
-			if parsed.Fuzz.WholeRequest != nil {
-				config.Fuzz.WholeRequest = *parsed.Fuzz.WholeRequest
-			}
-		}
-		if parsed.Workers != nil {
-			if *parsed.Workers < 1 {
-				return config, fmt.Errorf("%s: workers must be at least 1, got %d", path, *parsed.Workers)
-			}
-			config.Workers = *parsed.Workers
-		}
-		if parsed.MaxFailures != nil {
-			if *parsed.MaxFailures < 0 {
-				return config, fmt.Errorf("%s: max-failures must not be negative, got %d", path, *parsed.MaxFailures)
-			}
-			config.MaxFailures = *parsed.MaxFailures
-		}
-		config.ConditionalHeaders = append(config.ConditionalHeaders, conditional...)
+		config.MaxFailures = *parsed.MaxFailures
 	}
+	config.ConditionalHeaders = append(config.ConditionalHeaders, toHeaderRules(parsed.Header)...)
 
 	config.Source = path
 	return config, nil
@@ -588,13 +556,6 @@ func toHeaderRules(entries []any) []HeaderRule {
 		rules = append(rules, rule)
 	}
 	return rules
-}
-
-func plural(count int, one, many string) string {
-	if count == 1 {
-		return one
-	}
-	return many
 }
 
 // toSkipRules reads the `skip` list, whose entries may be a bare name or a

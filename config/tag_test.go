@@ -26,10 +26,18 @@ tag:
 	}
 }
 
-// `tag` narrows what is run, so it crosses the same boundary as `auth` and
-// `skip`: honoured from a vertrag file, refused with a note from a dredd.yml,
-// where Dredd would silently run everything the file looks like it excludes.
-func TestTagIsIgnoredInADreddFile(t *testing.T) {
+// The file's name no longer decides which of its keys are read.
+//
+// `tag` used to be refused from a `dredd.yml` — along with `auth`, `skip`,
+// `transport`, `operation-id`, `max-failures`, `workers`, `phases`, `fuzz` and
+// the conditional `header` entries — because vertrag discovered a dredd.yml
+// automatically, and honouring keys Dredd ignores without a word would have had
+// the two testers silently testing different things from one file that looked
+// shared. Nothing is discovered by that name any more, so the only way a file
+// called dredd.yml reaches Load is that someone named it, and refusing half of
+// what they pointed at would be the surprise. This test and the ones below it
+// pin the inversion: same file, same name, now honoured.
+func TestTagIsHonouredWhateverTheFileIsCalled(t *testing.T) {
 	path := writeConfig(t, "dredd.yml", `
 spec: ./api.yml
 endpoint: http://localhost:4210
@@ -42,11 +50,11 @@ tag:
 		t.Fatalf("Load: %v", err)
 	}
 
-	if len(settings.Tag) != 0 {
-		t.Errorf("tag was honoured from a dredd.yml: %v", settings.Tag)
+	if len(settings.Tag) != 1 || settings.Tag[0] != "network" {
+		t.Errorf("Tag = %v, want [network] honoured from a file named dredd.yml", settings.Tag)
 	}
-	if note := strings.Join(settings.Notes, "\n"); !strings.Contains(note, "`tag`") {
-		t.Errorf("no note names `tag` as ignored:\n%s", note)
+	if note := strings.Join(settings.Notes, "\n"); strings.Contains(note, "ignored") {
+		t.Errorf("nothing was ignored, so nothing should say so:\n%s", note)
 	}
 }
 
@@ -69,7 +77,7 @@ max-failures: 3
 	}
 }
 
-func TestOperationIDAndMaxFailuresIgnoredInADreddFile(t *testing.T) {
+func TestOperationIDAndMaxFailuresHonouredWhateverTheFileIsCalled(t *testing.T) {
 	path := writeConfig(t, "dredd.yml", `
 spec: ./api.yml
 endpoint: http://localhost:4210
@@ -80,12 +88,8 @@ max-failures: 3
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(settings.OperationID) != 0 || settings.MaxFailures != 0 {
-		t.Errorf("honoured from a dredd.yml: %v / %d", settings.OperationID, settings.MaxFailures)
-	}
-	note := strings.Join(settings.Notes, "\n")
-	if !strings.Contains(note, "`operation-id`") || !strings.Contains(note, "`max-failures`") {
-		t.Errorf("note does not name both keys:\n%s", note)
+	if len(settings.OperationID) != 1 || settings.MaxFailures != 3 {
+		t.Errorf("not honoured: %v / %d", settings.OperationID, settings.MaxFailures)
 	}
 }
 
@@ -112,7 +116,7 @@ fuzz:
 	}
 }
 
-func TestPhasesIgnoredInADreddFile(t *testing.T) {
+func TestPhasesHonouredWhateverTheFileIsCalled(t *testing.T) {
 	path := writeConfig(t, "dredd.yml", `
 spec: ./api.yml
 endpoint: http://localhost:4210
@@ -122,11 +126,8 @@ phases: [coverage]
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(settings.Phases) != 0 {
-		t.Errorf("phases honoured from a dredd.yml: %v", settings.Phases)
-	}
-	if !strings.Contains(strings.Join(settings.Notes, "\n"), "`phases`") {
-		t.Errorf("no note names `phases` as ignored")
+	if strings.Join(settings.Phases, ",") != "examples,coverage" {
+		t.Errorf("Phases = %v, want examples,coverage", settings.Phases)
 	}
 }
 

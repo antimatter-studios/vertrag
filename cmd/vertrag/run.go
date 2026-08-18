@@ -63,7 +63,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	var f runFlags
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.StringVar(&f.configPath, "config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
+	fs.StringVar(&f.configPath, "config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml found here)")
 	fs.StringVar(&f.endpoint, "endpoint", "", "base URL of the server under test")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "compile and report the transactions without sending them")
 	fs.BoolVar(&f.details, "details", false, "print the request and response of passing transactions too")
@@ -212,14 +212,6 @@ func runRun(args []string) error {
 	settings, err := settingsFor(flags)
 	if err != nil {
 		return err
-	}
-
-	// Reading a Dredd file works, and saying so is how a reader learns the
-	// rename is available. It is said once, not per run of the day.
-	if config.IsDreddFile(settings.Source) {
-		fmt.Fprintf(os.Stderr,
-			"vertrag: read %s. Renaming it to vertrag.yml enables vertrag's own settings; every key you have keeps working.\n",
-			settings.Source)
 	}
 
 	report, closeReport, err := newReporter(settings)
@@ -485,12 +477,28 @@ var errFailed = fmt.Errorf("some transactions failed")
 // as the first — or, more likely, learns to ignore both.
 var errFindings = fmt.Errorf("the probing phases found something")
 
-// resolveConfig loads a dredd.yml if one is named, given, or simply present.
+// resolveConfig loads the configuration file, whether it was named or found.
 func resolveConfig(path string, positional []string) (config.Config, error) {
 	settings := config.Default()
 
 	if path == "" {
 		path = config.Discover()
+	}
+	// A `dredd.yml` and nothing else used to be read, and is now refused rather
+	// than passed over. Passing over it would mean running with no configuration
+	// at all while a file full of it sat in the directory — so the endpoint, the
+	// headers and the skips someone wrote would all be silently absent, and the
+	// most likely outcome is a run against whatever host the description happens
+	// to name. The rename is a one-line fix and this says so; a wrong run
+	// diagnosed from a wall of connection errors is not.
+	if path == "" {
+		if stranded := config.DreddFile(); stranded != "" {
+			return settings, fmt.Errorf(
+				"found %s and no vertrag configuration. vertrag reads %s: rename it "+
+					"(`mv %s vertrag.yml`) and every key you have keeps working, or point at "+
+					"it explicitly with --config %s",
+				stranded, strings.Join(config.Filenames, " or "), stranded, stranded)
+		}
 	}
 	if path != "" {
 		loaded, err := config.Load(path)
