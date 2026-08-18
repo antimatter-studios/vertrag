@@ -46,16 +46,19 @@ type document struct {
 	// requests the document never described. So those two, and the response
 	// `description` that 3.2 stopped requiring, are decided by the revision.
 	minor int
+
+	// dialect is the `$schema` every schema this document yields is stamped
+	// with, and dialectDiagnostic is what `jsonSchemaDialect` said that could
+	// not be honoured — held rather than raised here because parsing produces
+	// no diagnostics; validate collects them, and it is the one that knows
+	// where in the file to point. See resolveDialect.
+	dialect           string
+	dialectDiagnostic *annotation
 }
 
 // jsonSchemaDialect is the dialect this document's schemas are written in, and
 // the one a validator should read them under.
-func (d *document) jsonSchemaDialect() string {
-	if d.modernSchemas {
-		return "https://json-schema.org/draft/2020-12/schema"
-	}
-	return "http://json-schema.org/draft-04/schema#"
-}
+func (d *document) jsonSchemaDialect() string { return d.dialect }
 
 // isModernVersion reports whether a version is 3.1 or later.
 func isModernVersion(version string) bool { return minorVersion(version) >= 1 }
@@ -97,6 +100,11 @@ func parseDocument(source []byte) (*document, error) {
 	// itself and refers to itself by that name means the same thing in every
 	// revision — and the alternative is losing the schema it names.
 	doc.SelfURI = doc.Root.Get("$self").Str()
+
+	// 3.1's `jsonSchemaDialect`, which is read before anything else is
+	// converted: it decides the rules every schema in the document is
+	// validated under, and a schema is stamped with it as it is built.
+	doc.dialect, doc.dialectDiagnostic = doc.resolveDialect(doc.Root.Get("jsonSchemaDialect").Str())
 	return doc, nil
 }
 

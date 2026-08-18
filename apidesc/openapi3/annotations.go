@@ -58,7 +58,16 @@ var (
 		// URI is a reference into this document. Before it was read, such a
 		// reference resolved to nothing and left an empty schema behind, so the
 		// response was validated against anything at all.
-		supported:   []string{"openapi", "$self", "info", "paths", "components", "security", "servers", "tags"},
+		//
+		// `webhooks` and `jsonSchemaDialect` are 3.1's, and were both reported
+		// as invalid keys — the message that means "this is not OpenAPI at all"
+		// — for two fields the specification has defined since 3.1. Both are
+		// acted on rather than merely tolerated: the dialect decides the rules
+		// every schema here is validated under (see resolveDialect), and the
+		// webhooks are validated and then declared unsent (see webhooks.go),
+		// which is the one thing a client cannot do with them.
+		supported: []string{"openapi", "$self", "info", "paths", "webhooks", "jsonSchemaDialect",
+			"components", "security", "servers", "tags"},
 		unsupported: []string{"externalDocs"},
 		required:    []string{"openapi", "info", "paths"},
 	}
@@ -300,8 +309,12 @@ func (d *document) validate() []annotation {
 		return out
 	}
 
-	out = append(out, d.validateKeys(root, specOpenAPI)...)
+	out = append(out, d.validateKeys(root, d.openAPISpec())...)
 	out = append(out, d.validateVersion(root.Get("openapi"))...)
+	out = append(out, d.validateSurface(root)...)
+	if d.dialectDiagnostic != nil {
+		out = append(out, d.at(*d.dialectDiagnostic, root.Get("jsonSchemaDialect")))
+	}
 	out = append(out, d.reportDanglingReferences()...)
 
 	out = append(out, d.validateObject(root.Get("info"), specInfo,
@@ -317,9 +330,53 @@ func (d *document) validate() []annotation {
 	}
 
 	out = append(out, d.validatePaths(root.Get("paths"))...)
+	out = append(out, d.validateWebhooks(root.Get("webhooks"))...)
 	out = append(out, d.validateComponents(root.Get("components"))...)
 
 	return out
+}
+
+// openAPISpec is the OpenAPI Object key list for the revision this document
+// declares.
+//
+// 3.1 stopped requiring `paths` and required instead that a document carry at
+// least one of `paths`, `webhooks` or `components` — which is what makes a
+// description of nothing but webhooks a complete document. Demanding `paths` of
+// one made it an error, and an error stops everything: such a document produced
+// no transactions, and the only thing it was told was to add a field the
+// specification had stopped asking for.
+func (d *document) openAPISpec() objectSpec {
+	if !d.atLeast(1) {
+		return specOpenAPI
+	}
+	spec := specOpenAPI
+	spec.required = []string{"openapi", "info"}
+	return spec
+}
+
+// validateSurface reports a 3.1-or-later document that describes no API surface
+// at all.
+//
+// The requirement `paths` used to carry, in the form 3.1 restated it: a
+// document must hold at least one of `paths`, `webhooks` or `components`. It is
+// an error for the same reason the missing `paths` was — there is nothing to
+// run and nothing to check, so saying why is the only useful output — and it is
+// checked here rather than through the required list because no single key is
+// the required one.
+func (d *document) validateSurface(root node) []annotation {
+	if !d.atLeast(1) {
+		return nil
+	}
+	for _, key := range []string{"paths", "webhooks", "components"} {
+		if root.Get(key).Valid() {
+			return nil
+		}
+	}
+	return []annotation{d.at(annotation{
+		class: "error",
+		message: "'OpenAPI Object' carries none of 'paths', 'webhooks' or 'components', " +
+			"so it describes no API at all",
+	}, root)}
 }
 
 func (d *document) validateServer(server node) []annotation {
@@ -730,6 +787,14 @@ func (d *document) validateComponents(components node) []annotation {
 		}
 		for _, scheme := range c.Get("securitySchemes").Entries() {
 			out = append(out, d.validateObject(scheme.Value, specSecurityScheme, nil)...)
+		}
+		// 3.1's shared Path Items, which are where a `webhooks` entry
+		// idiomatically points. Nothing checked them: a webhook or a path
+		// written as a reference is resolved when it is read, so its target's
+		// mistakes reached the compiler unreported, and a shared Path Item
+		// nothing references yet was never looked at at all.
+		for _, pathItem := range c.Get("pathItems").Entries() {
+			out = append(out, d.validatePathItem(pathItem.Value)...)
 		}
 		// 3.2's shared media types. Checked here rather than only where they
 		// are referenced, for the reason this whole walk exists: a document's
