@@ -129,7 +129,6 @@
     "error: Required URI parameter 'petId' has no example or default value.",
     "error: Required URI parameter 'petId' has no example or default value.",
     "warning: 'Header Object' contains unsupported key 'description'",
-    "warning: 'Operation Object' contains unsupported key 'tags' (3 occurances)",
     "warning: Ambiguous URI parameter in template: /pets/{petId}\nNo example value for required parameter in API description document: petId",
     "warning: Ambiguous URI parameter in template: /pets/{petId}\nNo example value for required parameter in API description document: petId"
   ]

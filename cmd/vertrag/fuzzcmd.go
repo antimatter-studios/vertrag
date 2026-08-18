@@ -45,6 +45,8 @@ func runFuzz(args []string) error {
 	fs.Var(&only, "only", "probe only the named transaction (repeatable)")
 	var methods stringList
 	fs.Var(&methods, "method", "probe only transactions using this method (repeatable)")
+	var tags stringList
+	fs.Var(&tags, "tag", "probe only transactions whose operation carries this tag (repeatable)")
 
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -69,6 +71,7 @@ func runFuzz(args []string) error {
 	settings.Header = append(settings.Header, headers...)
 	settings.Only = append(settings.Only, only...)
 	settings.Method = append(settings.Method, methods...)
+	settings.Tag = append(settings.Tag, tags...)
 
 	if err := settings.Validate(); err != nil {
 		return err

@@ -139,6 +139,10 @@ type Transaction struct {
 	// the JSON for the same reason OperationID is.
 	Security []Security `json:"-"`
 
+	// Tags are the operation's grouping labels, which `--tag` narrows a run
+	// by. Absent from the JSON for the same reason OperationID is.
+	Tags []string `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//

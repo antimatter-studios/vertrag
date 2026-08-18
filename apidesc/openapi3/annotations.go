@@ -46,9 +46,13 @@ type objectSpec struct {
 // the specification revises independently of any logic.
 var (
 	specOpenAPI = objectSpec{
-		name:        "OpenAPI Object",
-		supported:   []string{"openapi", "info", "paths", "components", "security", "servers"},
-		unsupported: []string{"tags", "externalDocs"},
+		name: "OpenAPI Object",
+		// `tags` here only declares the vocabulary operations draw from; the
+		// declarations change nothing about a run, but warning about them while
+		// operation tags filter runs would call one half of a feature
+		// unsupported.
+		supported:   []string{"openapi", "info", "paths", "components", "security", "servers", "tags"},
+		unsupported: []string{"externalDocs"},
 		required:    []string{"openapi", "info", "paths"},
 	}
 	specInfo = objectSpec{
@@ -91,9 +95,12 @@ var (
 	}
 	specOperation = objectSpec{
 		name: "Operation Object",
+		// `tags` are read: `--tag` narrows a run to the operations carrying
+		// one. They are grouping metadata and change nothing about what is
+		// sent or validated.
 		supported: []string{"summary", "description", "operationId", "responses",
-			"requestBody", "parameters", "servers", "security"},
-		unsupported: []string{"tags", "externalDocs", "callbacks", "deprecated"},
+			"requestBody", "parameters", "servers", "security", "tags"},
+		unsupported: []string{"externalDocs", "callbacks", "deprecated"},
 	}
 	specParameter = objectSpec{
 		name:        "Parameter Object",
@@ -102,9 +109,10 @@ var (
 		required:    []string{"name", "in"},
 	}
 	specRequestBody = objectSpec{
-		name:        "Request Body Object",
-		supported:   []string{"content", "description"},
-		unsupported: []string{"required"},
+		name: "Request Body Object",
+		// `required` is read the one way a tester can read it: a required body
+		// with nothing to build a body from gets a warning of its own, below.
+		supported: []string{"content", "description", "required"},
 	}
 	specResponse = objectSpec{
 		name:      "Response Object",
@@ -440,8 +448,38 @@ func sendableHeaderValue(value string) bool {
 
 func (d *document) validateRequestBody(body node) []annotation {
 	return d.validateObject(body, specRequestBody, func(b node) []annotation {
-		return d.validateContent(b.Get("content"))
+		out := d.validateContent(b.Get("content"))
+
+		// `required: true` says the server refuses a bodiless request. Every
+		// body vertrag sends is built from a schema or an example, so when no
+		// media type carries either, the requests for this operation go out
+		// empty against an operation that promises empty is refused — and the
+		// failures that produces would otherwise read as the server's fault.
+		if b.Get("required").Bool() && !anyMediaTypeFillsABody(b.Get("content")) {
+			out = append(out, d.at(annotation{
+				class: "warning",
+				message: "'Request Body Object' is required, but no media type carries " +
+					"a schema or example to build a body from",
+			}, b))
+		}
+		return out
 	})
+}
+
+// anyMediaTypeFillsABody reports whether at least one media type gives the
+// compiler something a request body can be built from.
+func anyMediaTypeFillsABody(content node) bool {
+	for _, member := range content.Entries() {
+		mediaType := member.Value
+		if !mediaType.IsMapping() {
+			continue
+		}
+		if mediaType.Get("schema").Valid() || mediaType.Get("example").Valid() ||
+			mediaType.Get("examples").Valid() {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *document) validateResponses(responses node) []annotation {
@@ -697,9 +735,7 @@ func deduplicateUnsupported(annotations []annotation) []annotation {
 		}
 		seen[a.message] = true
 		if count := counts[a.message]; count > 1 {
-			// "occurances" is the reference's spelling. It reaches users in
-			// Dredd's output today, so correcting it here would be a difference.
-			a.message = fmt.Sprintf("%s (%d occurances)", a.message, count)
+			a.message = fmt.Sprintf("%s (%d occurrences)", a.message, count)
 		}
 		out = append(out, a)
 	}
