@@ -59,7 +59,9 @@ func Curl(request runner.Request) string {
 // shellQuote wraps a value so a POSIX shell reads it verbatim. A single-quoted
 // string has no escapes at all, so the one character needing care is the
 // single quote itself, spelled by closing the string, escaping the quote, and
-// reopening: 'it'\''s'.
+// reopening:
+//
+//	'it'\''s'
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
