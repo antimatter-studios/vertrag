@@ -37,10 +37,13 @@ type runFlags struct {
 	reporterName      string
 	output            string
 
-	headers stringList
-	only    stringList
-	methods stringList
-	tags    stringList
+	headers      stringList
+	only         stringList
+	methods      stringList
+	tags         stringList
+	operationIDs stringList
+	maxFailures  int
+	failFast     bool
 
 	transport transportFlags
 
@@ -67,6 +70,9 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
 	fs.Var(&f.methods, "method", "run only transactions using this method (repeatable)")
 	fs.Var(&f.tags, "tag", "run only transactions whose operation carries this tag (repeatable)")
+	fs.Var(&f.operationIDs, "operation-id", "run only transactions of this operationId (repeatable)")
+	fs.IntVar(&f.maxFailures, "max-failures", 0, "stop sending after this many failures or errors; the rest are reported as skipped (0 = never)")
+	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
 	addTransportFlags(fs, &f.transport)
 
 	positional, err := parseInterspersed(fs, args)
@@ -140,6 +146,13 @@ func settingsFor(f runFlags) (config.Config, error) {
 	settings.Only = append(settings.Only, f.only...)
 	settings.Method = append(settings.Method, f.methods...)
 	settings.Tag = append(settings.Tag, f.tags...)
+	settings.OperationID = append(settings.OperationID, f.operationIDs...)
+	if f.maxFailures > 0 {
+		settings.MaxFailures = f.maxFailures
+	}
+	if f.failFast {
+		settings.MaxFailures = 1
+	}
 	f.transport.apply(&settings.Transport)
 
 	// A reporter named on the command line replaces the file's list rather than
@@ -498,6 +511,7 @@ func sortTransactions(transactions []compile.Transaction, sorted bool) []compile
 func filterTransactions(transactions []compile.Transaction, settings config.Config) []compile.Transaction {
 	names := toSet(settings.Only)
 	tags := toSet(settings.Tag)
+	operations := toSet(settings.OperationID)
 	methods := make(map[string]bool, len(settings.Method))
 	for _, method := range settings.Method {
 		methods[strings.ToUpper(method)] = true
@@ -512,6 +526,9 @@ func filterTransactions(transactions []compile.Transaction, settings config.Conf
 			continue
 		}
 		if len(tags) > 0 && !carriesAny(transaction.Tags, tags) {
+			continue
+		}
+		if len(operations) > 0 && !operations[transaction.OperationID] {
 			continue
 		}
 		filtered = append(filtered, transaction)

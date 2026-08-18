@@ -101,6 +101,12 @@ type Runner struct {
 
 	// ConditionalHeaders are added to the transactions they match.
 	ConditionalHeaders []ConditionalHeader
+
+	// MaxFailures stops sending once this many transactions have failed or
+	// errored. Zero means never stop. What has not run is reported as skipped,
+	// with the reason, so the report still names every transaction and its
+	// totals still add up — a truncated report reads as a shorter suite.
+	MaxFailures int
 }
 
 // ConditionalHeader is a header added only to the transactions it matches.
@@ -259,6 +265,7 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 	// reordered itself would be unreadable against the description, and a diff
 	// between two runs would be noise.
 	completed := map[int]Result{}
+	failures := 0
 	for _, index := range r.sequence(len(prepared)) {
 		transaction := prepared[index]
 
@@ -267,6 +274,15 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 		// a hook that might act on it.
 		if reason, skipped := r.Skip[transaction.Name]; skipped {
 			completed[index] = transaction.skippedResult(configuredSkipReason(reason))
+			continue
+		}
+
+		// Past the failure budget nothing more is sent. Skipped rather than
+		// dropped: a pipeline that stops early still gets a report naming
+		// every transaction, and can tell "did not run" from "passed".
+		if r.MaxFailures > 0 && failures >= r.MaxFailures {
+			completed[index] = transaction.skippedResult(
+				fmt.Sprintf("not run: stopped after %d failure(s)", failures))
 			continue
 		}
 
@@ -282,6 +298,9 @@ func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([
 			r.Plan.Record(index, transaction, result)
 		}
 		completed[index] = result
+		if result.Status == StatusFail || result.Status == StatusError {
+			failures++
+		}
 	}
 
 	results := make([]Result, 0, len(prepared))
