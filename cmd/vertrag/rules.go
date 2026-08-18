@@ -10,6 +10,7 @@ import (
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
+	"strings"
 )
 
 // signature names what is about to run, on stderr, before anything is sent.
@@ -70,10 +71,44 @@ func applyConfiguredRules(
 	// login hook is unaffected, and before the first request, so nothing is sent
 	// unauthenticated by accident.
 	if settings.Auth.Configured() {
+		// The credential values are registered with the reporters before the
+		// exchange that produces them, so nothing written afterwards can carry
+		// one. Header redaction never covered this: in the login exchange
+		// itself the password goes out in the BODY and the token comes back in
+		// the body, and `--reporter vcr` writes that exchange to a file people
+		// are encouraged to commit. See reporter/secrets.go for why redacting
+		// these exact values is not the body-guessing the sanitiser refuses to
+		// do.
+		reporter.RegisterSecretsIn(settings.Auth.Login.Body)
+		if settings.Auth.Header != "" {
+			// Written as "Name: value"; only the value is the secret, and
+			// registering the name would redact a header name out of every
+			// report that mentions it.
+			if _, value, found := strings.Cut(settings.Auth.Header, ":"); found {
+				reporter.RegisterSecret(strings.TrimSpace(value))
+			} else {
+				reporter.RegisterSecret(strings.TrimSpace(settings.Auth.Header))
+			}
+		}
+		if settings.Auth.OAuth2.Configured() {
+			// Both spellings, because the documented one puts the secret in an
+			// environment variable and registering only the literal would
+			// protect exactly the configurations that did not need protecting.
+			reporter.RegisterSecret(settings.Auth.OAuth2.ClientSecret)
+			if name := settings.Auth.OAuth2.ClientSecretEnv; name != "" {
+				reporter.RegisterSecret(os.Getenv(name))
+			}
+		}
+
 		credential, err := auth.Obtain(ctx, engine.Client, settings.Endpoint, settings.Auth)
 		if err != nil {
 			return err
 		}
+		// And the credential that came back, which is the one worth most to
+		// anybody who finds it. RegisterCredential rather than RegisterSecret:
+		// what comes back is the value vertrag will SEND — `Bearer eyJ…` — and
+		// the login response body carries the token alone.
+		reporter.RegisterCredential(credential)
 		except, unmatched := exceptedTransactions(settings.Auth.Except, transactions)
 		// An `except` entry matching nothing is nearly always a typo, and its
 		// effect is to authenticate a transaction that was meant to go without —

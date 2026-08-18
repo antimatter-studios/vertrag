@@ -33,7 +33,7 @@ func Curl(request runner.Request) string {
 	}
 
 	if request.Body != "" {
-		b.WriteString(" --data " + shellQuote(request.Body))
+		b.WriteString(" --data " + shellQuote(RedactSecrets(request.Body)))
 	}
 	return b.String()
 }

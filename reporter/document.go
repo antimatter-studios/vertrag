@@ -141,7 +141,7 @@ func requestText(request runner.Request) string {
 	fmt.Fprintf(&b, "%s %s\n", request.Method, request.URI)
 	writeHeaders(&b, request.Headers)
 	if request.Body != "" {
-		fmt.Fprintf(&b, "\n%s\n", truncate(request.Body))
+		fmt.Fprintf(&b, "\n%s\n", truncate(RedactSecrets(request.Body)))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -158,7 +158,7 @@ func responseText(message validate.Message) string {
 	fmt.Fprintf(&b, "%s\n", message.StatusCode)
 	writeHeaders(&b, message.Headers)
 	if message.Body != "" {
-		fmt.Fprintf(&b, "\n%s\n", truncate(message.Body))
+		fmt.Fprintf(&b, "\n%s\n", truncate(RedactSecrets(message.Body)))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

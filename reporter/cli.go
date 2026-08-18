@@ -165,7 +165,9 @@ func (r CLI) body(indent, body string) {
 	if body == "" {
 		return
 	}
-	body = truncate(body)
+	// Redacted before truncating, so a credential cannot survive by sitting
+	// past the truncation point of one report and inside it in another.
+	body = truncate(RedactSecrets(body))
 	for _, line := range strings.Split(body, "\n") {
 		// A carriage return ending a line is the other half of a CRLF, which is
 		// how a CSV body is meant to be written; dropping it here is what keeps
