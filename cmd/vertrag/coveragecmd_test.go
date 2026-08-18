@@ -234,3 +234,144 @@ func TestProbesGoThroughTheSuccessVariantOnly(t *testing.T) {
 		t.Errorf("a staged 500 was reported as a finding:\n%s", output)
 	}
 }
+
+// loginAPI documents a credential-checking endpoint alongside an ordinary
+// one — the shape every authenticated suite has.
+const loginAPI = `openapi: 3.0.3
+info:
+  title: Guarded
+  version: 1.0.0
+paths:
+  /auth/login:
+    post:
+      summary: Log in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: {type: string, minLength: 3}
+                password: {type: string, minLength: 3}
+            example: {username: admin, password: password}
+      responses:
+        '200':
+          description: a token
+          content:
+            application/json:
+              schema: {type: object}
+  /things:
+    get:
+      summary: List
+      parameters:
+        - name: limit
+          in: query
+          example: 10
+          schema: {type: integer, minimum: 1, maximum: 100}
+      responses:
+        '200':
+          description: things
+          content:
+            application/json:
+              schema: {type: object}
+`
+
+// guarded checks credentials on login and a cookie everywhere else — the
+// ordinary arrangement, and the one that produced a misleading diagnostic.
+func guarded() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth/login" {
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"username":"admin"`) {
+				w.WriteHeader(http.StatusUnauthorized) // generated credentials are not credentials
+				return
+			}
+			w.Header().Set("Set-Cookie", "session=good; Path=/")
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"token":"good"}`))
+			return
+		}
+		if !strings.Contains(r.Header.Get("Cookie"), "session=good") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if limit := r.URL.Query().Get("limit"); limit != "" {
+			n, err := strconv.Atoi(limit)
+			if err != nil || n < 1 || n > 100 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	})
+}
+
+// TestTheLoginOperationIsNotReportedAsALockedDoor pins the diagnostic a real
+// suite could not act on: its `auth` block was set and working, yet the
+// footer said "set auth", named no operation, and counted the login endpoint
+// — which answers 401 to a generated body BECAUSE it checks credentials — as
+// something unlearnable.
+func TestTheLoginOperationIsNotReportedAsALockedDoor(t *testing.T) {
+	server := httptest.NewServer(guarded())
+	defer server.Close()
+
+	dir := t.TempDir()
+	description := filepath.Join(dir, "guarded.yml")
+	os.WriteFile(description, []byte(loginAPI), 0o600)
+	cfg := filepath.Join(dir, "vertrag.yml")
+	os.WriteFile(cfg, []byte("spec: "+description+"\nendpoint: "+server.URL+
+		"\nauth:\n  login:\n    path: /auth/login\n    body: {username: admin, password: password}\n  carry: cookie\n"), 0o600)
+
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	captured := make(chan string, 1)
+	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
+	runCoverage([]string{"--config", cfg, "--no-color"})
+	write.Close()
+	os.Stdout = real
+	output := <-captured
+
+	// The login operation is recognised for what it is.
+	if !strings.Contains(output, "login operation was not probed with generated valid input") {
+		t.Errorf("the login refusal is not explained:\n%s", output)
+	}
+	// And the advice that cannot be acted on is not given.
+	if strings.Contains(output, "Set `auth` in your vertrag.yml") {
+		t.Errorf("a suite with working auth was told to set auth:\n%s", output)
+	}
+}
+
+// TestALockedOperationIsNamed: when something OTHER than login refuses, the
+// report says which, so the reader knows where to look. Advice that names
+// nothing cannot be acted on even in principle.
+func TestALockedOperationIsNamed(t *testing.T) {
+	server := httptest.NewServer(guarded())
+	defer server.Close()
+
+	dir := t.TempDir()
+	description := filepath.Join(dir, "guarded.yml")
+	os.WriteFile(description, []byte(loginAPI), 0o600)
+
+	// No auth configured: /things refuses, and that IS the case where the
+	// advice applies.
+	real := os.Stdout
+	read, write, _ := os.Pipe()
+	os.Stdout = write
+	captured := make(chan string, 1)
+	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
+	runCoverage([]string{"--endpoint", server.URL, "--no-color", description})
+	write.Close()
+	os.Stdout = real
+	output := <-captured
+
+	if !strings.Contains(output, "/things > List") {
+		t.Errorf("the refusing operation is not named:\n%s", output)
+	}
+	if !strings.Contains(output, "Set `auth` in your vertrag.yml") {
+		t.Errorf("with no auth configured, the advice should be given:\n%s", output)
+	}
+}

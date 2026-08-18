@@ -66,7 +66,8 @@ func runFuzz(args []string) error {
 	if *maxTime > 0 {
 		options.Deadline = time.Now().Add(*maxTime)
 	}
-	results, runErr := probeAll(set.ctx, set.engine, set.probeable, modes, set.skipped, options, set.settings.Color, *whole)
+	results, runErr := probeAll(set.ctx, set.engine, set.probeable, modes, set.skipped, options,
+		set.settings.Color, *whole, newRefusals(set.settings))
 
 	if err := emitThrough(&shared, set.settings, results); err != nil {
 		return err
@@ -170,13 +171,14 @@ func probeAll(
 	options fuzz.Options,
 	color bool,
 	whole bool,
+	refused *refusals,
 ) ([]runner.Result, error) {
 	findings := 0
 	requests := 0
 	probed := 0
 	unprobeable := 0
 	unattributable := 0
-	refusedBaselines := 0
+	loginExempt := 0
 	outOfTime := 0
 	var results []runner.Result
 
@@ -203,8 +205,11 @@ func probeAll(
 		// works, and that is the finding generation exists for.
 		base := baselineWorks(ctx, engine, transaction)
 		if base.refused {
-			refusedBaselines++
+			refused.note(transaction)
 		}
+		// The operation that grants the credential is exempt from valid-input
+		// probing — see refusals.isLogin.
+		isLogin := refused.isLogin(transaction)
 
 		for _, target := range targets {
 			probed++
@@ -213,8 +218,12 @@ func probeAll(
 				if ctx.Err() != nil {
 					return results, ctx.Err()
 				}
-				if mode == generate.Valid && !base.ok {
-					unattributable++
+				if mode == generate.Valid && (!base.ok || isLogin) {
+					if isLogin {
+						loginExempt++
+					} else {
+						unattributable++
+					}
 					continue
 				}
 				probeName := transaction.Name + " · " + target.subject.Describe() + " · " + modeName(mode)
@@ -298,7 +307,7 @@ func probeAll(
 				if ctx.Err() != nil {
 					return results, ctx.Err()
 				}
-				if mode == generate.Valid && !base.ok {
+				if mode == generate.Valid && (!base.ok || isLogin) {
 					continue
 				}
 				wholeName := transaction.Name + " · whole request · " + modeName(mode)
@@ -362,12 +371,8 @@ func probeAll(
 		fmt.Printf(", %d valid-input probe(s) skipped because the operation fails as documented",
 			unattributable)
 	}
-	// Said last and said plainly: every other number above is close to
-	// meaningless when the server never let the probe in.
-	if refusedBaselines > 0 {
-		fmt.Printf("\n\n%d operation(s) answered 401 or 403 to the documented request, so little was learned about them.\n"+
-			"Set `auth` in your vertrag.yml, or pass --header, to probe behind the credential.",
-			refusedBaselines)
+	if loginExempt > 0 {
+		fmt.Printf(", %d skipped on the login operation", loginExempt)
 	}
 	if unprobeable > 0 {
 		fmt.Printf(", %d probe(s) had nothing to send and tested nothing", unprobeable)
@@ -378,6 +383,9 @@ func probeAll(
 	if skipped > 0 {
 		fmt.Printf(", %d transaction(s) skipped for having no schema to generate from", skipped)
 	}
+	// Said last and said plainly: every other number above is close to
+	// meaningless when the server never let the probe in.
+	refused.report()
 	fmt.Println()
 
 	if findings > 0 {
