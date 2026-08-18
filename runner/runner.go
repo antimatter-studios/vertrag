@@ -68,6 +68,11 @@ type Runner struct {
 	Endpoint string
 	Client   *http.Client
 
+	// Transport is what the client was built from, kept for the retry and
+	// pacing decisions send makes per request.
+	Transport Transport
+	sentOnce  bool
+
 	// Header lines, as `Name: value`, added to every request. They come from
 	// the command line and are how a run supplies credentials the description
 	// does not mention.
@@ -200,21 +205,26 @@ type Hooks interface {
 
 // New returns a runner with a client suited to testing.
 func New(endpoint string) *Runner {
+	r, _ := NewWithTransport(endpoint, Transport{})
+	return r
+}
+
+// NewWithTransport is New with the network knobs a CI job turns. It errors
+// only when the transport itself cannot be built — an unreadable CA bundle,
+// an unparsable proxy URL — which is worth stopping for before any request.
+func NewWithTransport(endpoint string, transport Transport) (*Runner, error) {
+	client, err := transport.client()
+	if err != nil {
+		return nil, err
+	}
 	return &Runner{
 		Endpoint: strings.TrimRight(endpoint, "/"),
 		// On by default: a contract violation is worth reporting even when the
 		// tool a project came from would have missed it.
-		Checks: Checks{ServerError: true, ContentType: true},
-		Client: &http.Client{
-			Timeout: 30 * time.Second,
-			// Redirects are not followed. A description promising a 301 is
-			// describing the redirect itself; following it would test the
-			// destination instead and report the wrong status.
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-	}
+		Checks:    Checks{ServerError: true, ContentType: true},
+		Client:    client,
+		Transport: transport,
+	}, nil
 }
 
 // Send performs one transaction's request and returns what came back, without
@@ -360,7 +370,10 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 		request.Header.Set(name, value)
 	}
 
-	response, err := r.Client.Do(request)
+	if err := r.pace(ctx); err != nil {
+		return validate.Message{}, err
+	}
+	response, err := r.do(request)
 	if err != nil {
 		return validate.Message{}, fmt.Errorf("%s %s: %w",
 			transaction.Request.Method, transaction.FullURL(), err)

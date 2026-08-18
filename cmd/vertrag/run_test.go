@@ -1,9 +1,11 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
@@ -194,5 +196,35 @@ func TestSortedPutsUnknownMethodsLast(t *testing.T) {
 	}
 	if got := sortTransactions(transactions, true)[0].Name; got != "get" {
 		t.Errorf("sorted[0] = %s, want get", got)
+	}
+}
+
+// TestTransportFlagsOverrideTheFile pins the merge rule for the network
+// knobs: a flag that was given wins, one that was not leaves the file's value
+// alone — including a zero given on purpose, so `--retries 0` can switch off
+// what the file turned on.
+func TestTransportFlagsOverrideTheFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := dir + "/vertrag.yml"
+	os.WriteFile(cfg, []byte("spec: "+dir+"/api.yml\nendpoint: http://localhost:1\ntransport:\n  timeout: 10s\n  retries: 3\n  delay: 1s\n"), 0o600)
+	os.WriteFile(dir+"/api.yml", []byte("openapi: 3.0.0\ninfo: {title: T, version: '1'}\npaths: {}\n"), 0o600)
+
+	flags, err := parseRunFlags([]string{"--config", cfg, "--retries", "0", "--timeout", "5s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := settingsFor(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := settings.Transport
+	if tr.Retries != 0 {
+		t.Errorf("--retries 0 did not override the file's 3: %d", tr.Retries)
+	}
+	if tr.Timeout != 5*time.Second {
+		t.Errorf("--timeout 5s did not override the file's 10s: %s", tr.Timeout)
+	}
+	if tr.Delay != time.Second {
+		t.Errorf("delay was not given as a flag and should keep the file's 1s: %s", tr.Delay)
 	}
 }
