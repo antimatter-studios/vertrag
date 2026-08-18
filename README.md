@@ -205,10 +205,21 @@ one worth resending.
 
 Credential header values are replaced with `<redacted>` in both, on by default,
 because a recording is committed and shared far more readily than a terminal log
-is. **Bodies are not touched**, the same as in every other reporter: there is no
-way to know which field of a payload is a secret, and guessing would hide the
-payload a failure exists to show. So a recording of a login exchange still holds
-the password that was posted — worth knowing before committing one.
+is.
+
+**Bodies are not redacted by guesswork** — there is no way to know which field of
+a payload is a secret, and guessing would hide the payload a failure exists to
+show. But the credentials vertrag is itself holding are not a guess: the password
+in `auth.login.body`, the `auth.header` value, the OAuth2 client secret and the
+token the login returns are all known exactly, and those **values** are replaced
+wherever they appear in a reported body.
+
+That closes the one exchange header redaction could never reach. In the login
+itself the password goes out in the body and the token comes back in the body,
+so a cassette of a login used to hold both. Nothing is matched by field name or
+by looking like a token — a value is redacted if and only if vertrag was given
+it or received it as a credential, which is why a `password` field vertrag never
+supplied still appears in full.
 
 There is no `vertrag replay` yet. Recording is the half that pays for itself
 immediately; replaying needs a decision about how a recorded response is matched

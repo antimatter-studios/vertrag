@@ -105,7 +105,7 @@ func exchanges(results []runner.Result, now time.Time) []exchange {
 			URL:            result.Request.URL,
 			Query:          queryOf(result.Request.URL),
 			RequestHeaders: recordedHeaders(result.Request.Headers),
-			RequestBody:    result.Request.Body,
+			RequestBody:    RedactSecrets(result.Request.Body),
 			Started:        result.Started,
 			Duration:       result.Duration,
 		}
@@ -122,7 +122,7 @@ func exchanges(results []runner.Result, now time.Time) []exchange {
 			entry.StatusCode = code
 			entry.StatusText = http.StatusText(code)
 			entry.ResponseHeaders = recordedHeaders(result.Actual.Headers)
-			entry.ResponseBody = result.Actual.Body
+			entry.ResponseBody = RedactSecrets(result.Actual.Body)
 		} else {
 			entry.Unanswered = strings.Join(result.Errors, "; ")
 			if entry.Unanswered == "" {
