@@ -59,6 +59,25 @@ func TestExampleConfigLoads(t *testing.T) {
 	if settings.Checks.MaxResponseTime != 750*time.Millisecond {
 		t.Errorf("the example's max-response-time read as %s, want 750ms", settings.Checks.MaxResponseTime)
 	}
+	// The transport section, whose three live keys are the ones a reader can
+	// get wrong by copying: all three carry a value rather than a switch, so a
+	// renamed key or a unit misread leaves the file looking right while the run
+	// reaches the server on vertrag's defaults instead of on what it says.
+	if settings.Transport.Timeout != 30*time.Second {
+		t.Errorf("the example's transport.timeout read as %s, want 30s", settings.Transport.Timeout)
+	}
+	if settings.Transport.Delay != 200*time.Millisecond {
+		t.Errorf("the example's transport.delay read as %s, want 200ms", settings.Transport.Delay)
+	}
+	if settings.Transport.Retries != 2 {
+		t.Errorf("the example's transport.retries read as %d, want 2", settings.Transport.Retries)
+	}
+	// The file people copy must not switch certificate verification off, for
+	// the same reason it must not switch GraphQL mutations on: a first run that
+	// trusts whatever answers on the address is the one nobody expected.
+	if settings.Transport.Insecure {
+		t.Error("the example disables certificate verification; copying it would trust anything")
+	}
 	if len(settings.Skip) < 2 {
 		t.Errorf("the example's skip list read as %d entries, want both forms", len(settings.Skip))
 	}

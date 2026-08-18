@@ -18,8 +18,10 @@ import (
 // Zero values mean "vertrag's defaults", so a caller that has no opinion can
 // pass Transport{} and get the client New always built.
 type Transport struct {
-	// Timeout bounds one request from first byte sent to last byte read. Zero
-	// means the default of 30 s. A hung server otherwise hangs the run.
+	// Timeout bounds one request from the dial to the last byte of the body —
+	// http.Client.Timeout, so connecting is inside it and a server that never
+	// accepts is bounded too. Zero means the default of 30 s. A hung endpoint
+	// otherwise hangs everything queued behind it.
 	Timeout time.Duration
 
 	// Retries is how many more times a request is attempted after a NETWORK
