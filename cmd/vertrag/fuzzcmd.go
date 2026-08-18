@@ -49,6 +49,8 @@ func runFuzz(args []string) error {
 	fs.Var(&methods, "method", "probe only transactions using this method (repeatable)")
 	var tags stringList
 	fs.Var(&tags, "tag", "probe only transactions whose operation carries this tag (repeatable)")
+	var operationIDs stringList
+	fs.Var(&operationIDs, "operation-id", "probe only transactions of this operationId (repeatable)")
 	var transport transportFlags
 	addTransportFlags(fs, &transport)
 
@@ -77,6 +79,7 @@ func runFuzz(args []string) error {
 	settings.Only = append(settings.Only, only...)
 	settings.Method = append(settings.Method, methods...)
 	settings.Tag = append(settings.Tag, tags...)
+	settings.OperationID = append(settings.OperationID, operationIDs...)
 	transport.apply(&settings.Transport)
 
 	if err := settings.Validate(); err != nil {

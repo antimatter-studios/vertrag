@@ -45,6 +45,7 @@ type Config struct {
 	Method       []string
 	Only         []string
 	Tag          []string
+	OperationID  []string
 	Header       []string
 	Path         []string
 	Sorted       bool
@@ -78,6 +79,10 @@ type Config struct {
 	// Transport is how requests reach the server: timeout, retries, pacing,
 	// TLS trust and proxy. Zero values are vertrag's defaults.
 	Transport Transport
+
+	// MaxFailures stops the run after this many failures or errors; zero
+	// means run everything. Read only from a vertrag file.
+	MaxFailures int
 
 	// Skip takes transactions out of the run. Read only from a vertrag file.
 	Skip []SkipRule
@@ -270,6 +275,10 @@ type file struct {
 	Skip []any `yaml:"skip"`
 	// Tag narrows the run to operations carrying one of these tags.
 	Tag []string `yaml:"tag"`
+	// OperationID narrows the run to these operationIds.
+	OperationID []string `yaml:"operation-id"`
+	// MaxFailures stops the run early.
+	MaxFailures *int `yaml:"max-failures"`
 }
 
 // Transport is the `transport` section, resolved.
@@ -382,6 +391,12 @@ func Load(path string) (Config, error) {
 	if len(parsed.Tag) > 0 {
 		own = append(own, "`tag`")
 	}
+	if len(parsed.OperationID) > 0 {
+		own = append(own, "`operation-id`")
+	}
+	if parsed.MaxFailures != nil {
+		own = append(own, "`max-failures`")
+	}
 	conditional := toHeaderRules(parsed.Header)
 	if len(conditional) > 0 {
 		own = append(own, "the conditional entries in `header`")
@@ -408,6 +423,13 @@ func Load(path string) (Config, error) {
 		}
 		config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
 		config.Tag = append(config.Tag, parsed.Tag...)
+		config.OperationID = append(config.OperationID, parsed.OperationID...)
+		if parsed.MaxFailures != nil {
+			if *parsed.MaxFailures < 0 {
+				return config, fmt.Errorf("%s: max-failures must not be negative, got %d", path, *parsed.MaxFailures)
+			}
+			config.MaxFailures = *parsed.MaxFailures
+		}
 		config.ConditionalHeaders = append(config.ConditionalHeaders, conditional...)
 	}
 

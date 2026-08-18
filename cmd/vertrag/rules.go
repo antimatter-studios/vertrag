@@ -108,6 +108,8 @@ func applyConfiguredRules(
 		engine.Skip = skips
 	}
 
+	engine.MaxFailures = settings.MaxFailures
+
 	return nil
 }
 

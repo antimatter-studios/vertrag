@@ -52,8 +52,8 @@ func TestStripAPIName(t *testing.T) {
 
 func TestFilterTransactions(t *testing.T) {
 	transactions := []compile.Transaction{
-		{Name: "a", Request: compile.Request{Method: "GET"}, Tags: []string{"network"}},
-		{Name: "b", Request: compile.Request{Method: "POST"}, Tags: []string{"network", "admin"}},
+		{Name: "a", Request: compile.Request{Method: "GET"}, Tags: []string{"network"}, OperationID: "listThings"},
+		{Name: "b", Request: compile.Request{Method: "POST"}, Tags: []string{"network", "admin"}, OperationID: "createThing"},
 		{Name: "c", Request: compile.Request{Method: "GET"}},
 	}
 
@@ -72,6 +72,10 @@ func TestFilterTransactions(t *testing.T) {
 		// transaction matches no tag and is left out.
 		{"tags widen", config.Config{Tag: []string{"network", "admin"}}, []string{"a", "b"}},
 		{"tag and method narrow together", config.Config{Tag: []string{"network"}, Method: []string{"GET"}}, []string{"a"}},
+		{"operation-id", config.Config{OperationID: []string{"createThing"}}, []string{"b"}},
+		{"operation-ids widen", config.Config{OperationID: []string{"listThings", "createThing"}}, []string{"a", "b"}},
+		// A transaction with no operationId matches no named one.
+		{"operation-id misses the unnamed", config.Config{OperationID: []string{"noSuchOp"}}, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got := filterTransactions(transactions, test.settings)
@@ -226,5 +230,28 @@ func TestTransportFlagsOverrideTheFile(t *testing.T) {
 	}
 	if tr.Delay != time.Second {
 		t.Errorf("delay was not given as a flag and should keep the file's 1s: %s", tr.Delay)
+	}
+}
+
+// TestFailFastIsMaxFailuresOne pins the alias, and that an explicit
+// --max-failures is what a reader expects to win when both are given.
+func TestFailFastIsMaxFailuresOne(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(dir+"/api.yml", []byte("openapi: 3.0.0\ninfo: {title: T, version: '1'}\npaths: {}\n"), 0o600)
+	os.WriteFile(dir+"/vertrag.yml", []byte("spec: "+dir+"/api.yml\nendpoint: http://localhost:1\n"), 0o600)
+
+	flags, _ := parseRunFlags([]string{"--config", dir + "/vertrag.yml", "--fail-fast"})
+	settings, err := settingsFor(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.MaxFailures != 1 {
+		t.Errorf("--fail-fast: MaxFailures = %d, want 1", settings.MaxFailures)
+	}
+
+	flags, _ = parseRunFlags([]string{"--config", dir + "/vertrag.yml", "--max-failures", "5"})
+	settings, _ = settingsFor(flags)
+	if settings.MaxFailures != 5 {
+		t.Errorf("--max-failures 5: MaxFailures = %d", settings.MaxFailures)
 	}
 }
