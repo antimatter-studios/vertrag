@@ -47,7 +47,8 @@ func runCoverage(args []string) error {
 	}
 	defer set.stop()
 
-	results, runErr := coverAll(set.ctx, set.engine, set.probeable, wanted, set.skipped, set.settings.Color)
+	results, runErr := coverAll(set.ctx, set.engine, set.probeable, wanted, set.skipped,
+		set.settings.Color, newRefusals(set.settings))
 	if err := emitThrough(&shared, set.settings, results); err != nil {
 		return err
 	}
@@ -62,8 +63,9 @@ func coverAll(
 	wanted map[generate.Mode]bool,
 	skipped int,
 	color bool,
+	refused *refusals,
 ) ([]runner.Result, error) {
-	findings, sent, probed, unattributable, refusedBaselines := 0, 0, 0, 0, 0
+	findings, sent, probed, unattributable, loginExempt := 0, 0, 0, 0, 0
 	var results []runner.Result
 
 	for _, transaction := range transactions {
@@ -77,8 +79,9 @@ func coverAll(
 		// against an operation that works as documented.
 		base := baselineWorks(ctx, engine, transaction)
 		if base.refused {
-			refusedBaselines++
+			refused.note(transaction)
 		}
+		isLogin := refused.isLogin(transaction)
 
 		for _, target := range targets {
 			if ctx.Err() != nil {
@@ -101,8 +104,12 @@ func coverAll(
 				if !wanted[outcome.Probe.Mode] {
 					continue
 				}
-				if outcome.Probe.Mode == generate.Valid && !base.ok {
-					unattributable++
+				if outcome.Probe.Mode == generate.Valid && (!base.ok || isLogin) {
+					if isLogin {
+						loginExempt++
+					} else {
+						unattributable++
+					}
 					continue
 				}
 				if !outcome.Sent {
@@ -137,13 +144,13 @@ func coverAll(
 	if unattributable > 0 {
 		fmt.Printf(", %d valid probe(s) skipped because the operation fails as documented", unattributable)
 	}
-	if refusedBaselines > 0 {
-		fmt.Printf("\n\n%d operation(s) answered 401 or 403 to the documented request, so little was learned about them.\n"+
-			"Set `auth` in your vertrag.yml, or pass --header, to probe behind the credential.", refusedBaselines)
+	if loginExempt > 0 {
+		fmt.Printf(", %d skipped on the login operation", loginExempt)
 	}
 	if skipped > 0 {
 		fmt.Printf(", %d transaction(s) skipped for having no schema to probe", skipped)
 	}
+	refused.report()
 	fmt.Println()
 
 	if findings > 0 {
