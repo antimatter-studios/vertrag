@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +68,9 @@ endpoint: 'http://localhost:4000'
 	if config.Language != "nodejs" {
 		t.Errorf("language = %q", config.Language)
 	}
+	if config.Server != "npm run test:api:hub" {
+		t.Errorf("server = %q", config.Server)
+	}
 	if config.ServerWait != 30*time.Second {
 		t.Errorf("server-wait = %v, want 30s", config.ServerWait)
 	}
@@ -82,13 +84,15 @@ endpoint: 'http://localhost:4000'
 	// Keys written as null or empty are at their default and must not be
 	// reported as unsupported — that would warn about nothing on every run.
 	//
-	// `server` is the exception here, and only because this fixture sets it to
-	// a real command. vertrag does not start a server under test, and used to
-	// accept the key and do nothing, which meant a project relying on it got a
-	// run against a server that was never started and a wall of connection
-	// errors that named no cause.
-	if want := []string{"server"}; !slices.Equal(config.Unsupported, want) {
-		t.Errorf("unsupported = %v, want %v", config.Unsupported, want)
+	// This fixture used to have one exception, `server`, because it sets it to
+	// a real command and vertrag did not start a server under test: the key was
+	// accepted and did nothing, so a project relying on it got a run against a
+	// server that was never started and a wall of connection errors that named
+	// no cause. It is now started, waited for and stopped, so this file — a
+	// real project's, verbatim — warns about nothing at all, which is what
+	// adopting vertrag should look like.
+	if len(config.Unsupported) != 0 {
+		t.Errorf("unsupported = %v, want none", config.Unsupported)
 	}
 }
 

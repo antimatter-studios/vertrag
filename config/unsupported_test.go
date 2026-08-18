@@ -34,9 +34,21 @@ custom: {apiaryApiKey: xyz}
 
 	got := append([]string(nil), settings.Unsupported...)
 	sort.Strings(got)
-	want := []string{"custom", "inline-errors", "loglevel", "names", "path", "require", "server", "user"}
+	want := []string{"custom", "inline-errors", "loglevel", "names", "path", "require", "user"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("unsupported = %v\nwant           %v", got, want)
+	}
+
+	// `server` was on that list until it was built, and this assertion is the
+	// old one inverted rather than deleted: the fixture above still sets it, so
+	// what is pinned here is that a key which does something no longer
+	// announces that it does nothing. A warning kept after the work is done
+	// costs more than the silence it replaced — it is read as "this run did not
+	// start your server", which would now be false.
+	for _, key := range settings.Unsupported {
+		if key == "server" {
+			t.Errorf("`server` is started, waited for and stopped, and is still reported as unsupported")
+		}
 	}
 }
 

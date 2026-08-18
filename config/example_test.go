@@ -78,6 +78,17 @@ func TestExampleConfigLoads(t *testing.T) {
 	if settings.Transport.Insecure {
 		t.Error("the example disables certificate verification; copying it would trust anything")
 	}
+
+	// The server command decides whether there is anything to test at all, and
+	// its wait is written in seconds where the transport's durations are Go
+	// duration strings — which is exactly the sort of thing an example gets
+	// wrong and nobody notices until a 30 becomes 30 nanoseconds.
+	if settings.Server == "" {
+		t.Error("the example's server command was not read")
+	}
+	if settings.ServerWait != 30*time.Second {
+		t.Errorf("the example's server-wait read as %s, want 30s", settings.ServerWait)
+	}
 	if len(settings.Skip) < 2 {
 		t.Errorf("the example's skip list read as %d entries, want both forms", len(settings.Skip))
 	}

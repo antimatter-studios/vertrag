@@ -22,6 +22,7 @@ import (
 	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
+	"github.com/antimatter-studios/vertrag/server"
 )
 
 // runFlags is everything `vertrag run` accepts on the command line.
@@ -318,6 +319,15 @@ func runRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The server under test comes up before anything else touches it, which
+	// includes the engine: `auth.login` sends a request of its own before the
+	// first transaction does.
+	stopServer, err := startServer(ctx, settings)
+	if err != nil {
+		return err
+	}
+	defer stopServer()
+
 	engine, err := newEngine(settings)
 	if err != nil {
 		return err
@@ -437,6 +447,45 @@ func runRun(args []string) error {
 		return errFindings
 	}
 	return nil
+}
+
+// startServer runs the `server:` command, if the config has one, and hands
+// back what stops it.
+//
+// The caller defers that, which is what puts the server down on every way out
+// of a run: a clean pass, a failing one, a run cut short by --max-failures, a
+// Ctrl-C — which cancels the context and unwinds through the same defer — and
+// a panic. The one path nothing can cover is vertrag itself being killed
+// outright, because nothing of ours runs then.
+//
+// Failing to start is a hard failure, for the reason loading hooks is: a suite
+// whose server never came up reports a wall of connection errors that say
+// nothing about the API, and the cause is a line of somebody's start script
+// that this way gets printed instead.
+func startServer(ctx context.Context, settings config.Config) (func(), error) {
+	if settings.Server == "" {
+		return func() {}, nil
+	}
+
+	// Said before the wait rather than after it: `server-wait: 30` means a run
+	// can sit here for half a minute, and a terminal that has printed nothing
+	// for half a minute looks like one that has hung.
+	fmt.Fprintf(os.Stderr, "vertrag: starting the server: `%s`\n", settings.Server)
+
+	process, err := server.Start(ctx, server.Options{
+		Command:  settings.Server,
+		Endpoint: settings.Endpoint,
+		Wait:     settings.ServerWait,
+	})
+	if err != nil {
+		return func() {}, err
+	}
+
+	return func() {
+		if note := process.Stop(); note != "" {
+			fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+		}
+	}, nil
 }
 
 // passed reports whether every documented transaction passed or was skipped.

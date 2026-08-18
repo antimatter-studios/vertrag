@@ -8,6 +8,39 @@
 spec: ./openapi.json               # the API description: OpenAPI 2 or 3, or a GraphQL schema
 endpoint: http://localhost:4000    # the server under test
 
+# --- Starting the server -----------------------------------------------------
+
+# A command that brings the API up, run before the suite and stopped after it.
+# Without one, a project whose API is not already running gets a screenful of
+# connection errors — one per transaction, none of them saying that nothing was
+# ever listening.
+server: npm run test:api
+
+# How long the server may take to answer, in seconds. The endpoint above is
+# polled until it accepts a connection, so this is a bound and not a pause: a
+# server that is up in 300ms costs 300ms, and one that never comes up is
+# reported by name, with whatever it printed, rather than waited out in full and
+# then tested anyway.
+server-wait: 30
+
+# The command runs through `sh -c`, so pipes, `&&` and environment assignments
+# all work. That trusts the file it is written in far enough to run a shell
+# command from it — the same trust `hookfiles` already asks for, since a hook
+# file is code this process loads and runs.
+#
+# It is started in a process group of its own, and the GROUP is stopped at the
+# end of the run: `npm run test:api` is npm spawning node, and killing npm alone
+# leaves node holding the port. SIGTERM first, so a server can close its
+# listener and flush what it writes at exit, then SIGKILL for anything still
+# there. That happens whatever the run did — passed, failed, stopped early on
+# `max-failures`, or was interrupted with Ctrl-C.
+#
+# What the server prints is kept rather than shown as it arrives: it is the
+# entire diagnostic when the server fails to start, and noise interleaved
+# through the report when it starts fine. So it is printed if the start fails,
+# and again if the command dies partway through a run — which is worth saying,
+# because every failure below it has that one cause.
+
 # --- Which transactions ------------------------------------------------------
 
 # A transaction is one documented request/response pair, named
