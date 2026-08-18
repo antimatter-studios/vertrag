@@ -116,6 +116,11 @@ type Subject struct {
 	In string
 	// Name is the parameter's name, empty for a body.
 	Name string
+
+	// Style is the parameter's serialisation style when it is one RFC 6570
+	// cannot express ("spaceDelimited", "pipeDelimited", "deepObject"), else
+	// empty. It decides whether an object value has a wire form at all.
+	Style string
 }
 
 // Describe names the subject the way a sentence about it would.

@@ -138,6 +138,9 @@ func TestInvalidValuesViolateTheirSchema(t *testing.T) {
 		// guarded in the fuzz package rather than here.
 		`{"$schema":"https://json-schema.org/draft/2020-12/schema","const":"widget"}`,
 		`{"type":"array","items":{"type":"string"},"minItems":2}`,
+		// An unbounded list of constrained items: the only violation with a
+		// list's wire form is a bad item, and it must be drawn.
+		`{"type":"array","items":{"type":"integer","minimum":1}}`,
 		`{"type":"object","required":["a"],"properties":{"a":{"type":"string"}}}`,
 		`{"type":"object","required":["a","b"],"properties":{"a":{"type":"string","minLength":3},"b":{"type":"integer","minimum":18}}}`,
 	} {
@@ -211,5 +214,28 @@ func TestUnknownKeywordsDoNotStopGeneration(t *testing.T) {
 	value := drawOnce(t, `{"type":"string","x-vendor":"whatever","format":"unheard-of"}`, Valid)
 	if _, ok := value.(string); !ok {
 		t.Errorf("got %T, want a string despite the unknown keywords", value)
+	}
+}
+
+// TestInvalidArraysAreSometimesStillArrays pins the strategy a wire-form
+// prober needs: for a list whose items carry constraints, invalid mode must
+// draw an actual LIST with a bad item — not only a scalar of the wrong type,
+// which no path or query parameter can carry as a list. Without this every
+// invalid draw for an unbounded list was unusable and the parameter went
+// unprobed, silently.
+func TestInvalidArraysAreSometimesStillArrays(t *testing.T) {
+	schema := Schema{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}}
+
+	sawList := false
+	rapid.Check(t, func(rt *rapid.T) {
+		if list, ok := Value(schema, Invalid).Draw(rt, "value").([]any); ok {
+			sawList = true
+			if len(list) == 0 {
+				rt.Fatalf("an empty list violates nothing here")
+			}
+		}
+	})
+	if !sawList {
+		t.Fatal("invalid mode never drew a list with a bad item; only wrong-type scalars, which a parameter cannot carry")
 	}
 }

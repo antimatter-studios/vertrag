@@ -228,12 +228,55 @@ func drawArray(t *rapid.T, schema Schema, mode Mode, depth int) any {
 	max, hasMax := integerAt(schema, "maxItems")
 
 	if mode == Invalid {
-		switch {
-		case hasMin && min > 0:
+		// A list whose ITEMS break their schema is the violation handlers
+		// actually meet — `?ids=1|x` reaches `strconv.Atoi` — and it is the
+		// only violation that still HAS a list's wire form, so it comes first
+		// wherever the item schema gives something to violate. Wrong length
+		// and wrong type stay as alternatives, drawn when items cannot be
+		// broken or by chance, so shrinking can find whichever is smallest.
+		var strategies []string
+		if items != nil && violable(Schema(items)) {
+			strategies = append(strategies, "bad-item")
+		}
+		if hasMin && min > 0 {
+			strategies = append(strategies, "too-few")
+		}
+		if hasMax {
+			strategies = append(strategies, "too-many")
+		}
+		strategies = append(strategies, "wrong-type")
+
+		switch rapid.SampledFrom(strategies).Draw(t, "array-violation") {
+		case "bad-item":
+			// At least one item invalid; the rest valid so the list is
+			// otherwise well formed and the bad item is what the server trips
+			// on. Length respects the bounds so length is not the violation.
+			low, high := 1, 3
+			if hasMin && min > low {
+				low = min
+			}
+			if hasMax && max < high {
+				high = max
+			}
+			if high < low {
+				high = low
+			}
+			length := rapid.IntRange(low, high).Draw(t, "length")
+			bad := rapid.IntRange(0, length-1).Draw(t, "which")
+			out := make([]any, 0, length)
+			for i := 0; i < length; i++ {
+				m := Valid
+				if i == bad {
+					m = Invalid
+				}
+				out = append(out, draw(t, Schema(items), m, depth+1))
+			}
+			return out
+		case "too-few":
 			// Short of the minimum, including the boundary a handler checking
 			// `len(x) > 0` gets wrong.
 			return fill(t, Schema(items), rapid.IntRange(0, min-1).Draw(t, "too-few"), depth)
-		case hasMax:
+		case "too-many":
 			return fill(t, Schema(items), rapid.IntRange(max+1, max+4).Draw(t, "too-many"), depth)
 		default:
 			return rapid.SampledFrom([]any{"vertrag-not-an-array", 42}).Draw(t, "wrong-type")
@@ -257,6 +300,23 @@ func drawArray(t *rapid.T, schema Schema, mode Mode, depth int) any {
 		out = append(out, draw(t, Schema(items), Valid, depth+1))
 	}
 	return out
+}
+
+// violable reports whether a schema constrains anything an Invalid draw can
+// break: a type, an enum, a const, or a bound. An empty schema forbids
+// nothing, and asking for a violation of it would loop or lie.
+func violable(schema Schema) bool {
+	if len(schema) == 0 {
+		return false
+	}
+	for _, key := range []string{"type", "enum", "const", "minimum", "maximum",
+		"exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "pattern",
+		"minItems", "maxItems", "required", "properties", "items"} {
+		if _, ok := schema[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func drawObject(t *rapid.T, schema Schema, mode Mode, depth int) any {

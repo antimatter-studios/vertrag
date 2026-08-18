@@ -22,6 +22,13 @@ package refract
 // and would otherwise be dropped at the parse stage.
 const SchemaAttribute = "vertragSchema"
 
+// StyleAttribute carries an OpenAPI parameter's serialisation style
+// ("form", "spaceDelimited", "pipeDelimited", "deepObject", "simple") on an
+// hrefVariables member, so the compiler and generation render a list or an
+// object the way the description said it would be sent. Dredd has no such
+// attribute — like the schema, it travels for vertrag's own use.
+const StyleAttribute = "vertragStyle"
+
 // New returns an empty element with the given name.
 func New(name string) *Element {
 	return &Element{Name: name, Kind: ContentNone}

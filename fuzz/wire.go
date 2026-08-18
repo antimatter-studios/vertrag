@@ -77,12 +77,10 @@ func parameterForm(subject Subject, schema generate.Schema) wire {
 					// from the one being asked.
 					return nil, false
 				}
-				// A list is handed on whole, for the URI template to expand by
-				// the rules the description chose. What cannot be done is any
-				// style other than the default `form` — spaceDelimited,
-				// pipeDelimited and deepObject are not parsed, so a document
-				// using one would have its list rendered by the wrong rule and
-				// the server judged on it.
+				// A list is handed on whole, for the compiled request to lay
+				// out by the style the description chose — form, exploded or
+				// not, spaceDelimited or pipeDelimited — so the server is judged
+				// on the shape it documented.
 				for _, item := range list {
 					text, ok := scalarText(item)
 					if !ok || !sendable(subject.In, text) {
@@ -92,23 +90,37 @@ func parameterForm(subject Subject, schema generate.Schema) wire {
 				return list, true
 			}
 
+			if object, isObject := value.(map[string]any); isObject && contains(declaredTypes(schema), "object") {
+				if len(object) == 0 || subject.Style != "deepObject" {
+					// Only deepObject gives an object one wire form —
+					// `x[a]=1&x[b]=2`. Under any other style there is no
+					// agreed layout, and guessing would send something the
+					// description never described, then judge the server on it.
+					return nil, false
+				}
+				for _, item := range object {
+					text, ok := scalarText(item)
+					if !ok || !sendable(subject.In, text) {
+						return nil, false
+					}
+				}
+				return object, true
+			}
+
 			rendered, ok := scalarText(value)
 			if !ok {
-				// An object has no one form here: which of comma or a repeated
-				// key separates its members is decided by a serialisation style
-				// the compiled request does not record. Guessing would send
-				// something the description never described, and then judge the
-				// server on it.
 				return nil, false
 			}
 			return rendered, sendable(subject.In, rendered)
 		},
 		interpret: func(rendered any) []string {
-			if list, isList := rendered.([]any); isList {
-				// A list arrives at the server as a list however it was
-				// separated on the wire, so the drawn value is what it holds
-				// and there is no reading to be ambiguous about.
-				encoded, err := json.Marshal(list)
+			switch structured := rendered.(type) {
+			case []any, map[string]any:
+				// A list or an object arrives at the server as what it is
+				// however it was laid out on the wire — the style decides the
+				// separators, not the value — so the drawn value is what it
+				// holds and there is no reading to be ambiguous about.
+				encoded, err := json.Marshal(structured)
 				if err != nil {
 					return nil
 				}
@@ -342,13 +354,19 @@ func declaredTypes(schema generate.Schema) []string {
 // It is the check a caller makes before probing at all, so that an array or
 // object parameter is passed over knowingly rather than drawn from twenty times
 // and abandoned every time.
-func Probeable(schema generate.Schema) bool {
+func Probeable(schema generate.Schema, style string) bool {
 	for _, declared := range declaredTypes(schema) {
-		if declared == "array" {
-			// A list is sent by the URI template's own expansion, so it needs
-			// no coercion — but only under the default `form` style, which is
-			// the one the template can express.
+		switch declared {
+		case "array":
+			// A list is laid out by the compiled request under whichever style
+			// the description chose, so it needs no coercion here.
 			continue
+		case "object":
+			// An object has a wire form only under deepObject.
+			if style == "deepObject" {
+				continue
+			}
+			return false
 		}
 		if _, ok := coerce(declared, "x"); !ok {
 			return false

@@ -716,6 +716,11 @@ func primitiveElement(value any) *refract.Element {
 	}
 }
 
+// setPrimitive gives an element the value a document example carries. A list
+// or an object example becomes array or object content, so a parameter whose
+// example is a list reaches the URI — it used to be dropped here silently, and
+// the parameter with it, which is why array-typed query parameters never
+// appeared in a compiled request.
 func setPrimitive(element *refract.Element, value any) {
 	switch v := value.(type) {
 	case string:
@@ -727,6 +732,41 @@ func setPrimitive(element *refract.Element, value any) {
 	case bool:
 		element.Kind = refract.ContentPrimitive
 		element.Primitive = v
+	case []any:
+		element.Kind = refract.ContentArray
+		element.Children = nil
+		for _, item := range v {
+			element.Append(valueElement(item))
+		}
+	case *orderedMap:
+		element.Kind = refract.ContentArray
+		element.Children = nil
+		for _, key := range v.Keys() {
+			item, _ := v.Get(key)
+			element.Append(refract.Member(key, valueElement(item)))
+		}
+	}
+}
+
+// valueElement is primitiveElement extended to lists and objects, for the
+// children setPrimitive builds.
+func valueElement(value any) *refract.Element {
+	switch v := value.(type) {
+	case []any:
+		e := refract.Array()
+		for _, item := range v {
+			e.Append(valueElement(item))
+		}
+		return e
+	case *orderedMap:
+		e := refract.Object()
+		for _, key := range v.Keys() {
+			item, _ := v.Get(key)
+			e.Append(refract.Member(key, valueElement(item)))
+		}
+		return e
+	default:
+		return primitiveElement(value)
 	}
 }
 

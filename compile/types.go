@@ -83,6 +83,12 @@ type Parameter struct {
 	// description gave none.
 	Schema string
 
+	// Style is how a list or object value is laid out on the wire, when the
+	// description chose something RFC 6570 cannot say: "spaceDelimited",
+	// "pipeDelimited" or "deepObject". Empty means the template's own rule
+	// (form/simple, exploded or not) already applies.
+	Style string
+
 	// Value is what the compiled request carries for it. HasValue separates a
 	// parameter with no value from one whose value is empty — the first is
 	// missing from the URI entirely, the second is present and blank.

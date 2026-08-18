@@ -53,12 +53,71 @@ func (r Request) SetParameter(parameter Parameter, value any) (Request, error) {
 		if existing.In == InHeader || !existing.HasValue {
 			continue
 		}
-		values[existing.Name] = existing.Value
+		values[existing.Name] = styled(existing, existing.Value)
 	}
-	values[parameter.Name] = value
+	values[parameter.Name] = styled(parameter, value)
 
 	r.URI = parsed.Expand(values)
 	return r, nil
+}
+
+// styled pre-renders a value whose serialisation style RFC 6570 cannot
+// express, so the template expander sees a scalar and lays it out verbatim.
+//
+//	spaceDelimited  [1,2,3]        → "1 2 3"   (encoded to 1%202%203)
+//	pipeDelimited   [1,2,3]        → "1|2|3"
+//	deepObject      {a:1, b:2}     → the expander gets a[a]=1&x[b]=2 by way
+//	                                  of a map keyed name[key], see below
+//
+// A value the style does not apply to — a scalar under spaceDelimited, a
+// list under deepObject — is passed through untouched; the description asked
+// for something the value cannot be, and expansion's own rules are as good a
+// guess as any.
+func styled(parameter Parameter, value any) any {
+	switch parameter.Style {
+	case "spaceDelimited", "pipeDelimited":
+		list, ok := value.([]any)
+		if !ok {
+			return value
+		}
+		sep := " "
+		if parameter.Style == "pipeDelimited" {
+			sep = "|"
+		}
+		parts := make([]string, 0, len(list))
+		for _, item := range list {
+			parts = append(parts, scalarText(item))
+		}
+		return strings.Join(parts, sep)
+	case "deepObject":
+		object, ok := value.(map[string]any)
+		if !ok {
+			return value
+		}
+		// The template names the parameter once, exploded (`{?x*}`); an
+		// exploded map expands to key=value pairs. Rewriting the keys to
+		// name[key] here gives deepObject's `x[a]=1&x[b]=2` from the
+		// expander's ordinary object rule, no new syntax needed.
+		deep := make(map[string]any, len(object))
+		for key, item := range object {
+			deep[parameter.Name+"["+key+"]"] = scalarText(item)
+		}
+		return deep
+	}
+	return value
+}
+
+// scalarText is the wire text of a scalar, the way the expander itself
+// stringifies one.
+func scalarText(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 // setHeader replaces a header's value, adding it when the request does not
