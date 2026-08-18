@@ -50,6 +50,8 @@ func run(args []string) error {
 		return runRun(args[1:])
 	case "fuzz":
 		return runFuzz(args[1:])
+	case "coverage":
+		return runCoverage(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q; run `vertrag help`", args[0])
 	}
@@ -66,6 +68,10 @@ Usage:
   vertrag fuzz [flags] [description] [endpoint]
                                    Probe operations with bodies drawn from
                                    their schema, rather than the one example
+  vertrag coverage [flags] [description] [endpoint]
+                                   Send every boundary each schema implies —
+                                   the maximum, one past it, the required
+                                   property missing — the same ones every run
   vertrag compile [flags] <file>   Show the transactions a description yields
   vertrag version                  Print the version
 

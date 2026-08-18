@@ -15,3 +15,6 @@ node_modules
 # reference vertrag is checked against, so a floating transitive dependency
 # would silently move the expectation. Any other lockfile is build output.
 /package-lock.json
+
+# The binary a bare `go build` at the repo root drops here.
+/vertrag

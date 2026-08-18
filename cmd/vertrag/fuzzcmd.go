@@ -6,15 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
-	"os"
-	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/fuzz"
 	"github.com/antimatter-studios/vertrag/generate"
@@ -35,133 +31,28 @@ import (
 // failure on a Tuesday is a feature there and a broken build here.
 func runFuzz(args []string) error {
 	fs := flag.NewFlagSet("fuzz", flag.ContinueOnError)
-	configPath := fs.String("config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
-	endpoint := fs.String("endpoint", "", "base URL of the server under test")
+	var shared probeFlags
+	addProbeFlags(fs, &shared, "probe")
 	cases := fs.Int("cases", 50, "distinct values to try per body and per parameter")
 	maxTime := fs.Duration("max-time", 0, "stop probing after this long, e.g. 2m; what was not reached is reported as skipped (0 = no limit)")
 	seed := fs.Uint64("seed", 0, "replay a previous run (0 picks one and reports it)")
 	mode := fs.String("mode", "both", "which values to send: valid, invalid, or both")
-	reporterName := fs.String("reporter", "", "also emit the probe results through a reporter: cli, dot, markdown, html, or junit")
 	whole := fs.Bool("whole-request", false, "also draw every parameter and the body together per case, to reach bugs in their interaction (findings then name the request, not one part)")
-	output := fs.String("output", "", "write the --reporter output to a file instead of stdout")
-	noColor := fs.Bool("no-color", false, "disable coloured output")
-	var headers stringList
-	fs.Var(&headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
-	var only stringList
-	fs.Var(&only, "only", "probe only the named transaction (repeatable)")
-	var methods stringList
-	fs.Var(&methods, "method", "probe only transactions using this method (repeatable)")
-	var tags stringList
-	fs.Var(&tags, "tag", "probe only transactions whose operation carries this tag (repeatable)")
-	var operationIDs stringList
-	fs.Var(&operationIDs, "operation-id", "probe only transactions of this operationId (repeatable)")
-	noSanitize := fs.Bool("no-sanitize", false, "show credential header values in findings instead of <redacted>")
-	var sanitizeHdrs stringList
-	fs.Var(&sanitizeHdrs, "sanitize-header", "also redact this header's value in findings (repeatable)")
-	var transport transportFlags
-	addTransportFlags(fs, &transport)
 
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
 	}
-	transport.noteGiven(fs)
-
 	modes, err := parseModes(*mode)
 	if err != nil {
 		return err
 	}
 
-	settings, err := resolveConfig(*configPath, positional)
-	if err != nil {
+	set, err := prepareProbes(&shared, fs, positional)
+	if err != nil || set == nil {
 		return err
 	}
-	if *endpoint != "" {
-		settings.Endpoint = *endpoint
-	}
-	if *noColor {
-		settings.Color = false
-	}
-	settings.Header = append(settings.Header, headers...)
-	settings.Only = append(settings.Only, only...)
-	settings.Method = append(settings.Method, methods...)
-	settings.Tag = append(settings.Tag, tags...)
-	settings.OperationID = append(settings.OperationID, operationIDs...)
-	transport.apply(&settings.Transport)
-	reporter.SetSanitize(!*noSanitize)
-	for _, name := range sanitizeHdrs {
-		reporter.AddRedactedHeader(name)
-	}
-
-	if err := settings.Validate(); err != nil {
-		return err
-	}
-
-	fmt.Fprintln(os.Stderr, signature(settings))
-
-	for _, key := range settings.Unsupported {
-		fmt.Fprintf(os.Stderr, "vertrag: `%s` is set but not supported yet; it is being ignored\n", key)
-	}
-	for _, note := range settings.Notes {
-		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
-	}
-
-	source, err := os.ReadFile(settings.Spec)
-	if err != nil {
-		return fmt.Errorf("reading the API description: %w", err)
-	}
-	parsed, err := apidesc.Parse(source, settings.Spec)
-	if err != nil {
-		return fmt.Errorf("parsing %s: %w", settings.Spec, err)
-	}
-	result := compile.Compile(parsed.MediaType, parsed.Elements, settings.Spec)
-
-	annotations := reporter.CLI{Out: os.Stdout, Color: settings.Color}
-	annotations.Annotations(toAnnotations(result.Annotations))
-	if hasErrors(result.Annotations) {
-		return fmt.Errorf("the API description could not be read; nothing was run")
-	}
-
-	transactions := filterTransactions(stripAPIName(result.Transactions), settings)
-
-	// An operation whose body and parameters all lack schemas has nothing to
-	// draw from. Saying how many were passed over, and why, is the difference
-	// between a quiet run that tested little and one a reader can trust.
-	probeable, skipped := partitionBySchema(transactions)
-	if len(probeable) == 0 {
-		fmt.Printf("No operation carries a schema for its body or for any parameter, so there is nothing to generate from.\n")
-		if skipped > 0 {
-			fmt.Printf("%d transaction(s) were passed over for that reason.\n", skipped)
-		}
-		return nil
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	engine, err := newEngine(settings)
-	if err != nil {
-		return err
-	}
-	engine.ExtraHeaders = settings.Header
-
-	// Probing needs the credential as much as a run does: without it an
-	// authenticated API answers 401 to every case, no transaction passes the
-	// baseline check, and the report says nothing was worth probing rather than
-	// that the door was locked.
-	if err := applyConfiguredRules(ctx, engine, settings, probeable); err != nil {
-		return err
-	}
-
-	probeable, configSkipped := withoutSkipped(probeable, engine.Skip)
-	if len(configSkipped) > 0 {
-		fmt.Printf("%d transaction(s) left out by the skip list in %s.\n",
-			len(configSkipped), settings.Source)
-	}
-	if len(probeable) == 0 {
-		fmt.Printf("Every operation that could be probed is on the skip list, so nothing was sent.\n")
-		return nil
-	}
+	defer set.stop()
 
 	// rapid reports the seed it picks only through a log nothing surfaces, so a
 	// zero seed is chosen here instead — the printed value is then, by
@@ -175,23 +66,10 @@ func runFuzz(args []string) error {
 	if *maxTime > 0 {
 		options.Deadline = time.Now().Add(*maxTime)
 	}
-	results, runErr := probeAll(ctx, engine, probeable, modes, skipped, options, settings.Color, *whole)
+	results, runErr := probeAll(set.ctx, set.engine, set.probeable, modes, set.skipped, options, set.settings.Color, *whole)
 
-	// The narrative above is the fuzz report; a --reporter is for machines
-	// and pipelines, so it comes in addition rather than instead. The config
-	// file's reporter list is deliberately not consulted: it configures `run`,
-	// and a junit file of contract results silently replaced by probe results
-	// would be a surprise in the middle of someone's pipeline.
-	if *reporterName != "" {
-		emitSettings := settings
-		emitSettings.Reporters = []string{*reporterName}
-		emitSettings.Outputs = []string{*output}
-		emit, closeFiles, err := newReporter(emitSettings)
-		if err != nil {
-			return err
-		}
-		emit.Report(results)
-		closeFiles()
+	if err := emitThrough(&shared, set.settings, results); err != nil {
+		return err
 	}
 	return runErr
 }

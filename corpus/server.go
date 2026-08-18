@@ -675,6 +675,33 @@ func rejectsMultipart(r *http.Request, matched route) (string, bool) {
 		}
 		return "the multipart body carries no part named " + field, true
 	}
+
+	// The non-file parts are fields like any form's, and a real server
+	// reads each to its declared type and checks it: a `size` part that
+	// says "abc" or -1 is refused. File parts stand for their presence,
+	// which the loop above has already established.
+	properties, _ := schema["properties"].(map[string]any)
+	object := make(map[string]any, len(r.MultipartForm.Value)+len(r.MultipartForm.File))
+	for name, values := range r.MultipartForm.Value {
+		if len(values) == 0 {
+			continue
+		}
+		property, _ := properties[name].(map[string]any)
+		object[name] = readFormField(property, values[0])
+	}
+	for name := range r.MultipartForm.File {
+		// A file part satisfies its schema by arriving; a placeholder that
+		// is a string keeps the object valid against {type: string, format:
+		// binary} without pretending to be the bytes.
+		object[name] = "vertrag placeholder"
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return "", false
+	}
+	if result := validate.AgainstSchema(json.RawMessage(matched.request.Schema), string(encoded)); !result.Valid {
+		return "the multipart body is not permitted: " + strings.Join(result.Errors, "; "), true
+	}
 	return "", false
 }
 
