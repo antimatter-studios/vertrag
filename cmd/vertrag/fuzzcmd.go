@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
@@ -36,7 +37,8 @@ func runFuzz(args []string) error {
 	fs := flag.NewFlagSet("fuzz", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to a vertrag.yml (default: the first of vertrag.yml, vertrag.yaml, dredd.yml found here)")
 	endpoint := fs.String("endpoint", "", "base URL of the server under test")
-	cases := fs.Int("cases", 20, "values to try per body and per parameter")
+	cases := fs.Int("cases", 50, "distinct values to try per body and per parameter")
+	maxTime := fs.Duration("max-time", 0, "stop probing after this long, e.g. 2m; what was not reached is reported as skipped (0 = no limit)")
 	seed := fs.Uint64("seed", 0, "replay a previous run (0 picks one and reports it)")
 	mode := fs.String("mode", "both", "which values to send: valid, invalid, or both")
 	reporterName := fs.String("reporter", "", "also emit the probe results through a reporter: cli, dot, markdown, html, or junit")
@@ -169,10 +171,11 @@ func runFuzz(args []string) error {
 	}
 	fmt.Printf("seed: %d (replay with --seed %d)\n", *seed, *seed)
 
-	results, runErr := probeAll(ctx, engine, probeable, modes, skipped, fuzz.Options{
-		Cases: *cases,
-		Seed:  *seed,
-	}, settings.Color, *whole)
+	options := fuzz.Options{Cases: *cases, Seed: *seed}
+	if *maxTime > 0 {
+		options.Deadline = time.Now().Add(*maxTime)
+	}
+	results, runErr := probeAll(ctx, engine, probeable, modes, skipped, options, settings.Color, *whole)
 
 	// The narrative above is the fuzz report; a --reporter is for machines
 	// and pipelines, so it comes in addition rather than instead. The config
@@ -296,6 +299,7 @@ func probeAll(
 	unprobeable := 0
 	unattributable := 0
 	refusedBaselines := 0
+	outOfTime := 0
 	var results []runner.Result
 
 	for _, transaction := range transactions {
@@ -336,6 +340,19 @@ func probeAll(
 					continue
 				}
 				probeName := transaction.Name + " · " + target.subject.Describe() + " · " + modeName(mode)
+
+				// Past the time budget nothing more is drawn. Reported as
+				// skipped rather than dropped, for the reason --max-failures
+				// gives: a report that stopped early must still name what
+				// it did not reach, or it reads as a shorter run that passed.
+				if options.OutOfTime() {
+					outOfTime++
+					results = append(results, runner.Result{
+						Name: probeName, Status: runner.StatusSkip,
+						Errors: []string{"not probed: the --max-time budget was spent"},
+					})
+					continue
+				}
 
 				send := func(ctx context.Context, value any) (validate.Message, error) {
 					request, err := target.apply(transaction.Request, value)
@@ -407,6 +424,14 @@ func probeAll(
 					continue
 				}
 				wholeName := transaction.Name + " · whole request · " + modeName(mode)
+				if options.OutOfTime() {
+					outOfTime++
+					results = append(results, runner.Result{
+						Name: wholeName, Status: runner.StatusSkip,
+						Errors: []string{"not probed: the --max-time budget was spent"},
+					})
+					continue
+				}
 				parts := make([]fuzz.Part, 0, len(targets))
 				byLabel := map[string]target{}
 				for _, tg := range targets {
@@ -468,6 +493,9 @@ func probeAll(
 	}
 	if unprobeable > 0 {
 		fmt.Printf(", %d probe(s) had nothing to send and tested nothing", unprobeable)
+	}
+	if outOfTime > 0 {
+		fmt.Printf(", %d probe(s) not reached before --max-time ran out", outOfTime)
 	}
 	if skipped > 0 {
 		fmt.Printf(", %d transaction(s) skipped for having no schema to generate from", skipped)

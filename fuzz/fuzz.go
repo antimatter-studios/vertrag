@@ -39,6 +39,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/generate"
 	"github.com/antimatter-studios/vertrag/validate"
@@ -94,6 +95,16 @@ type Options struct {
 	// itself, so a caller that wants replayable findings must choose the seed
 	// and tell the user what it chose.
 	Seed uint64
+
+	// Deadline, when set, is the moment the whole run's time budget ends. A
+	// probe that reaches it stops drawing and reports what it did; the caller
+	// reports what it did not get to. Zero means no budget.
+	Deadline time.Time
+}
+
+// OutOfTime reports whether the deadline has passed.
+func (o Options) OutOfTime() bool {
+	return !o.Deadline.IsZero() && time.Now().After(o.Deadline)
 }
 
 // Locations a generated value can occupy.
@@ -224,8 +235,26 @@ func probe(
 	collector := &collector{}
 	var found Finding
 	usable := 0
+	// passed remembers every value already sent AND answered acceptably, by
+	// its wire text, so a value rapid draws twice costs one request rather
+	// than two and every case a user asked for is a DISTINCT probe.
+	//
+	// Only passing values are remembered, deliberately. Skipping a repeat
+	// looks to rapid like a pass, and rapid's shrinker works by re-running
+	// smaller candidates: were a value that FAILED ever skipped as a repeat,
+	// the shrinker would read the skip as "this smaller input passes" and
+	// stop short of the minimum. A failing value never reaches the map — the
+	// case fatals first — so a shrink candidate is either genuinely new or a
+	// repeat of something that really did pass, and skipping that is exact.
+	passed := map[string]bool{}
 
 	rapid.Check(collector, func(t *rapid.T) {
+		if opts.OutOfTime() {
+			// The budget is spent. Not a failure — the caller reports how
+			// far the run got — but nothing more is drawn or sent.
+			return
+		}
+
 		value := generate.Value(schema, mode).Draw(t, subject.label())
 
 		rendered, ok := form.render(value)
@@ -233,6 +262,10 @@ func probe(
 			// The value has no form this subject can carry — see the render
 			// functions for what that means and why sending it anyway would
 			// test something other than the parameter.
+			return
+		}
+		key := wireKey(rendered)
+		if passed[key] {
 			return
 		}
 
@@ -274,9 +307,15 @@ func probe(
 			}
 			t.Fatalf("%s", message)
 		}
+		passed[key] = true
 	})
 
 	if !collector.failed {
+		if usable == 0 && opts.OutOfTime() {
+			// Not unprobeable — the budget ran out before anything was
+			// drawn. The caller reports that; there is nothing to say here.
+			return Finding{}, false
+		}
 		if usable == 0 {
 			// Every drawn value was the opposite of what was asked for, or had
 			// no form the subject could carry, so nothing was actually sent.
@@ -294,6 +333,22 @@ func probe(
 		return Finding{}, false
 	}
 	return found, true
+}
+
+// wireKey is the text a rendered value is deduplicated by: the string itself
+// for a scalar or a body, and the JSON of a list or object, so two draws that
+// would put the same bytes on the wire are one probe.
+func wireKey(rendered any) string {
+	switch v := rendered.(type) {
+	case string:
+		return v
+	default:
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(encoded)
+	}
 }
 
 // label names the draw in rapid's output, and is stable per subject so that a
