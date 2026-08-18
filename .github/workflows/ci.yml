@@ -139,3 +139,20 @@ jobs:
             echo "${unformatted}" >&2
             exit 1
           fi
+
+  # One always-run gate that main's branch protection requires by name. Jobs
+  # above can be renamed, split into a matrix, made conditional or path-
+  # filtered without ever stranding a merge — protection asks for "CI" and
+  # only "CI". The oracle job is dispatch-only and skips on PRs; a skip is not
+  # a failure here, deliberately.
+  ci:
+    name: CI
+    needs: [test, oracle, formatting]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every gate passed or was skipped
+        run: |
+          for r in '${{ needs.test.result }}' '${{ needs.oracle.result }}' '${{ needs.formatting.result }}'; do
+            case "$r" in success|skipped) ;; *) echo "a required job ended as: $r" >&2; exit 1 ;; esac
+          done
