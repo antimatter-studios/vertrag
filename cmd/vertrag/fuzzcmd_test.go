@@ -505,7 +505,7 @@ func TestFuzzStyledParametersAgainstACarefulServer(t *testing.T) {
 	}
 	// Both parameters must actually have been probed — a clean run that
 	// skipped them proves nothing.
-	if !strings.Contains(output, "2 body and parameter target(s)") {
+	if !strings.Contains(output, "2 body, parameter and argument target(s)") {
 		t.Errorf("both styled parameters should be probed:\n%s", output)
 	}
 }

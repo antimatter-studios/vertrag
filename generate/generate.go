@@ -87,6 +87,15 @@ func draw(t *rapid.T, schema Schema, mode Mode, depth int) any {
 		if mode == Invalid {
 			// A string where a boolean belongs is the mistake a client
 			// actually makes, rather than an exotic value.
+			//
+			// Drawn anyway, for the reason the const branch above draws: rapid
+			// panics outright when a generator consumes no randomness at all
+			// ("group did not use any data from bitstream"), and the panic
+			// arrives at the caller as a failed check with no message and no
+			// value — a finding that blames the subject for nothing. Every
+			// case of a top-level boolean did this, which is a GraphQL
+			// `Boolean!` argument and a boolean query parameter.
+			rapid.Bool().Draw(t, "not-a-boolean")
 			return "vertrag-not-a-boolean"
 		}
 		return rapid.Bool().Draw(t, "boolean")
@@ -95,6 +104,9 @@ func draw(t *rapid.T, schema Schema, mode Mode, depth int) any {
 	case "object":
 		return drawObject(t, schema, mode, depth)
 	case "null":
+		// Same reason as the boolean above: `{type: null}` permits exactly one
+		// value, and returning it without drawing is what rapid refuses.
+		rapid.Bool().Draw(t, "null")
 		return nil
 	default:
 		// No usable type. A string exercises most handlers without being
@@ -215,6 +227,12 @@ func drawInteger(t *rapid.T, schema Schema, mode Mode) any {
 // maximum is drawn about one case in four.
 func spreadInt(t *rapid.T, low, high int64) int64 {
 	if low == high {
+		// One legal value and nothing to choose between, so it is drawn for the
+		// reason the const branch draws: a generator consuming no randomness at
+		// all makes rapid panic, and the panic reaches a caller outside `go
+		// test` as a finding with no message. `minimum: 5, maximum: 5` is the
+		// shape, and a GraphQL argument makes it a top-level value.
+		rapid.Bool().Draw(t, "fixed")
 		return low
 	}
 	switch rapid.SampledFrom([]string{"boundary", "spread", "biased"}).Draw(t, "spread") {
@@ -415,6 +433,17 @@ func drawObject(t *rapid.T, schema Schema, mode Mode, depth int) any {
 			}
 			return out
 		}
+	}
+
+	if len(properties) == 0 {
+		// An object schema naming no properties permits exactly one value this
+		// can build, `{}`, and building it draws nothing — which rapid refuses
+		// with a panic the caller sees as a finding carrying no message and no
+		// value. `{type: object}` with nothing under it is an ordinary request
+		// body, so this is reached from a description that looks perfectly
+		// well written.
+		rapid.Bool().Draw(t, "object")
+		return map[string]any{}
 	}
 
 	out := map[string]any{}

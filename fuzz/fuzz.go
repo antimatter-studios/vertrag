@@ -150,6 +150,12 @@ const (
 	InPath   = "path"
 	InQuery  = "query"
 	InHeader = "header"
+	// InArgument is a GraphQL field argument, whose value travels in the
+	// request's `variables`. It is its own location rather than a body because
+	// nothing about judging one is the same: the value is one entry of a
+	// document vertrag composed, and the server states its verdict in the reply
+	// BODY rather than in the status. See judgeGraphQL.
+	InArgument = "argument"
 	// InWhole is the subject of a whole-request finding: every part drawn
 	// together, no single one to blame.
 	InWhole = "whole request"
@@ -172,7 +178,31 @@ type Subject struct {
 	// cannot express ("spaceDelimited", "pipeDelimited", "deepObject"), else
 	// empty. It decides whether an object value has a wire form at all.
 	Style string
+
+	// Where, for a GraphQL argument, is the field it belongs to. `first` alone
+	// names nothing on a schema where nine fields paginate.
+	Where string
+
+	// Possessed marks a subject whose value must NAME something that already
+	// exists rather than only being well formed — an `ID` argument, in
+	// practice. Generation can produce anything the caller must SHAPE and
+	// nothing they must POSSESS, so a server refusing a made-up identifier is
+	// doing its job. It is the same exemption a path parameter's 404 gets, and
+	// judge applies it in the same place.
+	Possessed bool
+
+	// byBody says the server states its verdict in the reply's body rather
+	// than in its status. It is unexported because it is not a caller's
+	// decision: an argument implies it, and only wholeSubject sets it
+	// otherwise.
+	byBody bool
 }
+
+// judgedByBody reports whether the reply's status settles the verdict.
+//
+// A GraphQL endpoint answers 200 to a query it refused, so for those the answer
+// is no, and judge reads the body instead.
+func (s Subject) judgedByBody() bool { return s.In == InArgument || s.byBody }
 
 // Describe names the subject the way a sentence about it would.
 func (s Subject) Describe() string {
@@ -181,6 +211,11 @@ func (s Subject) Describe() string {
 		return "body"
 	case InWhole:
 		return "whole request"
+	case InArgument:
+		if s.Where == "" {
+			return fmt.Sprintf("argument %q", s.Name)
+		}
+		return fmt.Sprintf("argument %q of %s", s.Name, s.Where)
 	}
 	return fmt.Sprintf("%s parameter %q", s.In, s.Name)
 }
@@ -234,6 +269,17 @@ func ProbeBody(ctx context.Context, mediaType string, schema generate.Schema, mo
 // what a 500 means.
 func ProbeParameter(ctx context.Context, subject Subject, schema generate.Schema, mode generate.Mode, send Sender, opts Options) (Finding, bool) {
 	return probe(ctx, subject, schema, mode, parameterForm(subject, schema), send, opts)
+}
+
+// ProbeArgument does the same for one GraphQL field argument.
+//
+// It shares the whole of the loop with the other two — the draw, the pin, the
+// validity check, the shrink — and differs in the two places GraphQL differs:
+// the value stays a JSON value on its way into `variables`, and the verdict is
+// read from the reply's body because a GraphQL endpoint answers 200 to its own
+// refusals.
+func ProbeArgument(ctx context.Context, subject Subject, schema generate.Schema, mode generate.Mode, send Sender, opts Options) (Finding, bool) {
+	return probe(ctx, subject, schema, mode, argumentForm(), send, opts)
 }
 
 // probe is the whole of the generate-check-send-judge loop, for any subject.
@@ -300,7 +346,7 @@ func probe(
 		// and applying them after rendering would mean parsing the wire form
 		// back to reach a field. A safety interlock with a path around it is
 		// not one — see Pins.
-		value, engaged := opts.Pin.Apply(schema, value)
+		value, engaged := opts.Pin.ApplyTo(subject, schema, value)
 		for _, name := range engaged {
 			if opts.Engaged != nil {
 				opts.Engaged[name]++
@@ -360,7 +406,7 @@ func probe(
 			return
 		}
 
-		if message, bad := judge(mode, subject, reply.StatusCode); bad {
+		if message, bad := judge(mode, subject, reply); bad {
 			found = Finding{
 				Mode:    mode,
 				Subject: subject,
@@ -417,8 +463,11 @@ func wireKey(rendered any) string {
 // label names the draw in rapid's output, and is stable per subject so that a
 // seed replays to the same case.
 func (s Subject) label() string {
-	if s.In == InBody || s.In == "" {
+	switch s.In {
+	case InBody, "":
 		return "body"
+	case InArgument:
+		return "argument"
 	}
 	return "parameter"
 }
@@ -430,12 +479,17 @@ func verb(mode generate.Mode) string {
 	return "forbids"
 }
 
-// judge decides whether a status is the right answer to the request that
+// judge decides whether a reply is the right answer to the request that
 // produced it.
-func judge(mode generate.Mode, subject Subject, status string) (string, bool) {
-	code, err := strconv.Atoi(strings.TrimSpace(status))
+//
+// The reply rather than only its status, because one protocol here does not put
+// its verdict there: a GraphQL endpoint answers 200 to a query it refused, so a
+// judge holding the status alone would call every refusal an acceptance and
+// report a validation bypass for each one. See judgeGraphQL.
+func judge(mode generate.Mode, subject Subject, reply validate.Message) (string, bool) {
+	code, err := strconv.Atoi(strings.TrimSpace(reply.StatusCode))
 	if err != nil {
-		return fmt.Sprintf("the server answered %q, which is not a status code", status), true
+		return fmt.Sprintf("the server answered %q, which is not a status code", reply.StatusCode), true
 	}
 
 	switch {
@@ -444,6 +498,9 @@ func judge(mode generate.Mode, subject Subject, status string) (string, bool) {
 		// failing on it is never the documented behaviour.
 		return fmt.Sprintf("the server returned %d for a generated %s — it failed rather than rejected",
 			code, subject.Describe()), true
+
+	case subject.judgedByBody():
+		return judgeGraphQL(mode, subject, code, reply.Body)
 
 	case mode == generate.Valid && code == http.StatusNotFound && subject.In == InPath:
 		// A well-formed identifier that names nothing is a 404 by design, and
@@ -463,6 +520,70 @@ func judge(mode generate.Mode, subject Subject, status string) (string, bool) {
 			"so it disagrees with its description about what is valid", code, subject.Describe()), true
 	}
 	return "", false
+}
+
+// judgeGraphQL decides the same question for a GraphQL argument, where the
+// server states its verdict in the body.
+//
+// A GraphQL endpoint answers 200 to nearly everything — a query naming a field
+// that does not exist, an argument of the wrong type, and a request served
+// perfectly are all 200 with different bodies — and the specification only
+// permits a non-200 for a request that could not be processed at all. So
+// "rejected" here means a non-empty `errors`, or a 4xx; anything else is the
+// server having accepted what it was sent.
+//
+// The possession exemption sits in the valid branch and nowhere else. A
+// generated ID is well formed by construction and names nothing by luck, so a
+// server saying so is right and reporting it would be vertrag blaming the API
+// for an identifier vertrag invented. The invalid branch keeps its teeth: a
+// malformed value is malformed whatever the caller holds, and a server that
+// accepts one has a bypass whether or not an id was involved.
+func judgeGraphQL(mode generate.Mode, subject Subject, code int, body string) (string, bool) {
+	refused, why := graphqlRefusal(code, body)
+
+	switch {
+	case mode == generate.Valid && refused:
+		if subject.Possessed {
+			return "", false
+		}
+		return fmt.Sprintf("the server refused a generated %s that its own schema permits, "+
+			"so it disagrees with its schema about what is valid: %s", subject.Describe(), why), true
+
+	case mode == generate.Invalid && !refused:
+		return fmt.Sprintf("the server answered without error for a generated %s its own schema forbids, "+
+			"so the type the schema declares is not enforced", subject.Describe()), true
+	}
+	return "", false
+}
+
+// graphqlRefusal reads a reply as an acceptance or a refusal, and says why.
+func graphqlRefusal(code int, body string) (bool, string) {
+	if code >= 400 {
+		// GraphQL over HTTP allows a 4xx for a request the server could not
+		// process at all — a malformed document, an unreadable body — and that
+		// is a refusal however the body reads.
+		return true, fmt.Sprintf("it answered %d", code)
+	}
+
+	var document struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(body), &document); err != nil || len(document.Errors) == 0 {
+		// A body that is not a GraphQL response is not a refusal of the
+		// argument. It is a finding in its own right, and the one the examples
+		// phase already makes about the same operation — see
+		// runner/graphql.go. Repeating it once per generated value would bury
+		// everything else the probe found.
+		return false, ""
+	}
+
+	message := document.Errors[0].Message
+	if message == "" {
+		message = "(the server gave no message)"
+	}
+	return true, message
 }
 
 // collector receives rapid's verdict outside a Go test.

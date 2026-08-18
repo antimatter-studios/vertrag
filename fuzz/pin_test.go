@@ -102,11 +102,50 @@ func TestAPinReportsWhichOperationsItHeld(t *testing.T) {
 	}
 }
 
+// TestTheWholeRequestPassCarriesThePinnedValueToo pins the hole this found:
+// `--whole-request` draws a body of its own and sends it, and it did not apply
+// the pin at all. A run with `dry_run` pinned held it on every per-part probe
+// and released it on every whole-request one — which is the one arrangement in
+// which the caller believes the interlock is on and it is off.
+func TestTheWholeRequestPassCarriesThePinnedValueToo(t *testing.T) {
+	parts := []Part{
+		{Subject: Subject{In: InBody}, Schema: orderSchema, Media: "application/json"},
+		{Subject: Subject{In: InQuery, Name: "account"}, Schema: generate.Schema{"type": "string", "minLength": 1}},
+	}
+
+	var live, sent int
+	send := func(ctx context.Context, values map[string]any) (validate.Message, error) {
+		sent++
+		var body map[string]any
+		if err := json.Unmarshal([]byte(values["body"].(string)), &body); err != nil {
+			t.Fatalf("the body was not JSON: %v", err)
+		}
+		if body["dry_run"] != true {
+			live++
+		}
+		return validate.Message{StatusCode: "200"}, nil
+	}
+
+	engaged := map[string]int{}
+	ProbeWhole(context.Background(), parts, generate.Valid, send,
+		Options{Cases: 40, Seed: 1, Pin: Pins{"dry_run": true}, Engaged: engaged})
+
+	if sent == 0 {
+		t.Fatal("nothing was sent, so the pin proved nothing")
+	}
+	if live != 0 {
+		t.Errorf("%d of %d whole requests did not carry the pin", live, sent)
+	}
+	if engaged["dry_run"] == 0 {
+		t.Error("the pin held on the whole-request pass and reported engaging nowhere")
+	}
+}
+
 // TestAPinNamingNothingRefusesToRun is the failure this is built around: a
 // typo, or a field renamed in the description since the pin was written, must
 // not leave a configuration that reads like a safety control and holds nothing.
 func TestAPinNamingNothingRefusesToRun(t *testing.T) {
-	err := CheckPins(Pins{"dryrun": true}, []generate.Schema{orderSchema})
+	err := CheckPins(Pins{"dryrun": true}, []generate.Schema{orderSchema}, nil)
 	if err == nil {
 		t.Fatal("a pin naming no field anywhere should refuse to run")
 	}
@@ -125,7 +164,7 @@ func TestAPinMatchingOneSchemaOfManyIsAccepted(t *testing.T) {
 		"note": map[string]any{"type": "string"},
 	}}
 
-	if err := CheckPins(Pins{"dry_run": true}, []generate.Schema{health, orderSchema}); err != nil {
+	if err := CheckPins(Pins{"dry_run": true}, []generate.Schema{health, orderSchema}, nil); err != nil {
 		t.Errorf("a pin matching one body of several should be accepted: %v", err)
 	}
 	// And on the operation that does not declare it, nothing is inserted:

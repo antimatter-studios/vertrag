@@ -50,6 +50,16 @@ filters, hooks, auth, the runner and every reporter work on `Transaction` and
 are shared unchanged. What is not shared is one intermediate representation
 that would have carried no GraphQL information.
 
+Generation crosses that boundary the same way. A GraphQL request carries no
+body schema — one would describe `{query, variables}` and set the generator to
+writing documents at random — so `compile` emits one JSON Schema per ARGUMENT,
+built from the argument's own type, and hangs them on `Request` beside
+`Parameters`. `fuzz` then treats an argument as one more subject it can vary,
+with the value going into the query's `variables` rather than into a URI. Two
+things are GraphQL-specific and both live behind that one subject: the value
+stays a JSON value on the way to the wire, and the verdict is read from the
+reply's `errors` because the status is 200 either way.
+
 The first ten are stages, not layers: each has one input type and one output type, and
 each is tested against a reference implementation on its own. That is what lets
 a failure name its own cause — a parse difference cannot be mistaken for a

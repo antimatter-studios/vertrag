@@ -74,6 +74,25 @@ func graphqlResponseFindings(expectation *compile.GraphQL, expected, actual vali
 
 	if hasErrors {
 		if findings := graphqlErrorFindings(errorsRaw); len(findings) > 0 {
+			if len(expectation.Possessed) > 0 {
+				// This query passes an identifier vertrag made up, because a
+				// GraphQL schema states no example request and `userById(id:
+				// ID!)` cannot be asked without one. Every legal id is well
+				// formed and which ones EXIST is the server's data rather than
+				// its contract, so a server answering "no such user" is right
+				// and reporting it would be vertrag failing the API for a row
+				// nobody ever created. It is the same exemption a path
+				// parameter's 404 already gets, and the reasoning is written
+				// out at refusals.isLogin: generation can produce anything the
+				// caller must SHAPE and nothing they must POSSESS.
+				//
+				// What it costs is real and is not hidden: a genuinely broken
+				// resolver behind such a field goes unreported here. The
+				// compiler names every operation in this position up front —
+				// see GraphQLResult.Notes — so the exemption is visible before
+				// the results rather than inferred from their absence.
+				return nil
+			}
 			// The shape of `data` is deliberately not checked as well. A failed
 			// field is null by specification and its children are absent, so
 			// walking the selection here would bury the server's own

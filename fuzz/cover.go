@@ -52,13 +52,16 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 		return nil
 	}
 	var form wire
-	if subject.In == InBody {
+	switch subject.In {
+	case InBody:
 		f, ok := BodyForm(mediaType, schema)
 		if !ok {
 			return nil
 		}
 		form = f
-	} else {
+	case InArgument:
+		form = argumentForm()
+	default:
 		form = parameterForm(subject, schema)
 	}
 
@@ -71,7 +74,7 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 
 		// Pinned between the boundary value and the wire, exactly as in the
 		// fuzz loop, so the two phases cannot disagree about what is held.
-		value, engaged := opts.Pin.Apply(schema, probe.Value)
+		value, engaged := opts.Pin.ApplyTo(subject, schema, probe.Value)
 		for _, name := range engaged {
 			if opts.Engaged != nil {
 				opts.Engaged[name]++
@@ -112,7 +115,7 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 			outcomes = append(outcomes, outcome)
 			continue
 		}
-		if message, bad := judge(probe.Mode, subject, reply.StatusCode); bad {
+		if message, bad := judge(probe.Mode, subject, reply); bad {
 			outcome.Finding = &CoverageFinding{Probe: probe, Subject: subject, Value: rendered,
 				Status: reply.StatusCode, Message: message}
 		}

@@ -77,20 +77,12 @@ func coverAll(
 	// before the same first request. See probeAll: a pin that held on one
 	// probing phase and not the other would not be a pin.
 	if len(options.Pin) > 0 {
-		var bodies []generate.Schema
-		for _, transaction := range transactions {
-			targets, _ := probeTargets(transaction.Request)
-			for _, t := range targets {
-				if t.subject.In == fuzz.InBody {
-					bodies = append(bodies, t.schema)
-				}
-			}
-		}
-		if err := fuzz.CheckPins(options.Pin, bodies); err != nil {
+		bodies, arguments := pinnable(transactions)
+		if err := fuzz.CheckPins(options.Pin, bodies, arguments); err != nil {
 			return nil, err
 		}
 		options.Engaged = map[string]int{}
-		fmt.Printf("pinned in every generated body: %s\n", options.Pin.Describe())
+		fmt.Printf("pinned in every generated %s: %s\n", pinScope(bodies, arguments), options.Pin.Describe())
 	}
 	if len(options.Accept) > 0 {
 		options.Suppression = &fuzz.Suppression{}
@@ -261,7 +253,7 @@ func coverAll(
 		}
 	}
 
-	fmt.Printf("\n%d operation(s) covered over %d body and parameter target(s), %d probe(s) sent, %d finding(s)",
+	fmt.Printf("\n%d operation(s) covered over %d body, parameter and argument target(s), %d probe(s) sent, %d finding(s)",
 		len(transactions), probed, sent, findings)
 	if unattributable > 0 {
 		fmt.Printf(", %d valid probe(s) skipped because the operation fails as documented", unattributable)

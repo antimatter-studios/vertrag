@@ -51,6 +51,16 @@ type Request struct {
 	// parameter the description gave no example for is not in the URI at all.
 	Template   string      `json:"-"`
 	Parameters []Parameter `json:"-"`
+
+	// GraphQLArguments are the arguments this request's query passes, each with
+	// the JSON Schema its value must satisfy and the variable it travels under.
+	//
+	// They sit on the request rather than beside the GraphQL expectation
+	// because they are the analogue of Parameters: the parts of the request a
+	// generated value can occupy, and what SetGraphQLArgument puts one back
+	// into. Absent from the JSON for the same reason Schema is — Dredd has no
+	// equivalent, because Dredd cannot test GraphQL at all.
+	GraphQLArguments []GraphQLArgument `json:"-"`
 }
 
 // Where a parameter travels. They are the OpenAPI names, because that is what

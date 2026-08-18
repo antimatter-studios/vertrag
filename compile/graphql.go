@@ -108,19 +108,34 @@ const (
 	WithheldMutation = "a mutation changes the server's state, so vertrag does not send one unless it is asked to; " +
 		"set `graphql: {mutations: true}` in the config, or pass --graphql-mutations, to include them"
 
-	// WithheldArguments is the boundary of this round: a field whose arguments
-	// are required cannot be queried without values for them, and vertrag does
-	// not generate argument values yet. Withholding it is the honest answer —
-	// sending it without its arguments would produce a query the server
-	// refuses, and a failure report about vertrag's own query rather than
-	// about the API.
-	WithheldArguments = "it requires arguments, and this version of vertrag does not generate argument values"
+	// WithheldArguments is what is left of the boundary that used to withhold
+	// every field taking a required argument. Values are generated now, from
+	// each argument's own type — see graphqlvalues.go — so what remains is the
+	// case where the TYPE offers nothing to generate from: a custom scalar,
+	// whose value space is defined outside the schema by definition. Sending a
+	// guess there would produce a failure report about vertrag's invention
+	// rather than about the API, and sending the field without its argument
+	// produces a query the server refuses outright. The annotations name the
+	// exact type, once each.
+	WithheldArguments = "it requires an argument whose type vertrag can generate no value for; " +
+		"the annotations name the type"
+
+	// WithheldIntrospection covers a root field of GraphQL's own introspection
+	// system, which some servers list among the query root's fields.
+	//
+	// It is not withheld for safety but for meaning: `__type(name: String!)`
+	// describes the schema rather than the API, so a run that sent it would be
+	// testing the server's introspection support and reporting it as an
+	// operation the API offers. It is named rather than dropped in silence for
+	// the same reason everything else here is.
+	WithheldIntrospection = "it is one of GraphQL's introspection meta-fields, which describes the schema " +
+		"rather than the API, so vertrag does not send it as an operation"
 
 	// WithheldNothingSelectable covers the two ways an otherwise fine field
-	// yields no query: everything under it needs arguments, or everything
-	// under it lies deeper than the depth bound.
-	WithheldNothingSelectable = "nothing could be selected from it: the fields of its type either require arguments " +
-		"or lie deeper than the depth bound"
+	// yields no query: everything under it lies deeper than the depth bound, or
+	// everything under it takes an argument no value can be built for.
+	WithheldNothingSelectable = "nothing could be selected from it: the fields of its type either lie deeper " +
+		"than the depth bound or take an argument vertrag can generate no value for"
 
 	// WithheldUnknownType is a schema that refers to a type it does not
 	// declare. It is the schema's problem rather than the run's, and it is
@@ -157,6 +172,18 @@ type GraphQLResult struct {
 	// Depth is the bound the selections were built to, so a report explaining
 	// what was trimmed can say what to change.
 	Depth int
+
+	// Generated counts the operations sent with argument values vertrag made
+	// up, and Possessed names those among them whose values must name
+	// something that already exists on the server.
+	//
+	// Both are reported for the reason Withheld is. An OpenAPI run sends the
+	// request the DESCRIPTION states; a GraphQL run with arguments sends one
+	// vertrag composed, and a reader who does not know that will read a finding
+	// about `userById` as a broken resolver rather than as an id nobody ever
+	// created.
+	Generated int
+	Possessed []string
 }
 
 // GraphQLWithheld is one operation that was not turned into a transaction.
@@ -194,9 +221,23 @@ func (r GraphQLResult) Notes() []string {
 	}
 	if r.Trimmed > 0 {
 		notes = append(notes, fmt.Sprintf(
-			"%d field(s) were left out of the selection sets below the top level: they need arguments, "+
-				"or lie deeper than the depth bound of %d (raise `graphql: {max-depth: N}` to reach further)",
+			"%d field(s) were left out of the selection sets below the top level: they lie deeper than the "+
+				"depth bound of %d (raise `graphql: {max-depth: N}` to reach further), or take an argument "+
+				"whose type no value can be generated for",
 			r.Trimmed, r.Depth))
+	}
+	if r.Generated > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"%d of the schema's operations are sent with argument values vertrag generated from the "+
+				"argument types: a GraphQL schema states no example request, so there is nothing else to send",
+			r.Generated))
+	}
+	if len(r.Possessed) > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"%d of those pass a generated ID, which names something that must already exist — vertrag can "+
+				"shape an identifier but cannot possess one — so a GraphQL error from one of them is not "+
+				"reported as a failure: %s",
+			len(r.Possessed), strings.Join(r.Possessed, ", ")))
 	}
 	return notes
 }
@@ -267,24 +308,43 @@ func CompileGraphQL(schema *graphql.Schema, options GraphQLOptions, filename str
 		for _, field := range declared.Fields {
 			name := graphqlTransactionName(root.operation, field.Name)
 
-			// The mutation gate is here, before the query is even built,
-			// rather than in a filter the caller applies afterwards. A
-			// safety interlock that a later stage can forget to apply is one
-			// that will eventually be forgotten — the same reasoning that put
-			// fuzz's pins between the draw and the wire.
+			// The mutation gate is here, before the query is even built and
+			// before a single argument value is generated, rather than in a
+			// filter the caller applies afterwards. A safety interlock that a
+			// later stage can forget to apply is one that will eventually be
+			// forgotten — the same reasoning that put fuzz's pins between the
+			// draw and the wire. Generation is downstream of this line by
+			// construction: it fills the variables of transactions that exist,
+			// and a withheld mutation never becomes one.
 			if root.withheld != "" {
 				result.Withheld = append(result.Withheld,
 					GraphQLWithheld{Name: name, Reason: root.withheld})
 				continue
 			}
 
-			node, reason := builder.field(field, options.maxDepth())
+			if strings.HasPrefix(field.Name, "__") {
+				result.Withheld = append(result.Withheld,
+					GraphQLWithheld{Name: name, Reason: WithheldIntrospection})
+				continue
+			}
+
+			node, reason := builder.field(field, options.maxDepth(), field.Name, true)
 			if reason != "" {
 				result.Withheld = append(result.Withheld, GraphQLWithheld{Name: name, Reason: reason})
 				continue
 			}
-			result.Transactions = append(result.Transactions,
-				graphqlTransaction(root.operation, field, node, options, filename))
+
+			// The variables are named once the selection is final, so that a
+			// field dropped after its arguments were built takes them with it.
+			var arguments []GraphQLArgument
+			graphqlBind(&node, map[string]bool{}, &arguments)
+
+			transaction := graphqlTransaction(root.operation, field, node, arguments, options, filename)
+			if len(arguments) > 0 {
+				result.Generated++
+			}
+			result.Possessed = append(result.Possessed, transaction.GraphQL.Possessed...)
+			result.Transactions = append(result.Transactions, transaction)
 		}
 	}
 
@@ -334,6 +394,15 @@ type GraphQL struct {
 	// Data is the shape `data` must have — one entry, the root field, with the
 	// selection under it.
 	Data []GraphQLSelection
+
+	// Possessed names the arguments this query passes a generated identifier
+	// for, empty when it passes none.
+	//
+	// It travels on the expectation because it changes how the answer is read.
+	// A generated id names nothing on most servers, and a server saying so is
+	// doing its job — the same judgement a path parameter's 404 already gets.
+	// See runner/graphql.go for what it costs and why the trade is taken.
+	Possessed []string
 }
 
 // GraphQLSelection is one key the query asked for, and what the schema said
@@ -394,24 +463,26 @@ func graphqlTransaction(
 	operation string,
 	field graphql.Field,
 	node graphqlNode,
+	arguments []GraphQLArgument,
 	options GraphQLOptions,
 	filename string,
 ) Transaction {
-	document := graphqlDocument(operation, field.Name, node)
+	document := graphqlDocument(operation, field.Name, node, arguments)
 
 	// The body is built by the JSON encoder rather than by string
 	// concatenation, because the query contains newlines and quotes and a
 	// hand-assembled body would be invalid for exactly the schemas whose
 	// selection sets are worth reading.
 	//
-	// `variables` is present and empty. Nothing fills it yet — this round
-	// sends no argument values — but it is where generated arguments will go,
-	// and a server that rejects an empty variables object rejects a legal
-	// request.
+	// `variables` carries a value for every argument the field REQUIRES, and
+	// nothing for the rest: an undefined variable is how GraphQL says "this
+	// argument was not written", which is what leaves the server's own defaults
+	// in force. It is present even when empty, because a server that rejects an
+	// empty variables object rejects a legal request.
 	payload, _ := json.Marshal(struct {
 		Query     string         `json:"query"`
 		Variables map[string]any `json:"variables"`
-	}{Query: document, Variables: map[string]any{}})
+	}{Query: document, Variables: graphqlVariableValues(arguments)})
 
 	origin := graphqlOrigin(filename, operation, field.Name)
 	return Transaction{
@@ -427,9 +498,10 @@ func graphqlTransaction(
 			// coverage phases generate bodies from, and a schema describing
 			// `{query, variables}` would have them generating GraphQL
 			// documents at random — every one of which the server rejects as
-			// a syntax error, which says nothing about the API. Generating
-			// ARGUMENT values is the useful version of that idea and is the
-			// next round's job.
+			// a syntax error, which says nothing about the API. What they
+			// generate here instead is one value per ARGUMENT, from the
+			// argument's own type.
+			GraphQLArguments: arguments,
 		},
 		Response: Response{
 			// 200 and nothing else. A GraphQL endpoint answers 200 to very
@@ -457,18 +529,19 @@ func graphqlTransaction(
 		// open the gate: `--tag mutation` selects among the transactions that
 		// were built, and a withheld mutation was never built.
 		Tags:    []string{strings.ToLower(operation)},
-		GraphQL: graphqlExpectation(operation, field.Name, node),
+		GraphQL: graphqlExpectation(operation, field.Name, node, arguments),
 	}
 }
 
 // graphqlExpectation is the shape the response's `data` must have, derived
 // from the selection set that was asked for rather than from the schema at
 // large: what the server owes is an answer to the question that was put.
-func graphqlExpectation(operation, field string, node graphqlNode) *GraphQL {
+func graphqlExpectation(operation, field string, node graphqlNode, arguments []GraphQLArgument) *GraphQL {
 	return &GraphQL{
 		Operation: strings.ToLower(operation),
 		Field:     field,
 		Data:      graphqlShape([]graphqlNode{node}, false),
+		Possessed: graphqlPossessed(arguments),
 	}
 }
 
@@ -501,6 +574,10 @@ type graphqlNode struct {
 	listDepth      int
 	elementNonNull bool
 
+	// arguments are what this field is asked with. Their variable names are
+	// empty until graphqlBind runs over the finished tree.
+	arguments []GraphQLArgument
+
 	children []graphqlNode
 }
 
@@ -508,9 +585,12 @@ type graphqlNode struct {
 // selected.
 //
 // budget is how many levels of selection this field may still use: a field
-// that needs a sub-selection spends one and its children get the rest.
-func (b *graphqlBuilder) field(field graphql.Field, budget int) (graphqlNode, string) {
-	if graphqlRequiresArguments(field) {
+// that needs a sub-selection spends one and its children get the rest. path is
+// where the field sits in the selection, and root marks the operation's own
+// field — see (*graphqlBuilder).arguments for what the two decide.
+func (b *graphqlBuilder) field(field graphql.Field, budget int, path string, root bool) (graphqlNode, string) {
+	arguments, askable := b.arguments(field, path, root)
+	if !askable {
 		return graphqlNode{}, WithheldArguments
 	}
 
@@ -529,6 +609,7 @@ func (b *graphqlBuilder) field(field graphql.Field, budget int) (graphqlNode, st
 		nonNull:        field.Type.NonNull,
 		listDepth:      listDepth,
 		elementNonNull: graphqlElementNonNull(field.Type),
+		arguments:      arguments,
 	}
 
 	// A scalar or an enum is a leaf: it has no fields, and asking for a
@@ -546,7 +627,7 @@ func (b *graphqlBuilder) field(field graphql.Field, budget int) (graphqlNode, st
 		return graphqlNode{}, WithheldNothingSelectable
 	}
 
-	node.children = b.selectionSet(target, budget-1)
+	node.children = b.selectionSet(target, budget-1, path)
 	if len(node.children) == 0 {
 		return graphqlNode{}, WithheldNothingSelectable
 	}
@@ -554,10 +635,10 @@ func (b *graphqlBuilder) field(field graphql.Field, budget int) (graphqlNode, st
 }
 
 // selectionSet builds the entries inside one pair of braces.
-func (b *graphqlBuilder) selectionSet(target *graphql.Type, budget int) []graphqlNode {
+func (b *graphqlBuilder) selectionSet(target *graphql.Type, budget int, path string) []graphqlNode {
 	switch target.Kind {
 	case graphql.KindObject:
-		return b.fields(target.Fields, budget)
+		return b.fields(target.Fields, budget, path)
 
 	case graphql.KindInterface:
 		// An interface's own fields can be selected directly, which is the
@@ -566,8 +647,8 @@ func (b *graphqlBuilder) selectionSet(target *graphql.Type, budget int) []graphq
 		// common fields inside every fragment would multiply the query by the
 		// number of implementations and ask for the same values twice.
 		nodes := []graphqlNode{graphqlTypename()}
-		nodes = append(nodes, b.fields(target.Fields, budget)...)
-		return append(nodes, b.fragments(target, graphqlKeys(nodes), budget)...)
+		nodes = append(nodes, b.fields(target.Fields, budget, path)...)
+		return append(nodes, b.fragments(target, graphqlKeys(nodes), budget, path)...)
 
 	case graphql.KindUnion:
 		// A union has no fields of its own, so a selection on one that carries
@@ -575,7 +656,7 @@ func (b *graphqlBuilder) selectionSet(target *graphql.Type, budget int) []graphq
 		// a union and is what keeps the selection non-empty when every member
 		// turns out to be unexpandable.
 		nodes := []graphqlNode{graphqlTypename()}
-		return append(nodes, b.fragments(target, nil, budget)...)
+		return append(nodes, b.fragments(target, nil, budget, path)...)
 	}
 
 	// Input objects reach here only from a malformed schema: they are argument
@@ -584,10 +665,15 @@ func (b *graphqlBuilder) selectionSet(target *graphql.Type, budget int) []graphq
 }
 
 // fields keeps the fields that can be selected and counts the rest.
-func (b *graphqlBuilder) fields(fields []graphql.Field, budget int) []graphqlNode {
+func (b *graphqlBuilder) fields(fields []graphql.Field, budget int, path string) []graphqlNode {
 	var nodes []graphqlNode
 	for _, field := range fields {
-		node, reason := b.field(field, budget)
+		if strings.HasPrefix(field.Name, "__") {
+			// Introspection's meta-fields. Asking for one would grow the query
+			// by the whole of the type system and say nothing about the API.
+			continue
+		}
+		node, reason := b.field(field, budget, path+"."+field.Name, false)
 		if reason != "" {
 			b.trimmed++
 			continue
@@ -599,7 +685,7 @@ func (b *graphqlBuilder) fields(fields []graphql.Field, budget int) []graphqlNod
 
 // fragments builds one inline fragment per concrete type, skipping the fields
 // the caller has already selected on the abstract type.
-func (b *graphqlBuilder) fragments(target *graphql.Type, already map[string]bool, budget int) []graphqlNode {
+func (b *graphqlBuilder) fragments(target *graphql.Type, already map[string]bool, budget int, path string) []graphqlNode {
 	var nodes []graphqlNode
 	for _, name := range target.Possible {
 		concrete, ok := b.schema.Types[name]
@@ -618,7 +704,7 @@ func (b *graphqlBuilder) fragments(target *graphql.Type, already map[string]bool
 			extra = append(extra, field)
 		}
 
-		children := b.fields(extra, budget)
+		children := b.fields(extra, budget, path)
 		if len(children) == 0 {
 			// An empty fragment body is a syntax error too, so a concrete type
 			// that adds nothing selectable gets no fragment rather than an
@@ -659,21 +745,6 @@ func graphqlKeys(nodes []graphqlNode) map[string]bool {
 	return keys
 }
 
-// graphqlRequiresArguments reports whether a field cannot be asked for without
-// argument values.
-//
-// Non-null AND no default: the specification makes an argument required only
-// when both hold, so a `first: Int! = 10` is satisfied by leaving it out and
-// the server applies the default.
-func graphqlRequiresArguments(field graphql.Field) bool {
-	for _, argument := range field.Args {
-		if argument.Type.NonNull && !argument.HasDefault {
-			return true
-		}
-	}
-	return false
-}
-
 // graphqlNamedType is the name at the bottom of a reference's wrappers.
 func graphqlNamedType(ref graphql.TypeRef) string {
 	for ref.List != nil {
@@ -701,11 +772,16 @@ func graphqlElementNonNull(ref graphql.TypeRef) bool {
 // just as valid, but the name is what a server's logs, its APM traces and its
 // persisted-query allow-lists key on, so a failing transaction can be found on
 // the other side by the name vertrag gave it.
-func graphqlDocument(operation, field string, node graphqlNode) string {
+//
+// Every argument the document passes is declared on the operation and written
+// as `$name` at the field, never as a literal. See GraphQLArgument for why that
+// is what makes a value replaceable at all.
+func graphqlDocument(operation, field string, node graphqlNode, arguments []GraphQLArgument) string {
 	var out strings.Builder
 	out.WriteString(strings.ToLower(operation))
 	out.WriteString(" ")
 	out.WriteString(field)
+	out.WriteString(graphqlDeclarations(arguments))
 	out.WriteString(" {\n")
 	graphqlRender(&out, []graphqlNode{node}, 1)
 	out.WriteString("}")
@@ -718,6 +794,7 @@ func graphqlRender(out *strings.Builder, nodes []graphqlNode, depth int) {
 		out.WriteString(indent)
 		if node.field != "" {
 			out.WriteString(node.field)
+			out.WriteString(graphqlArgumentList(node.arguments))
 		} else {
 			out.WriteString("... on ")
 			out.WriteString(node.condition)

@@ -286,6 +286,13 @@ fuzz:
   #
   # It holds a field the body already has; it never invents one. The `examples`
   # phase is not covered — that sends the description's own example, unchanged.
+  #
+  # On a GraphQL schema the same key names an ARGUMENT — there is no request
+  # body to declare a field in, and `report(dryRun: Boolean!)` is where the
+  # dangerous flag lives. A pinned argument is held in every generated query
+  # AND set in the one request vertrag composes for itself per operation, which
+  # matters more here than for a body: an argument left out of `variables` is
+  # not absent, it is whatever default the schema declared.
   # pin:
   #   dry_run: true
 

@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/antimatter-studios/vertrag/apidesc"
 	"github.com/antimatter-studios/vertrag/compile"
@@ -50,44 +49,37 @@ func transactionsFor(source []byte, filename string, settings config.Config) (co
 	return compiled, result.Notes(), nil
 }
 
-// graphqlPhaseNotes reports the probing phases that can do nothing with a
+// graphqlPhaseNotes reports the phases that can still do nothing with a
 // GraphQL schema.
 //
-// Coverage and fuzz generate values from the JSON Schema a request body
-// carries, and a GraphQL request body is a query document with no schema
-// behind it — so both would run over nothing and report nothing found, which
-// reads exactly like a server that handles everything correctly. The stateful
-// phase is in the same position: it follows the links a description declares
-// between operations, and a schema declares none.
+// It used to name coverage and fuzz as well, because generation drew values
+// from the JSON Schema a request body carries and a GraphQL request body is a
+// query document with no schema behind it. That is no longer true: both phases
+// generate ARGUMENT values now, from each argument's own type, so both have
+// work to do wherever the schema declares an argument. A schema whose fields
+// take none produces no probeable operations, and prepareProbes says so in the
+// words it says it for every other description.
 //
-// The useful version of all three for GraphQL is generating ARGUMENT values,
-// which is a round of its own. Until then this says so, because a phase that
-// was asked for and silently did nothing is the failure this repository keeps
-// meeting.
+// The stateful phase is the one that has not moved. It follows the links a
+// description declares between operations, and a GraphQL schema declares none —
+// what corresponds to a link there is a field returning an object one could ask
+// more about, which is a different thing to build. A phase that was asked for
+// and silently did nothing is the failure this repository keeps meeting, so it
+// still says so.
 func graphqlPhaseNotes(mediaType string, phases []string) []string {
 	if mediaType != compile.MediaTypeGraphQL {
 		return nil
 	}
-
-	var idle []string
 	for _, phase := range phases {
-		if phase != config.PhaseExamples {
-			idle = append(idle, phase)
+		if phase != config.PhaseStateful {
+			continue
 		}
+		return []string{fmt.Sprintf(
+			"the %s phase has nothing to work on in a GraphQL schema and will report nothing: it runs the "+
+				"chains a description's links declare between operations, and a GraphQL schema declares none",
+			config.PhaseStateful)}
 	}
-	if len(idle) == 0 {
-		return nil
-	}
-
-	subject := "the " + strings.Join(idle, " and ") + " phase has"
-	if len(idle) > 1 {
-		subject = "the " + strings.Join(idle, " and ") + " phases have"
-	}
-	return []string{fmt.Sprintf(
-		"%s nothing to work on in a GraphQL schema and will report nothing: generation draws "+
-			"values from the JSON Schema a request body carries, and a GraphQL request body is a "+
-			"query document with no schema behind it. Probing a GraphQL API means generating "+
-			"argument values, which vertrag does not do yet", subject)}
+	return nil
 }
 
 func graphqlOptions(settings config.Config) compile.GraphQLOptions {

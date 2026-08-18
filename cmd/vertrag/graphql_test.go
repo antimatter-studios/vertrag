@@ -243,10 +243,12 @@ func TestCompileShowsTheQueriesAndWithholdsTheMutations(t *testing.T) {
 	}
 }
 
-// A probing phase asked for against a GraphQL schema can do nothing yet, and
-// has to say so: a phase that ran over nothing and found nothing reads exactly
-// like a server that handled everything correctly.
-func TestAProbingPhaseSaysItHasNothingToProbeInASchema(t *testing.T) {
+// A probing phase generates one value per ARGUMENT, so a schema whose fields
+// declare none gives it nothing to generate. That is now an ordinary empty
+// probe rather than a limitation of the tool, and it has to be visible either
+// way: a phase that ran over nothing and found nothing reads exactly like a
+// server that handled everything correctly.
+func TestAProbingPhaseOverASchemaWithNoArgumentsSaysItSentNothing(t *testing.T) {
 	binary := build(t)
 	endpoint, schema, _ := serveGraphQL(t, conformingAnswers)
 
@@ -255,8 +257,11 @@ func TestAProbingPhaseSaysItHasNothingToProbeInASchema(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d\n%s", code, output)
 	}
-	if !strings.Contains(output, "nothing to work on in a GraphQL schema") {
-		t.Errorf("the fuzz phase ran over nothing without saying so:\n%s", output)
+	if strings.Contains(output, "nothing to work on in a GraphQL schema") {
+		t.Errorf("the fuzz phase still claims a schema is beyond it:\n%s", output)
+	}
+	if !strings.Contains(output, "0 request(s) sent") {
+		t.Errorf("the phase sent nothing and did not say so:\n%s", output)
 	}
 }
 
