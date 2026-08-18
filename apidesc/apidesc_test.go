@@ -22,10 +22,13 @@ func TestDetect(t *testing.T) {
 		{"JSON Swagger 2", `{"swagger": "2.0"}`, MediaTypeOpenAPI2, true},
 		{"API Blueprint is the fallback", "# My API\n", MediaTypeAPIBlueprint, false},
 
-		// A two-part version is not matched, because the reference requires all
-		// three. Accepting it here would make vertrag parse documents Dredd
-		// rejects.
-		{"two-part version is not OpenAPI 3", `openapi: "3.0"`, MediaTypeAPIBlueprint, false},
+		// A two-part version IS matched, though the specification requires all
+		// three. This once deferred to the reference, which rejects it — but
+		// the consequence was telling the author of an OpenAPI 3 file that API
+		// Blueprint is unsupported, over a missing `.0`. The document is read
+		// and the version is reported instead; see
+		// TestAMalformedVersionIsReportedNotFatal.
+		{"two-part version is still OpenAPI 3", `openapi: "3.0"`, MediaTypeOpenAPI3, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mediaType, recognised := Detect([]byte(test.source))
@@ -116,5 +119,38 @@ func TestUnsupportedFormatsReportRatherThanCrash(t *testing.T) {
 func TestParseRejectsMalformedYAML(t *testing.T) {
 	if _, err := Parse([]byte("openapi: \"3.0.0\"\n\tbad: indentation"), "api.yml"); err == nil {
 		t.Error("unparseable YAML should be reported as an error")
+	}
+}
+
+// TestATwoPartVersionIsStillOpenAPI3 pins the fix for the worst first-contact
+// failure this tool had.
+//
+// The specification requires `openapi: major.minor.patch`, so `openapi: 3.0`
+// is malformed — but it exists in the wild, and the reference's pattern
+// answers it by not recognising the document at all and reporting that API
+// Blueprint is unsupported. Being told your OpenAPI file is an unsupported
+// format, because of a missing `.0`, is the least useful thing a tool can say.
+func TestATwoPartVersionIsStillOpenAPI3(t *testing.T) {
+	for _, source := range []string{
+		"openapi: 3.0\ninfo: {}\n",
+		`{"openapi": "3.1"}`,
+		"openapi: '3.0'\n",
+		// The well-formed spellings must keep working.
+		"openapi: 3.0.3\n",
+		`{"openapi": "3.1.0"}`,
+	} {
+		mediaType, recognised := Detect([]byte(source))
+		if !recognised || mediaType != MediaTypeOpenAPI3 {
+			t.Errorf("Detect(%q) = %q, %v; want OpenAPI 3 recognised", source, mediaType, recognised)
+		}
+	}
+
+	// And a document that really is neither is still not OpenAPI 3.
+	if _, recognised := Detect([]byte("# Some API\n\n## GET /things\n")); recognised {
+		t.Error("API Blueprint should not be detected as OpenAPI")
+	}
+	// A version that is not 3.x is not ours either.
+	if mediaType, _ := Detect([]byte("openapi: 4.0.0\n")); mediaType == MediaTypeOpenAPI3 {
+		t.Error("OpenAPI 4 should not be read as OpenAPI 3")
 	}
 }
