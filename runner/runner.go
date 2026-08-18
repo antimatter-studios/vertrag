@@ -56,6 +56,11 @@ type Request struct {
 	URI     string
 	Headers map[string]string
 	Body    string
+
+	// URL is the absolute address the request went to. URI is relative and
+	// only meaningful next to the endpoint, which a report does not otherwise
+	// repeat — a reproduction line needs the whole address.
+	URL string
 }
 
 // Runner sends transactions to a server and judges the responses.
@@ -553,6 +558,7 @@ func (t *Transaction) SetFullURL(url string) { t.fullURL = url }
 func (t *Transaction) sentRequest() Request {
 	sent := t.Request
 	sent.URI = t.FullPath
+	sent.URL = t.FullURL()
 	return sent
 }
 

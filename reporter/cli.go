@@ -137,6 +137,10 @@ func (r CLI) exchange(result runner.Result) {
 	r.headers("    ", result.Request.Headers)
 	r.body("    ", result.Request.Body)
 
+	if repro := Curl(result.Request); repro != "" {
+		fmt.Fprintf(r.Out, "  %s %s\n", r.paint(dim, "repro:"), repro)
+	}
+
 	if result.Actual.StatusCode != "" {
 		fmt.Fprintf(r.Out, "  %s %s\n", r.paint(dim, "response:"), result.Actual.StatusCode)
 		r.headers("    ", result.Actual.Headers)
