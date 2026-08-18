@@ -239,3 +239,24 @@ func TestInvalidArraysAreSometimesStillArrays(t *testing.T) {
 		t.Fatal("invalid mode never drew a list with a bad item; only wrong-type scalars, which a parameter cannot carry")
 	}
 }
+
+// TestValidIntegersReachTheirBoundaries pins the spread: over a run of draws
+// in a bounded range, the maximum itself must come up more than rarely. It is
+// the value a `<` written for `<=` gets wrong, and a generator that visits it
+// once in twenty-five cases will miss that handler in most twenty-case runs.
+func TestValidIntegersReachTheirBoundaries(t *testing.T) {
+	schema := Schema{"type": "integer", "minimum": 1, "maximum": 1000}
+	atMax, draws := 0, 0
+	rapid.Check(t, func(rt *rapid.T) {
+		draws++
+		if n, ok := Value(schema, Valid).Draw(rt, "v").(int64); ok && n == 1000 {
+			atMax++
+		}
+	})
+	// rapid's default is 100 checks; the ladder-and-boundary mix reaches the
+	// maximum in roughly a quarter of them. Ten is well under that and well
+	// over the four rapid alone managed.
+	if draws >= 50 && atMax < 10 {
+		t.Errorf("the maximum was drawn %d times in %d; the range's far end is not being reached", atMax, draws)
+	}
+}

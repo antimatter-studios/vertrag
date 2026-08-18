@@ -48,6 +48,28 @@ func (r Request) SetParameter(parameter Parameter, value any) (Request, error) {
 		return r, fmt.Errorf("re-reading the URI template %q: %w", r.Template, err)
 	}
 
+	// The new value is recorded on the request's own parameter list, not
+	// only expanded into the URI, so a SECOND SetParameter — for another
+	// parameter — rebuilds the URI from the updated list and keeps this one.
+	// Without that, setting limit then offset silently reset limit to its
+	// example: every parameter but the last reverted, and a probe that meant
+	// to vary two at once varied one.
+	updated := make([]Parameter, len(r.Parameters))
+	copy(updated, r.Parameters)
+	recorded := false
+	for i := range updated {
+		if updated[i].In == parameter.In && updated[i].Name == parameter.Name {
+			updated[i].Value, updated[i].HasValue = value, true
+			recorded = true
+		}
+	}
+	if !recorded {
+		set := parameter
+		set.Value, set.HasValue = value, true
+		updated = append(updated, set)
+	}
+	r.Parameters = updated
+
 	values := map[string]any{}
 	for _, existing := range r.Parameters {
 		if existing.In == InHeader || !existing.HasValue {
@@ -55,6 +77,10 @@ func (r Request) SetParameter(parameter Parameter, value any) (Request, error) {
 		}
 		values[existing.Name] = styled(existing, existing.Value)
 	}
+	// The template's variables are keyed by name alone, so a path `id` and a
+	// query `id` share one slot. The parameter being set is written last and
+	// wins the collision — the value asked for is the value that goes out,
+	// which is what the caller (and any probe judging the reply) relies on.
 	values[parameter.Name] = styled(parameter, value)
 
 	r.URI = parsed.Expand(values)

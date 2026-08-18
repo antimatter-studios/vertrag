@@ -283,3 +283,62 @@ func findParameter(t *testing.T, request Request, name string) Parameter {
 	t.Fatalf("no parameter named %q in %+v", name, request.Parameters)
 	return Parameter{}
 }
+
+// TestSetParameterComposes pins that setting two parameters in turn keeps
+// both. SetParameter rebuilds the URI from the request's parameter list, and
+// it used to expand the new value without recording it there — so a second
+// call for another parameter rebuilt from the ORIGINAL examples and silently
+// reset the first. Whole-request probing, which sets every parameter, sent
+// only the last one varied and never knew.
+func TestSetParameterComposes(t *testing.T) {
+	limit := Parameter{In: InQuery, Name: "limit", Value: 10.0, HasValue: true}
+	offset := Parameter{In: InQuery, Name: "offset", Value: 0.0, HasValue: true}
+	request := Request{
+		Method:     "GET",
+		URI:        "/rows?limit=10&offset=0",
+		Template:   "/rows{?limit,offset}",
+		Parameters: []Parameter{limit, offset},
+	}
+
+	first, err := request.SetParameter(limit, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := first.SetParameter(offset, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.URI != "/rows?limit=500&offset=300" {
+		t.Errorf("URI = %q, want both values kept: /rows?limit=500&offset=300", second.URI)
+	}
+	// The original request is untouched: SetParameter returns a copy.
+	if request.URI != "/rows?limit=10&offset=0" {
+		t.Errorf("the source request was mutated: %q", request.URI)
+	}
+}
+
+// TestSetParameterWinsANameCollision: a path `id` and a query `id` share one
+// template variable, so whichever is written into the expansion last wins.
+// The parameter being SET must be the one that wins, whatever order the
+// request's list happens to hold them in — the corpus's /collide/{id}
+// fixture caught the version of this that let the query example overwrite a
+// deliberately invalid path value, and reported a conforming server for
+// accepting input it never received.
+func TestSetParameterWinsANameCollision(t *testing.T) {
+	pathID := Parameter{In: InPath, Name: "id", Value: 7.0, HasValue: true}
+	queryID := Parameter{In: InQuery, Name: "id", Value: "q-value", HasValue: true}
+	request := Request{
+		Method:     "GET",
+		URI:        "/collide/7?id=q-value",
+		Template:   "/collide/{id}{?id}",
+		Parameters: []Parameter{pathID, queryID},
+	}
+
+	set, err := request.SetParameter(pathID, "not-a-number")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(set.URI, "/collide/not-a-number") {
+		t.Errorf("URI = %q; the path id being set did not win the name collision", set.URI)
+	}
+}

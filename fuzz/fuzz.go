@@ -102,6 +102,9 @@ const (
 	InPath   = "path"
 	InQuery  = "query"
 	InHeader = "header"
+	// InWhole is the subject of a whole-request finding: every part drawn
+	// together, no single one to blame.
+	InWhole = "whole request"
 )
 
 // Subject says which part of a request a probe varied.
@@ -125,8 +128,11 @@ type Subject struct {
 
 // Describe names the subject the way a sentence about it would.
 func (s Subject) Describe() string {
-	if s.In == InBody || s.In == "" {
+	switch s.In {
+	case InBody, "":
 		return "body"
+	case InWhole:
+		return "whole request"
 	}
 	return fmt.Sprintf("%s parameter %q", s.In, s.Name)
 }
