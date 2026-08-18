@@ -374,7 +374,7 @@ vertrag keeps that shape:
 | `refract` | The API Elements object model | Done |
 | `compile` | API Elements → HTTP transactions | Done, oracle-verified |
 | `uritemplate` | URI template expansion | Done, oracle-verified |
-| `apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified |
+| `apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified; 3.0, 3.1 and 3.2 |
 | `apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
 | `validate` | Response validation (Gavel) | Done, oracle-verified |
 | `runner` | Sending requests, judging responses | Done |

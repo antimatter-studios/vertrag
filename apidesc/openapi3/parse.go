@@ -83,10 +83,25 @@ func (d *document) parsePathItem(path entry) *refract.Element {
 	pathParameters := d.parseParameters(pathItem.Get("parameters"))
 
 	for _, member := range pathItem.Entries() {
-		if !isHTTPMethod(member.Key.Str()) {
+		if !d.isOperationKey(member.Key.Str()) {
 			continue
 		}
-		transition := d.parseOperation(path.Key.Str(), member, pathParameters)
+		transition := d.parseOperation(path.Key.Str(), strings.ToUpper(member.Key.Str()),
+			member.Value, pathParameters)
+		if transition != nil {
+			resource.Append(transition)
+		}
+	}
+
+	// 3.2's `additionalOperations`, whose keys are the methods the
+	// specification gives no field of its own — LINK, PURGE, whatever a server
+	// answers to. The method is sent exactly as written, not upper-cased: the
+	// specification says the key carries the capitalization to put on the wire,
+	// and a method is case-sensitive, so a server that answers `Purge` and not
+	// `PURGE` is a server the document can still describe.
+	for _, member := range pathItem.Get(additionalOperationsKey).Entries() {
+		transition := d.parseOperation(path.Key.Str(), member.Key.Str(),
+			member.Value, pathParameters)
 		if transition != nil {
 			resource.Append(transition)
 		}
@@ -104,8 +119,12 @@ func (d *document) parsePathItem(path entry) *refract.Element {
 
 // parseOperation turns one HTTP method of a Path Item into a transition
 // carrying its transactions.
-func (d *document) parseOperation(path string, member entry, pathParameters *parameters) *refract.Element {
-	operation := member.Value
+//
+// The method is passed in rather than read from the key, because a Path Item has
+// three places an operation can sit and they spell the method differently: a
+// field name to be upper-cased, `query`, or an `additionalOperations` key that
+// is already the wire spelling.
+func (d *document) parseOperation(path, method string, operation node, pathParameters *parameters) *refract.Element {
 	if !operation.IsMapping() {
 		return nil
 	}
@@ -163,7 +182,6 @@ func (d *document) parseOperation(path string, member entry, pathParameters *par
 	requests := d.parseRequestBody(operation.Get("requestBody"))
 	responses := d.parseResponses(operation.Get("responses"))
 
-	method := strings.ToUpper(member.Key.Str())
 	for _, transaction := range buildTransactions(method, requests, responses, params.headers()) {
 		transition.Append(transaction)
 	}

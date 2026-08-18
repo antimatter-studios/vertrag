@@ -1,0 +1,103 @@
+openapi: 3.2.0
+$self: https://corpus.vertrag.test/additional.yml
+info:
+  title: Additional
+  version: "1.0.0"
+  summary: An OpenAPI 3.2 document
+  description: >
+    3.2 added places for things earlier revisions had nowhere to put. A
+    method the specification does not name a field for goes under
+    `additionalOperations`, QUERY got a field of its own, a media type
+    described once can be shared from `components.mediaTypes`, and a
+    document that names itself with `$self` may write its own references
+    through that name. Each is a way of saying what an earlier revision
+    could not say at all, so a 3.2 document read under 3.1's rules loses
+    whole operations rather than a keyword here and there.
+
+paths:
+  /items:
+    get:
+      summary: The items, through a shared media type
+      responses:
+        "200":
+          summary: A page of items
+          description: The items in stock
+          content:
+            application/json:
+              $ref: "#/components/mediaTypes/ItemList"
+        "204":
+          # 3.2 stopped requiring `description`. A response that carries
+          # nothing has nothing to describe, and while it was required this
+          # was an error that stopped the whole document being read.
+          summary: Nothing in stock
+
+    query:
+      summary: QUERY, which asks with a body and changes nothing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [minimumStock]
+              properties:
+                minimumStock: {type: integer, minimum: 0, example: 3}
+      responses:
+        "200":
+          description: The items matching the query
+          content:
+            application/json:
+              $ref: "https://corpus.vertrag.test/additional.yml#/components/mediaTypes/ItemList"
+
+    additionalOperations:
+      # A method with no field of its own, spelled the way it goes on the
+      # wire — a method is case-sensitive, so the key is sent unchanged.
+      PURGE:
+        summary: PURGE, which the specification never names
+        responses:
+          "200":
+            description: Purged
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [purged]
+                  properties:
+                    purged: {type: integer, minimum: 0}
+
+  /items/{sku}:
+    parameters:
+      - name: sku
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+        examples:
+          aKnownItem:
+            # 3.2's unambiguous spelling of `value`. Read only the old one
+            # and this path parameter has no value, so the operation
+            # produces no transaction at all and reads as untested rather
+            # than untestable.
+            dataValue: RX-78
+    get:
+      summary: One item, named through the document's own URI
+      responses:
+        "200":
+          description: The item
+          content:
+            application/json:
+              schema:
+                $ref: "https://corpus.vertrag.test/additional.yml#/components/schemas/Item"
+
+components:
+  mediaTypes:
+    ItemList:
+      schema:
+        type: array
+        items:
+          $ref: "#/components/schemas/Item"
+  schemas:
+    Item:
+      type: object
+      required: [sku, stock]
+      properties:
+        sku: {type: string, minLength: 1, example: RX-78}
+        stock: {type: integer, minimum: 0}

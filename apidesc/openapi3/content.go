@@ -159,7 +159,11 @@ func (d *document) parseContentFor(content node, withSchema bool, dir direction)
 
 	for _, member := range content.Entries() {
 		mediaType := member.Key.Str()
-		mediaTypeObject := member.Value
+		// Resolved, because 3.2 lets a `content` entry reference a Media Type
+		// Object kept in `components.mediaTypes`. An unresolved reference here
+		// yields a message with no body and no schema, which is indistinguishable
+		// from a media type whose author gave it neither.
+		mediaTypeObject := d.Resolve(member.Value)
 		schema := mediaTypeObject.Get("schema")
 
 		for _, example := range d.examplesOf(mediaTypeObject, mediaType) {
@@ -209,6 +213,25 @@ func (d *document) parseContentFor(content node, withSchema bool, dir direction)
 	return messages
 }
 
+// exampleValue reads an Example Object's example as data.
+//
+// 3.2 split the old `value` into two fields, because `value` never said which of
+// the two things it was: a string example of a JSON body might be the string or
+// the serialisation of it. `dataValue` is the half that is unambiguously data,
+// and is therefore read exactly as `value` was — the schema validates it and the
+// media type serialises it. Reading only `value` would leave a document written
+// the new way sending generated bodies while its author's examples sat unused.
+//
+// `serializedValue` is the other half and is not read: the bytes are already
+// serialised, so using them means parsing the media type back into data before
+// anything can be compared. It is reported as unsupported instead.
+func exampleValue(example node) node {
+	if value := example.Get("value"); value.Valid() {
+		return value
+	}
+	return example.Get("dataValue")
+}
+
 // namedBody is one body a media type describes, under the name the document
 // gave it.
 type namedBody struct {
@@ -236,7 +259,7 @@ func (d *document) examplesOf(mediaTypeObject node, mediaType string) []namedBod
 		name := member.Key.Str()
 		example := d.Resolve(member.Value)
 
-		value := example.Get("value")
+		value := exampleValue(example)
 		if !value.Valid() {
 			// An externalValue points at a body vertrag has not fetched, so
 			// there is nothing to send. The name is still carried, so the
