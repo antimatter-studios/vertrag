@@ -85,13 +85,27 @@ jobs:
           # after this change squashes everything already there, so no separate
           # cleanup is needed.
           #
-          # An unchanged number still publishes nothing, which is why the
-          # comparison is against the file rather than the commit: a rewritten
-          # orphan differs from its predecessor every time, so `git diff` can no
-          # longer answer "has the coverage moved".
+          # Nothing is published when the badge is ALREADY right — which means
+          # both the number and the shape, not just the number.
+          #
+          # Asking only "has the coverage moved" was not enough, and the gap was
+          # not hypothetical: this step was changed to keep the branch at one
+          # commit while the branch already had thirty-nine, and a run whose
+          # coverage happened to match would have skipped and left them there.
+          # The history would then have collapsed on some unrelated future day,
+          # or never. A step that maintains a state once reached, but cannot
+          # reach it, is not a fix — it is a fix that has to be helped by hand,
+          # and the hand is what this exists to remove.
+          #
+          # So the skip needs the file to match AND the tip to be a root commit.
+          # Parents are counted out of the commit object rather than with
+          # rev-list, because the fetch is shallow and rev-list would see the
+          # grafted boundary rather than the truth.
           git fetch --depth=1 origin badges 2>/dev/null || true
-          if git show FETCH_HEAD:coverage.json 2>/dev/null | diff -q - /tmp/coverage.json >/dev/null 2>&1; then
-            echo "coverage is still ${total}%; the badge is unchanged"
+          parents=$(git cat-file commit FETCH_HEAD 2>/dev/null | grep -c '^parent ' || true)
+          if [ "${parents:-1}" = "0" ] \
+            && git show FETCH_HEAD:coverage.json 2>/dev/null | diff -q - /tmp/coverage.json >/dev/null 2>&1; then
+            echo "coverage is still ${total}% and the branch is already one commit; nothing to publish"
             exit 0
           fi
 

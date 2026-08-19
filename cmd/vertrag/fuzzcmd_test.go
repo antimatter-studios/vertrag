@@ -266,7 +266,11 @@ func TestFuzzReplaysExactly(t *testing.T) {
 	if !errors.Is(errFirst, errFindings) || !errors.Is(errSecond, errFindings) {
 		t.Fatalf("errs = %v, %v; want both runs to fail", errFirst, errSecond)
 	}
-	if first != second {
+	// A clock and a temp path are the only things allowed to differ; see steady.
+	// This test compares two whole runs, and since the probing phases became
+	// phases of a run it compares the examples phase too — which prints an
+	// elapsed time beside every transaction.
+	if steady(first) != steady(second) {
 		t.Errorf("two runs with the same seed differ:\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
 }
