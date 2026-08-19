@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -15,52 +14,6 @@ import (
 	"strings"
 	"sync"
 )
-
-// runCoverage is `vertrag coverage`: send every boundary probe each schema
-// implies — the maximum, one past it, the required property missing — and
-// judge the answers.
-//
-// It sits between `run` and `fuzz`. Like `run` it is deterministic: the same
-// description produces the same probes in the same order, so it can gate a
-// pipeline. Like `fuzz` it sends what the description never showed: the
-// values at and past every bound, which are exactly the ones an example
-// avoids and a handler gets wrong.
-func runCoverage(args []string) error {
-	fs := flag.NewFlagSet("coverage", flag.ContinueOnError)
-	var shared probeFlags
-	addProbeFlags(fs, &shared, "cover")
-	mode := fs.String("mode", "both", "which probes to send: valid (on the bound), invalid (past it), or both")
-
-	workers := fs.Int("workers", 1, "probe this many operations at once; the phase is deterministic whatever this says")
-
-	positional, err := parseInterspersed(fs, args)
-	if err != nil {
-		return err
-	}
-	modes, err := parseModes(*mode)
-	if err != nil {
-		return err
-	}
-	wanted := map[generate.Mode]bool{}
-	for _, m := range modes {
-		wanted[m] = true
-	}
-
-	set, err := prepareProbes(&shared, fs, positional)
-	if err != nil || set == nil {
-		return err
-	}
-	defer set.stop()
-
-	results, runErr := coverAll(set.ctx, set.engine, set.probeable, wanted, set.skipped,
-		set.settings.Color, newRefusals(set.settings),
-		fuzz.Options{Pin: set.settings.Fuzz.Pin, Accept: set.settings.Fuzz.Accept,
-			Workers: coverageWorkers(*workers, set.settings.Workers)})
-	if err := emitThrough(&shared, set.settings, results); err != nil {
-		return err
-	}
-	return runErr
-}
 
 // coverAll sends every probe of every target of every operation, and reports.
 func coverAll(

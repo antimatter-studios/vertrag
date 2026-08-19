@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -101,7 +102,7 @@ func TestTheCoveragePhaseProbesSeveralOperationsAtOnce(t *testing.T) {
 	server := &slowServer{delay: 25 * time.Millisecond}
 	dir := coverageProject(t, server.start(t), 8, "")
 
-	if _, code := runIn(t, dir, binary, "coverage", "--workers", "4"); code > 2 {
+	if _, code := runIn(t, dir, binary, "run", "--phases", "coverage", "--workers", "4"); code > 2 {
 		t.Fatalf("the run did not complete, exit %d", code)
 	}
 	if peak := server.peakInFlight(); peak < 2 {
@@ -118,7 +119,7 @@ func TestOneWorkerIsStillOneRequestAtATime(t *testing.T) {
 	server := &slowServer{delay: 10 * time.Millisecond}
 	dir := coverageProject(t, server.start(t), 5, "")
 
-	if _, code := runIn(t, dir, binary, "coverage"); code > 2 {
+	if _, code := runIn(t, dir, binary, "run", "--phases", "coverage"); code > 2 {
 		t.Fatalf("the run did not complete, exit %d", code)
 	}
 	if peak := server.peakInFlight(); peak != 1 {
@@ -150,11 +151,21 @@ func TestTheCoverageReportIsTheSameWhateverTheWorkerCount(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
+	// Durations are stripped before comparing, and only durations.
+	//
+	// The claim is that concurrency changes how long the phase takes and
+	// nothing else — so the one thing it is allowed to change is exactly the
+	// measured time, and leaving it in would make this test assert something
+	// stronger than the property and fail on `(2ms)` against `(1ms)`. Every
+	// other byte still has to match: the findings, their order, the counts, the
+	// summary.
+	timings := regexp.MustCompile(`\(\d+(?:\.\d+)?(?:ns|µs|ms|s)\)`)
+
 	var reports []string
 	for _, workers := range []string{"1", "2", "4", "8"} {
 		dir := coverageProject(t, server.URL, 8, "")
-		output, _ := runIn(t, dir, binary, "coverage", "--workers", workers)
-		reports = append(reports, output)
+		output, _ := runIn(t, dir, binary, "run", "--phases", "coverage", "--workers", workers)
+		reports = append(reports, timings.ReplaceAllString(output, "(elapsed)"))
 	}
 
 	for i := 1; i < len(reports); i++ {
@@ -174,7 +185,7 @@ func TestThePinStillHoldsWithWorkers(t *testing.T) {
 
 	server := &orderServer{}
 	dir := project(t, server.start(t), "fuzz:\n  pin:\n    dry_run: true\n")
-	if _, code := runIn(t, dir, binary, "coverage", "--workers", "4"); code > 2 {
+	if _, code := runIn(t, dir, binary, "run", "--phases", "coverage", "--workers", "4"); code > 2 {
 		t.Fatal("the run did not complete")
 	}
 	live, all := server.counts()

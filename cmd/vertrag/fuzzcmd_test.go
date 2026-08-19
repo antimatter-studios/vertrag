@@ -145,7 +145,7 @@ func TestFuzzFindsParameterGapsEndToEnd(t *testing.T) {
 
 	output, err := fuzzOutput(t, server.URL, "--cases", "40", "--mode", "invalid")
 
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("err = %v, want the run to fail; output:\n%s", err, output)
 	}
 
@@ -263,7 +263,7 @@ func TestFuzzReplaysExactly(t *testing.T) {
 	first, errFirst := fuzzOutput(t, server.URL, "--cases", "25", "--mode", "invalid")
 	second, errSecond := fuzzOutput(t, server.URL, "--cases", "25", "--mode", "invalid")
 
-	if !errors.Is(errFirst, errFailed) || !errors.Is(errSecond, errFailed) {
+	if !errors.Is(errFirst, errFindings) || !errors.Is(errSecond, errFindings) {
 		t.Fatalf("errs = %v, %v; want both runs to fail", errFirst, errSecond)
 	}
 	if first != second {
@@ -283,7 +283,7 @@ func TestFuzzWritesAJUnitReport(t *testing.T) {
 	output, err := fuzzOutput(t, server.URL,
 		"--cases", "40", "--mode", "invalid", "--reporter", "junit", "--output", junitPath)
 
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("err = %v, want the run to fail; output:\n%s", err, output)
 	}
 
@@ -342,7 +342,7 @@ func fuzzOutput(t *testing.T, endpoint string, extra ...string) (string, error) 
 		captured <- string(text)
 	}()
 
-	runErr := runFuzz(args)
+	runErr := runRun(append(args, "--phases", "fuzz"))
 
 	write.Close()
 	return <-captured, runErr
@@ -457,7 +457,7 @@ func fuzzStyledOutput(t *testing.T, endpoint string, extra ...string) (string, e
 		text, _ := io.ReadAll(read)
 		captured <- string(text)
 	}()
-	runErr := runFuzz(args)
+	runErr := runRun(append(args, "--phases", "fuzz"))
 	write.Close()
 	return <-captured, runErr
 }
@@ -471,7 +471,7 @@ func TestFuzzProbesDeepObjectAndPipeDelimitedParameters(t *testing.T) {
 	defer server.Close()
 
 	output, err := fuzzStyledOutput(t, server.URL, "--cases", "40", "--mode", "invalid")
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("err = %v, want findings; output:\n%s", err, output)
 	}
 	for _, want := range []string{`query parameter "filter"`, `query parameter "ids"`} {
@@ -597,7 +597,7 @@ func fuzzFormOutput(t *testing.T, endpoint string, extra ...string) (string, err
 		text, _ := io.ReadAll(read)
 		captured <- string(text)
 	}()
-	runErr := runFuzz(args)
+	runErr := runRun(append(args, "--phases", "fuzz"))
 	write.Close()
 	return <-captured, runErr
 }
@@ -610,7 +610,7 @@ func TestFuzzProbesFormEncodedBodies(t *testing.T) {
 	defer server.Close()
 
 	output, err := fuzzFormOutput(t, server.URL, "--cases", "40", "--mode", "invalid")
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("err = %v, want a finding; output:\n%s", err, output)
 	}
 	if !strings.Contains(output, "body:") {
@@ -707,7 +707,7 @@ func fuzzPagedOutput(t *testing.T, endpoint string, extra ...string) (string, er
 		text, _ := io.ReadAll(read)
 		captured <- string(text)
 	}()
-	runErr := runFuzz(args)
+	runErr := runRun(append(args, "--phases", "fuzz"))
 	write.Close()
 	return <-captured, runErr
 }
@@ -729,7 +729,7 @@ func TestWholeRequestReachesAnInteractionBug(t *testing.T) {
 
 	// Whole request: both drawn together, and the product gets large.
 	output, err = fuzzPagedOutput(t, server.URL, "--cases", "80", "--mode", "valid", "--whole-request")
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("whole-request probing missed the interaction bug (err=%v):\n%s", err, output)
 	}
 	if !strings.Contains(output, "whole request") || !strings.Contains(output, "with every part valid") {
@@ -816,7 +816,7 @@ def pin_safety(transaction):
 	os.Stdout = write
 	captured := make(chan string, 1)
 	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
-	runFuzz([]string{"--config", cfg, "--no-color", "--cases", "15", "--seed", "9"})
+	runRun(append([]string{"--config", cfg, "--no-color", "--cases", "15", "--seed", "9"}, "--phases", "fuzz"))
 	write.Close()
 	os.Stdout = real
 	output := <-captured
@@ -875,7 +875,7 @@ def never(transaction):
 	os.Stdout = write
 	captured := make(chan string, 1)
 	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
-	err := runFuzz([]string{"--config", cfg, "--no-color", "--cases", "10", "--seed", "9"})
+	err := runRun(append([]string{"--config", cfg, "--no-color", "--cases", "10", "--seed", "9"}, "--phases", "fuzz"))
 	write.Close()
 	os.Stdout = real
 	output := <-captured

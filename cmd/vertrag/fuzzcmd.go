@@ -3,109 +3,19 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"math/rand/v2"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/antimatter-studios/vertrag/compile"
+	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/fuzz"
 	"github.com/antimatter-studios/vertrag/generate"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
 	"github.com/antimatter-studios/vertrag/validate"
 )
-
-// runFuzz is `vertrag fuzz`: test each operation with bodies and parameter
-// values drawn from its schemas instead of the single example the description
-// shows.
-//
-// It is a separate command rather than a flag on `run` because the two answer
-// different questions. `run` is deterministic and comparable against Dredd —
-// the same description produces the same requests every time, which is what
-// makes it usable in CI as a regression gate. Generation is exploratory: it
-// finds things a fixed set of requests cannot, and a run that discovers a new
-// failure on a Tuesday is a feature there and a broken build here.
-func runFuzz(args []string) error {
-	fs := flag.NewFlagSet("fuzz", flag.ContinueOnError)
-	var shared probeFlags
-	addProbeFlags(fs, &shared, "probe")
-	cases := fs.Int("cases", 50, "distinct values to try per body and per parameter")
-	maxTime := fs.Duration("max-time", 0, "stop probing after this long, e.g. 2m; what was not reached is reported as skipped (0 = no limit)")
-	seed := fs.Uint64("seed", 0, "replay a previous run (0 picks one and reports it)")
-	mode := fs.String("mode", "both", "which values to send: valid, invalid, or both")
-	whole := fs.Bool("whole-request", false, "also draw every parameter and the body together per case, to reach bugs in their interaction (findings then name the request, not one part)")
-
-	positional, err := parseInterspersed(fs, args)
-	if err != nil {
-		return err
-	}
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-
-	modes, err := parseModes(*mode)
-	if err != nil {
-		return err
-	}
-
-	set, err := prepareProbes(&shared, fs, positional)
-	if err != nil || set == nil {
-		return err
-	}
-	defer set.stop()
-
-	// The `fuzz` section of the config file, for the flags that have one.
-	//
-	// This was missed when the section was added: `vertrag run --phases fuzz`
-	// honoured `seed`, `cases` and `whole-request`, and `vertrag fuzz` — the
-	// command named after them — silently did not. A pinned seed that only
-	// works through one of the two entry points is worse than none, because
-	// the run that ignores it still prints a seed and still looks reproducible.
-	//
-	// A flag that was given wins, which is the rule everywhere else: the file
-	// records what the project normally does, the flag what this run should do
-	// instead.
-	if !given["cases"] && set.settings.Fuzz.Cases > 0 {
-		*cases = set.settings.Fuzz.Cases
-	}
-	if !given["seed"] && set.settings.Fuzz.Seed != 0 {
-		*seed = set.settings.Fuzz.Seed
-	}
-	if !given["whole-request"] && set.settings.Fuzz.WholeRequest {
-		*whole = true
-	}
-
-	// rapid reports the seed it picks only through a log nothing surfaces, so a
-	// zero seed is chosen here instead — the printed value is then, by
-	// construction, the one every probe used.
-	for *seed == 0 {
-		*seed = rand.Uint64()
-	}
-	fmt.Printf("seed: %d (replay with --seed %d)\n", *seed, *seed)
-
-	options := fuzz.Options{
-		Cases: *cases, Seed: *seed,
-		// The safety settings come from the file only. There is deliberately no
-		// --pin flag: a pin is the difference between a probe and a live order,
-		// and that belongs in a file somebody reviews, not in a shell history
-		// where it can be dropped from one invocation.
-		Pin:    set.settings.Fuzz.Pin,
-		Accept: set.settings.Fuzz.Accept,
-	}
-	if *maxTime > 0 {
-		options.Deadline = time.Now().Add(*maxTime)
-	}
-	results, runErr := probeAll(set.ctx, set.engine, set.probeable, modes, set.skipped, options,
-		set.settings.Color, *whole, newRefusals(set.settings))
-
-	if err := emitThrough(&shared, set.settings, results); err != nil {
-		return err
-	}
-	return runErr
-}
 
 // target is one part of a request generation can vary, with the way to put a
 // generated value back into the request it came from.
@@ -914,4 +824,102 @@ func bodyMediaType(request compile.Request) string {
 		return strings.ToLower(strings.TrimSpace(strings.SplitN(header.Value, ";", 2)[0]))
 	}
 	return ""
+}
+
+// wantedModes turns the mode list the fuzz phase takes into the set the
+// coverage phase takes. The two phases were separate commands with separate
+// flag parsing until they became phases of one run, and this is the last of
+// that difference — kept as a conversion rather than changed in one of them,
+// because both shapes are the natural one for their own loop.
+func wantedModes(modes []generate.Mode) map[generate.Mode]bool {
+	wanted := make(map[generate.Mode]bool, len(modes))
+	for _, mode := range modes {
+		wanted[mode] = true
+	}
+	return wanted
+}
+
+// pinReach says how much of the description each pinned name actually reaches.
+//
+// It exists so the safety property is checkable from a cold start, without
+// sending the requests the pin is there to guard. A peer hit that exactly: the
+// only way to learn whether the interlock had engaged was to fire the thing it
+// interlocks, which makes "confirm the pin engaged before you run" impossible
+// to satisfy in the order it has to be satisfied in.
+//
+// It counts declarations rather than applications, and those are different
+// numbers — a body declaring the field is a body the pin WILL hold, but only
+// the run itself knows how many were drawn. A zero here is decisive though,
+// which is what makes it worth printing before anything is sent.
+func pinReach(pins fuzz.Pins, bodies []generate.Schema, arguments []string) string {
+	parts := make([]string, 0, len(pins))
+	for _, name := range pins.Names() {
+		reached := 0
+		for _, body := range bodies {
+			if pins.Covers(body, name) {
+				reached++
+			}
+		}
+		for _, argument := range arguments {
+			if argument == name {
+				reached++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%s: %d of %d", name, reached, len(bodies)+len(arguments)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// unpinnedMutations warns when a probing phase will generate values for
+// operations that change something, and nothing has been pinned.
+//
+// The hazard was documented and the control was opt-in, which is the same shape
+// as the bug this tool keeps finding in other people's code: a safe path that
+// has to be remembered is not a safe path. The advice being given until now was
+// "point it at a sandbox that cannot reach anything real" — good advice, and
+// advice is exactly the thing an operator can skip, forget, or never read.
+//
+// A peer's user put it plainly, about their own setup rather than about this:
+// needing to construct a throwaway instance for the occasion is a hole in the
+// testing strategy, not a precaution, because the safe thing had to be built
+// and the unsafe thing was the default. The same criticism applies here, and
+// this is the cheapest structural answer — the hazard announces itself at the
+// moment it applies, naming what it counted, rather than sitting in a document.
+//
+// It is one line and only when all three conditions hold, so a read-only API
+// and a pinned run both stay silent. Silence here means "nothing generated will
+// reach a mutating operation", which is information rather than absence.
+func unpinnedMutations(settings config.Config, transactions []compile.Transaction) string {
+	probing := false
+	for _, phase := range settings.Phases {
+		if phase == config.PhaseCoverage || phase == config.PhaseFuzz {
+			probing = true
+		}
+	}
+	if !probing {
+		return ""
+	}
+
+	mutating := map[string]bool{}
+	for _, transaction := range transactions {
+		switch strings.ToUpper(transaction.Request.Method) {
+		case "POST", "PUT", "PATCH", "DELETE":
+			targets, _ := probeTargets(transaction.Request)
+			if len(targets) > 0 {
+				mutating[transaction.Request.Method+" "+transaction.Request.URI] = true
+			}
+		}
+	}
+	if len(mutating) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"%d operation(s) that change something will be sent generated values, and `fuzz.pin` "+
+			"declares nothing. Generation sends whatever the schema permits, including the value "+
+			"that makes a request real — and it cannot tell which one that is. Pin the field that "+
+			"decides, `skip` the operation, or point this at an endpoint whose STATE is disposable "+
+			"as well as its side effects: a probing run writes records too, and a poisoned journal "+
+			"outlives the run that wrote it",
+		len(mutating))
 }

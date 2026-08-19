@@ -54,7 +54,7 @@ func coverageOutput(t *testing.T, endpoint string, extra ...string) (string, err
 		text, _ := io.ReadAll(read)
 		captured <- string(text)
 	}()
-	runErr := runCoverage(args)
+	runErr := runRun(append(args, "--phases", "coverage"))
 	write.Close()
 	return <-captured, runErr
 }
@@ -67,7 +67,7 @@ func TestCoverageFindsTheOffByOne(t *testing.T) {
 	defer server.Close()
 
 	output, err := coverageOutput(t, server.URL)
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("err = %v, want the off-by-one found; output:\n%s", err, output)
 	}
 	if !strings.Contains(output, "probe:   maximum (100)") {
@@ -127,7 +127,7 @@ func TestCoverageWritesAJUnitReport(t *testing.T) {
 
 	junitPath := filepath.Join(t.TempDir(), "coverage.xml")
 	output, err := coverageOutput(t, server.URL, "--reporter", "junit", "--output", junitPath)
-	if !errors.Is(err, errFailed) {
+	if !errors.Is(err, errFindings) {
 		t.Fatalf("err = %v; output:\n%s", err, output)
 	}
 	report, readErr := os.ReadFile(junitPath)
@@ -218,7 +218,7 @@ func TestProbesGoThroughTheSuccessVariantOnly(t *testing.T) {
 	os.Stdout = write
 	captured := make(chan string, 1)
 	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
-	err := runCoverage([]string{"--config", cfg, "--no-color"})
+	err := runRun(append([]string{"--config", cfg, "--no-color"}, "--phases", "coverage"))
 	write.Close()
 	os.Stdout = real
 	output := <-captured
@@ -330,7 +330,7 @@ func TestTheLoginOperationIsNotReportedAsALockedDoor(t *testing.T) {
 	os.Stdout = write
 	captured := make(chan string, 1)
 	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
-	runCoverage([]string{"--config", cfg, "--no-color"})
+	runRun(append([]string{"--config", cfg, "--no-color"}, "--phases", "coverage"))
 	write.Close()
 	os.Stdout = real
 	output := <-captured
@@ -363,7 +363,7 @@ func TestALockedOperationIsNamed(t *testing.T) {
 	os.Stdout = write
 	captured := make(chan string, 1)
 	go func() { text, _ := io.ReadAll(read); captured <- string(text) }()
-	runCoverage([]string{"--endpoint", server.URL, "--no-color", description})
+	runRun(append([]string{"--endpoint", server.URL, "--no-color", description}, "--phases", "coverage"))
 	write.Close()
 	os.Stdout = real
 	output := <-captured

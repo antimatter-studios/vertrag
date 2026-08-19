@@ -114,7 +114,7 @@ func TestAPinnedFieldNeverReachesTheServerUnpinned(t *testing.T) {
 	// not passing for want of anything to catch.
 	loose := &orderServer{}
 	dir := project(t, loose.start(t), "fuzz:\n  cases: 20\n  seed: 7\n")
-	if _, code := runIn(t, dir, binary, "fuzz"); code > 2 {
+	if _, code := runIn(t, dir, binary, "run", "--phases", "fuzz"); code > 2 {
 		t.Fatalf("the unpinned run did not complete, exit %d", code)
 	}
 	liveBefore, allBefore := loose.counts()
@@ -129,7 +129,7 @@ func TestAPinnedFieldNeverReachesTheServerUnpinned(t *testing.T) {
 	// Now the same run with the pin.
 	held := &orderServer{}
 	dir = project(t, held.start(t), "fuzz:\n  cases: 20\n  seed: 7\n  pin:\n    dry_run: true\n")
-	output, code := runIn(t, dir, binary, "fuzz")
+	output, code := runIn(t, dir, binary, "run", "--phases", "fuzz")
 	if code > 2 {
 		t.Fatalf("the pinned run did not complete, exit %d:\n%s", code, output)
 	}
@@ -156,7 +156,7 @@ func TestAPinNamingAFieldNoBodyDeclaresStopsTheRun(t *testing.T) {
 	server := &orderServer{}
 	dir := project(t, server.start(t), "fuzz:\n  cases: 5\n  pin:\n    dryrun: true\n")
 
-	output, code := runIn(t, dir, binary, "fuzz")
+	output, code := runIn(t, dir, binary, "run", "--phases", "fuzz")
 	if code == 0 {
 		t.Fatalf("a pin naming nothing should stop the run:\n%s", output)
 	}
@@ -175,7 +175,7 @@ func TestThePinHoldsInTheCoveragePhaseToo(t *testing.T) {
 	server := &orderServer{}
 	dir := project(t, server.start(t), "fuzz:\n  pin:\n    dry_run: true\n")
 
-	output, code := runIn(t, dir, binary, "coverage")
+	output, code := runIn(t, dir, binary, "run", "--phases", "coverage")
 	if code > 2 {
 		t.Fatalf("the coverage run did not complete, exit %d:\n%s", code, output)
 	}
@@ -204,7 +204,7 @@ func TestAnExcusedAnswerIsCountedInTheOutput(t *testing.T) {
 	defer server.Close()
 
 	dir := project(t, server.URL, "fuzz:\n  cases: 8\n  seed: 3\n  accept: [409]\n")
-	output, _ := runIn(t, dir, binary, "fuzz")
+	output, _ := runIn(t, dir, binary, "run", "--phases", "fuzz")
 
 	if !strings.Contains(output, "excused by fuzz.accept") {
 		t.Errorf("the run did not report what it excused:\n%s", output)
@@ -225,7 +225,7 @@ func TestTheFuzzCommandHonoursTheConfigsSeedAndCases(t *testing.T) {
 
 	first := &orderServer{}
 	dir := project(t, first.start(t), "fuzz:\n  cases: 4\n  seed: 99\n  pin:\n    dry_run: true\n")
-	output, _ := runIn(t, dir, binary, "fuzz")
+	output, _ := runIn(t, dir, binary, "run", "--phases", "fuzz")
 	if !strings.Contains(output, "seed: 99") {
 		t.Errorf("the config's seed was ignored:\n%s", output)
 	}
@@ -235,7 +235,7 @@ func TestTheFuzzCommandHonoursTheConfigsSeedAndCases(t *testing.T) {
 	// what a pinned seed is for.
 	second := &orderServer{}
 	dir = project(t, second.start(t), "fuzz:\n  cases: 4\n  seed: 99\n  pin:\n    dry_run: true\n")
-	runIn(t, dir, binary, "fuzz")
+	runIn(t, dir, binary, "run", "--phases", "fuzz")
 	if _, secondCount := second.counts(); secondCount != firstCount {
 		t.Errorf("the same seed sent %d requests then %d", firstCount, secondCount)
 	}
@@ -243,7 +243,7 @@ func TestTheFuzzCommandHonoursTheConfigsSeedAndCases(t *testing.T) {
 	// And a flag still wins over the file.
 	third := &orderServer{}
 	dir = project(t, third.start(t), "fuzz:\n  cases: 4\n  seed: 99\n  pin:\n    dry_run: true\n")
-	output, _ = runIn(t, dir, binary, "fuzz", "--seed", "7")
+	output, _ = runIn(t, dir, binary, "run", "--phases", "fuzz", "--seed", "7")
 	if !strings.Contains(output, "seed: 7") {
 		t.Errorf("the flag did not win over the file:\n%s", output)
 	}

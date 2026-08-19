@@ -12,6 +12,7 @@ import (
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
 	"github.com/antimatter-studios/vertrag/validate"
+	"os"
 )
 
 // The stateful phase runs each documented chain of operations end to end —
@@ -59,6 +60,27 @@ func runStateful(
 ) ([]runner.Result, error) {
 	chains := link.Chains(transactions)
 	if len(chains) == 0 {
+		// Why there are no chains matters, and this used to assert the wrong
+		// reason.
+		//
+		// "No operation links to another" is a claim about the description, and
+		// it is false when the description declares a link that could not be
+		// resolved — a target naming an operationId nothing defines, say. The
+		// reader was then told to go and declare the links they had already
+		// declared, while the sequencer's own explanation sat in a slice
+		// nobody read. A peer was about to walk into exactly that: their
+		// generator emits links from an annotation, and until recently not one
+		// of their 77 operations carried an operationId, so every link they
+		// declared would have dangled and this would have said they had none.
+		notes := link.NewSequencer(transactions).Notes()
+		for _, note := range notes {
+			fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+		}
+		if len(notes) > 0 {
+			fmt.Printf("\nNo sequence could be built: every link this description declares " +
+				"names something it does not define. The lines above say which.\n")
+			return nil, nil
+		}
 		fmt.Printf("\nNo operation links to another, so there is no sequence to run. " +
 			"Declare `links` on a response to describe a lifecycle.\n")
 		return nil, nil
@@ -113,6 +135,13 @@ func runChain(ctx context.Context, engine *runner.Runner, transactions []compile
 	// it is what keeps the stateful phase and `--sequence` agreeing about what
 	// a link means.
 	sequencer := link.NewSequencer(transactions)
+
+	// Its notes are printed here too, which `--sequence` already did and this
+	// phase did not. Some chains forming does not mean all of them did, and a
+	// link that dangled is exactly as worth naming when its neighbours worked.
+	for _, note := range sequencer.Notes() {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
 
 	// deleted records the addresses this chain has removed, so a later step
 	// reading one can say the server should no longer have it.

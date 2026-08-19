@@ -179,6 +179,23 @@ that quietly stopped testing anything then shows up as a number somebody can
 read. A 5xx can never be accepted: that is the server breaking rather than
 refusing, and it is the finding these phases exist to produce.
 
+**Isolate the state, not only the side effects.** A pin stops a generated value
+turning a probe into a real order. It does nothing about what the run *records*:
+a probing phase writes as many entries as it sends, and if the system under test
+journals its decisions — into a file, a table, an event log that a scorecard or
+a dashboard later reads — those entries are indistinguishable from real ones.
+Nothing is destroyed and no order is placed; the *measurements* are quietly
+poisoned, and a poisoned record outlives the run that wrote it. So a disposable
+endpoint means disposable state as well: its own journal, its own database, its
+own halt file. If the safe target has to be assembled by hand each time, it will
+eventually not be — build it as a service definition with the isolation pinned
+into it, and assert the isolation, including the parts that are *absences*,
+since an absence is what a well-meaning edit removes.
+
+A run that will generate values for operations that change something, with
+nothing pinned, says so — naming how many. It is one line and only when all
+three conditions hold, because a warning on every run is the same as none.
+
 Neither of these makes an unsafe API safe. They make the decision expressible.
 
 ### Recordings
@@ -245,11 +262,11 @@ failed a second time — one root cause, one finding.
 ### Generated input
 
 A description shows one request per operation, so a run establishes the happy
-path and asks nothing else. `vertrag fuzz` draws values from the schema instead:
+path and asks nothing else. The `fuzz` phase draws values from the schema instead:
 
 ```console
-vertrag fuzz openapi.yml http://localhost:4000
-vertrag fuzz --cases 100 --seed 42 openapi.yml    # replay a previous run
+vertrag run --phases fuzz openapi.yml http://localhost:4000
+vertrag run --phases fuzz --cases 100 --seed 42 openapi.yml   # replay a previous run
 ```
 
 Two properties, failing in opposite directions. A value the schema permits
@@ -717,7 +734,7 @@ when it reproduces its pair.
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
 7. ~~Reporters~~ — done; cli, dot, markdown, html, JUnit XML, and HAR and
    VCR recordings of the traffic
-8. ~~Adversarial input generation, with shrinking~~ — done; `vertrag fuzz`
+8. ~~Adversarial input generation, with shrinking~~ — done; the `fuzz` phase
 9. ~~Stateful sequences from OpenAPI links~~ — done; `vertrag run --sequence`
 10. Generated input across a sequence, rather than one operation at a time
 11. ~~GraphQL schemas → transactions, sent and validated~~ — done; queries by

@@ -56,10 +56,25 @@ func run(args []string) error {
 		return runCompile(args[1:])
 	case "run":
 		return runRun(args[1:])
-	case "fuzz":
-		return runFuzz(args[1:])
-	case "coverage":
-		return runCoverage(args[1:])
+	case "fuzz", "coverage":
+		// Both were commands of their own until they became phases of a run.
+		//
+		// Two entry points to one job is not a convenience, it is a place for
+		// them to drift, and they did: `vertrag fuzz` silently ignored
+		// `fuzz.seed`, `fuzz.cases` and `fuzz.whole-request` from the config
+		// file while `run --phases fuzz` honoured them — so a pinned seed
+		// worked through one door and not the other, and the run that ignored
+		// it still printed a seed and still looked reproducible. `server:`
+		// went the same way, starting for `run` and not for these.
+		//
+		// Named rather than dropped into "unknown command", because the old
+		// spelling is in people's shell history and their CI files, and the
+		// replacement is one they would otherwise have to go and look up.
+		return fmt.Errorf(
+			"`vertrag %s` is now a phase of a run rather than a command of its own: "+
+				"use `vertrag run --phases %s` (or `phases: [examples, %s]` in vertrag.yml). "+
+				"Every flag it took, `run` takes",
+			args[0], args[0], args[0])
 	default:
 		return fmt.Errorf("unknown command %q; run `vertrag help`", args[0])
 	}
@@ -74,15 +89,21 @@ OpenAPI 2, or a GraphQL schema.
 Usage:
   vertrag run [flags] [description] [endpoint]
                                    Test a running API against its description
-  vertrag fuzz [flags] [description] [endpoint]
-                                   Probe operations with bodies drawn from
-                                   their schema, rather than the one example
-  vertrag coverage [flags] [description] [endpoint]
-                                   Send every boundary each schema implies —
-                                   the maximum, one past it, the required
-                                   property missing — the same ones every run
   vertrag compile [flags] <file>   Show the transactions a description yields
   vertrag version                  Print the version
+
+Phases, selected with --phases or the "phases:" key. Examples always runs; the
+rest are opt-in because they generate values, and generation sends whatever a
+schema permits — including, on an API that can act, the value that makes a
+request real. See fuzz.pin in vertrag.yml.
+
+  examples   The requests the description documents (the default, always run)
+  coverage   Every boundary each schema implies — the maximum, one past it,
+             the required property missing — deterministic, the same each run
+  fuzz       Values drawn at random from the schema; --seed replays a run
+  stateful   Whole lifecycles, ordered by the links the description declares
+
+  vertrag run --phases coverage,fuzz openapi.yml http://localhost:4000
 
 Run reads ./vertrag.yml when it is present, so a configured project needs no
 arguments. A project arriving from Dredd renames its dredd.yml: every key it
