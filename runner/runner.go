@@ -442,6 +442,12 @@ func (r *Runner) sendPrepared(ctx context.Context, transaction *Transaction) (va
 // probe that tested the hook's value proves nothing about the generator's.
 var ErrChangedByHook = errors.New("the generated body was replaced by a hook")
 
+// ErrSkippedByConfig reports that something tried to send a transaction the
+// configuration had skipped. It is a backstop rather than a path anyone should
+// reach: a caller that filters properly never sees it, and one that does not is
+// stopped anyway.
+var ErrSkippedByConfig = errors.New("this transaction is skipped by the configuration")
+
 // ErrSkippedByHook reports that a hook took a generated request out of the
 // run before it was sent. It is not a finding and not a transport failure:
 // the caller counts it and says so, rather than reporting the server for
@@ -768,6 +774,30 @@ func (r *Runner) judge(transaction *Transaction, started time.Time, exchange tim
 // exchange itself took — see Result.ResponseTime for why that is measured apart
 // from the transaction it sits in.
 func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.Message, time.Duration, error) {
+	// A skipped transaction cannot leave here, whoever asked.
+	//
+	// `skip` used to be enforced by every caller filtering its own list before
+	// probing, and that is how it was lost: folding the probing commands into
+	// phases left one of those filters behind, and for two releases an
+	// operation whose config said "must never be sent" was sent generated
+	// values. The project it happened to skips an operation that makes an
+	// outbound request to a host the caller names — so their server dialled
+	// addresses vertrag had invented.
+	//
+	// The lesson is theirs and it is right: a skip list is the one part of a
+	// configuration that is a safety boundary rather than a preference.
+	// "Never send this" is different in kind from "expect 404 here", and a
+	// boundary enforced by each caller remembering to check it is a boundary
+	// one refactor away from being gone. So it is enforced at the last point
+	// before the wire, where forgetting is not available.
+	//
+	// Callers still filter, because a transaction dropped early is reported as
+	// skipped rather than as an error. This is the backstop that makes the
+	// guarantee structural rather than a habit.
+	if reason, skipped := r.Skip[transaction.source.Name]; skipped {
+		return validate.Message{}, 0, fmt.Errorf("%w: %s", ErrSkippedByConfig, configuredSkipReason(reason))
+	}
+
 	var body io.Reader
 	if transaction.Request.Body != "" {
 		body = strings.NewReader(transaction.Request.Body)
