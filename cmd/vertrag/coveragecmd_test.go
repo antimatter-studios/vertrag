@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -112,9 +111,8 @@ func TestCoverageIsDeterministic(t *testing.T) {
 	first, _ := coverageOutput(t, server.URL)
 	second, _ := coverageOutput(t, server.URL)
 
-	// The signature line carries the temp path, which differs per call.
-	strip := regexp.MustCompile(`vertrag [^\n]*\n`)
-	if strip.ReplaceAllString(first, "") != strip.ReplaceAllString(second, "") {
+	// A clock and a temp path are the only things allowed to differ; see steady.
+	if steady(first) != steady(second) {
 		t.Errorf("two coverage runs differ:\n--- first ---\n%s\n--- second ---\n%s", first, second)
 	}
 }

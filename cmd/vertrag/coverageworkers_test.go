@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,31 +150,16 @@ func TestTheCoverageReportIsTheSameWhateverTheWorkerCount(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	// Durations are stripped before comparing, and only durations.
-	//
-	// The claim is that concurrency changes how long the phase takes and
-	// nothing else — so the one thing it is allowed to change is exactly the
-	// measured time, and leaving it in would make this test assert something
-	// stronger than the property and fail on `(2ms)` against `(1ms)`. Every
-	// other byte still has to match: the findings, their order, the counts, the
-	// summary.
-	timings := regexp.MustCompile(`\(\d+(?:\.\d+)?(?:ns|µs|ms|s)\)`)
-
-	// And the clock in the response headers, for the same reason and with the
-	// same care. CI caught this one: two runs of the eight straddled a second
-	// boundary, so the reports differed by `date: … 05:03:32 GMT` against
-	// `… 05:03:33 GMT` and nothing else at all. That is the wall clock, not
-	// the worker count — a byte-identical assertion over output containing a
-	// timestamp asserts something stronger than the property and eventually
-	// fails on the property being true.
-	dates := regexp.MustCompile(`(?i)date: [A-Za-z]{3}, [^\n]*GMT`)
-
+	// Only a clock and a temp path may differ between these runs; see steady.
+	// The claim is that concurrency changes how long the phase takes and nothing
+	// else, so the measured time is precisely what it is allowed to change —
+	// every other byte still has to match: the findings, their order, the
+	// counts, the summary.
 	var reports []string
 	for _, workers := range []string{"1", "2", "4", "8"} {
 		dir := coverageProject(t, server.URL, 8, "")
 		output, _ := runIn(t, dir, binary, "run", "--phases", "coverage", "--workers", workers)
-		normalised := timings.ReplaceAllString(output, "(elapsed)")
-		reports = append(reports, dates.ReplaceAllString(normalised, "date: (when)"))
+		reports = append(reports, steady(output))
 	}
 
 	for i := 1; i < len(reports); i++ {
