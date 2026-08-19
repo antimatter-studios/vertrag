@@ -143,8 +143,21 @@ func TestAServerThatNeverStartsIsReportedWithItsOutput(t *testing.T) {
 
 // TestTheWaitIsBoundedByServerWait pins that a server that never listens is
 // given up on, and that giving up does not leave it running.
+//
+// The endpoint is port 1 rather than a freeAddress one, and deliberately.
+// freeAddress asks the kernel for a port and gives it straight back, so
+// anything on the machine may take it in between — and `go test ./...` runs
+// packages in parallel, with another package's httptest servers taking ports
+// all the while. When that happened, the dial answered, the command was still
+// alive, and a command that never listens was reported as started. CI found it.
+//
+// That is a real limit rather than a bug to fix here: over TCP alone, "our
+// command is serving this port" and "a stranger is serving this port" are the
+// same observation, and the wait already refuses the case it CAN tell apart —
+// a command that exited non-zero. What the test needs is a port nothing will
+// take, and port 1 is privileged, so no test process can bind it.
 func TestTheWaitIsBoundedByServerWait(t *testing.T) {
-	_, endpoint := freeAddress(t)
+	endpoint := "http://127.0.0.1:1"
 
 	started := time.Now()
 	_, err := Start(context.Background(), Options{

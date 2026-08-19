@@ -212,6 +212,11 @@ type Credential struct {
 	LoginPath   string
 }
 
+// GrantedBy reports whether this transaction is the one that obtained the
+// credential. Exported so a caller can check the exclusion engaged at all —
+// see the warning in applyConfiguredRules and the reason it exists.
+func (c Credential) GrantedBy(transaction compile.Transaction) bool { return c.grantedBy(transaction) }
+
 // grantedBy reports whether this transaction is the one that obtained the
 // credential.
 func (c Credential) grantedBy(transaction compile.Transaction) bool {
@@ -246,7 +251,7 @@ func configuredSkipReason(reason string) string {
 // headersFor returns the extra headers for one transaction: the run-wide ones,
 // plus the credential unless this transaction is one that must go without.
 func (r *Runner) headersFor(transaction compile.Transaction) []string {
-	return r.headers(transaction, true)
+	return r.headers(transaction, true, true)
 }
 
 // headers builds a transaction's extra headers, with or without the
@@ -254,7 +259,7 @@ func (r *Runner) headersFor(transaction compile.Transaction) []string {
 // send the same request bare: it used to copy the Runner to do that, which
 // `go vet` rightly refused once the Runner held a mutex — and copying a
 // runner to change one decision was the wrong shape regardless.
-func (r *Runner) headers(transaction compile.Transaction, withCredential bool) []string {
+func (r *Runner) headers(transaction compile.Transaction, withCredential, staged bool) []string {
 	authenticated := withCredential &&
 		r.Auth.Header != "" &&
 		!r.Auth.Except[transaction.Name] &&
@@ -262,6 +267,25 @@ func (r *Runner) headers(transaction compile.Transaction, withCredential bool) [
 
 	var conditional []string
 	for _, header := range r.ConditionalHeaders {
+		// A header conditioned on the STATUS is a staging instruction: it says
+		// "when the documented answer is this, send that", and its purpose is
+		// to make a mock produce the documented answer. A generated request has
+		// no documented answer — that is the point of generating it — so the
+		// condition is about a request nobody sent.
+		//
+		// Attaching it anyway told the server which status to return and then
+		// reported the server for returning it. Against a real project that
+		// manufactured the most alarming sentence this tool can emit: "the
+		// server returned 200 for a login body with no password", on an API
+		// whose login endpoint answers 401 to exactly that request when asked
+		// without the header. The staging header was doing what it was written
+		// to do; the probe was the thing that had no business carrying it.
+		//
+		// Method-conditional headers are kept: a probe does not change the
+		// method, so that condition still means what it said.
+		if !staged && header.Status != "" {
+			continue
+		}
 		if header.matches(transaction) {
 			conditional = append(conditional, header.Name+": "+header.Value)
 		}
@@ -366,11 +390,44 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 	return reply, err
 }
 
+// sendPrepared is the half of Send that follows preparation, so Send and
+// SendGenerated differ only in the headers they attach and cannot drift in
+// anything else — hooks, skip handling and the send itself are shared.
+func (r *Runner) sendPrepared(ctx context.Context, transaction *Transaction) (validate.Message, error) {
+	if r.Hooks != nil {
+		if err := r.Hooks.BeforeEach(transaction); err != nil {
+			return validate.Message{}, fmt.Errorf("before hook: %w", err)
+		}
+		if transaction.Skip {
+			return validate.Message{}, ErrSkippedByHook
+		}
+		if transaction.Fail != "" {
+			return validate.Message{}, fmt.Errorf("failed by hook: %s", transaction.Fail)
+		}
+	}
+	reply, _, err := r.send(ctx, transaction)
+	return reply, err
+}
+
 // ErrSkippedByHook reports that a hook took a generated request out of the
 // run before it was sent. It is not a finding and not a transport failure:
 // the caller counts it and says so, rather than reporting the server for
 // something that never reached it.
 var ErrSkippedByHook = errors.New("skipped by a hook")
+
+// PrepareGenerated is Prepare for a request whose content was generated rather
+// than documented: the same thing without the status-conditional headers, which
+// stage a documented answer that a generated request is not asking for. See
+// headers.
+func (r *Runner) PrepareGenerated(source compile.Transaction) *Transaction {
+	return newTransaction(source, r.Endpoint, r.headers(source, true, false))
+}
+
+// SendGenerated is Send for a generated request. Every probing phase sends
+// through it, so that a staging header cannot decide what a probe is judged by.
+func (r *Runner) SendGenerated(ctx context.Context, source compile.Transaction) (validate.Message, error) {
+	return r.sendPrepared(ctx, r.PrepareGenerated(source))
+}
 
 // Prepare builds the transaction that would be sent for a source, with the
 // endpoint resolved and the run's headers and credential attached.
@@ -1074,7 +1131,7 @@ func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transactio
 	}
 
 	// The same transaction, prepared without the credential.
-	prepared := newTransaction(source, r.Endpoint, r.headers(source, false))
+	prepared := newTransaction(source, r.Endpoint, r.headers(source, false, true))
 
 	reply, _, err := r.send(ctx, prepared)
 	if err != nil {

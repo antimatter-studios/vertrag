@@ -122,6 +122,41 @@ func applyConfiguredRules(
 			LoginMethod: settings.Auth.Login.Method,
 			LoginPath:   settings.Auth.Login.Path,
 		}
+
+		// The login operation never receives the credential it granted — and
+		// that exclusion is matched by exact path, so it says when it matched
+		// nothing.
+		//
+		// `auth.except` has warned about naming nothing since it was written,
+		// while this one, which the runner calls definitional rather than
+		// configuration, was silent. A path that does not match a compiled URI
+		// exactly — `/auth/login` written against `/api/v1/auth/login`, a
+		// server-prefixed base, a trailing slash — leaves the exclusion doing
+		// nothing, with no way to tell from the output.
+		//
+		// What that costs is in Credential's own comment: the login request
+		// goes out carrying a freshly minted session, and a server may take it
+		// as "already authenticated" and answer a login it never performed. The
+		// probing phases then report that the endpoint accepted a body its
+		// schema forbids — a finding about the API, produced by the tester.
+		//
+		// A control that is present, inert and silent is worse than an absent
+		// one, because it is believed. This one was mine.
+		if settings.Auth.Login.Path != "" {
+			matched := 0
+			for _, transaction := range transactions {
+				if engine.Auth.GrantedBy(transaction) {
+					matched++
+				}
+			}
+			if matched == 0 {
+				fmt.Fprintf(os.Stderr,
+					"vertrag: auth.login.path %q matches no transaction, so the operation that grants "+
+						"the credential will be sent it like any other. Paths are compared exactly "+
+						"against the compiled URI — check for a missing base path or a trailing slash\n",
+					settings.Auth.Login.Path)
+			}
+		}
 	}
 
 	for _, rule := range settings.ConditionalHeaders {
