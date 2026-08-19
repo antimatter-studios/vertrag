@@ -60,5 +60,13 @@ func skipAware(reply validate.Message, err error) (validate.Message, error) {
 	if errors.Is(err, runner.ErrSkippedByHook) {
 		return reply, fuzz.ErrSkipped
 	}
+	// A hook that replaced the generated body ends the case the same way a
+	// skip does: nothing was learned about the value that was drawn, so there
+	// is nothing to judge. Counted and reported by the caller rather than
+	// silently dropped — a probe that did not test what it drew must not look
+	// like one that passed.
+	if errors.Is(err, runner.ErrChangedByHook) {
+		return reply, fuzz.ErrSkipped
+	}
 	return reply, err
 }

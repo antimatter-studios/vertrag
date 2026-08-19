@@ -394,6 +394,8 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 // SendGenerated differ only in the headers they attach and cannot drift in
 // anything else — hooks, skip handling and the send itself are shared.
 func (r *Runner) sendPrepared(ctx context.Context, transaction *Transaction) (validate.Message, error) {
+	drawn := transaction.Request.Body
+
 	if r.Hooks != nil {
 		if err := r.Hooks.BeforeEach(transaction); err != nil {
 			return validate.Message{}, fmt.Errorf("before hook: %w", err)
@@ -405,9 +407,40 @@ func (r *Runner) sendPrepared(ctx context.Context, transaction *Transaction) (va
 			return validate.Message{}, fmt.Errorf("failed by hook: %s", transaction.Fail)
 		}
 	}
+
+	// A hook that REPLACED the generated body has ended the probe, and the
+	// probe has to say so rather than judge what came back.
+	//
+	// Hooks run on generated requests deliberately: a hook may be the thing
+	// holding a dangerous field at a safe value, and the moment that matters
+	// is when a generator is drawing values. The other direction was not
+	// thought through. A login hook that fills in credentials — which is what
+	// nearly every hook file inherited from Dredd does — overwrites the body
+	// the generator drew, the server quite correctly answers 200 to the valid
+	// credentials it was handed, and the probe reports that the server
+	// accepted a body its schema forbids while DISPLAYING the body that was
+	// never sent.
+	//
+	// That produced a false security finding against a real API — "returned
+	// 200 for a login body with no password" — which its owners escalated and
+	// then could not reproduce, because the request they were shown was not
+	// the request that went out.
+	//
+	// Only the body is compared. A hook adding a header is ordinary and
+	// changes nothing about what the body tests.
+	if transaction.Request.Body != drawn {
+		return validate.Message{}, ErrChangedByHook
+	}
+
 	reply, _, err := r.send(ctx, transaction)
 	return reply, err
 }
+
+// ErrChangedByHook reports that a hook rewrote the body of a generated request,
+// so what was sent is not what was drawn. Like ErrSkippedByHook it is neither a
+// finding nor a transport failure: the caller counts it and says so, because a
+// probe that tested the hook's value proves nothing about the generator's.
+var ErrChangedByHook = errors.New("the generated body was replaced by a hook")
 
 // ErrSkippedByHook reports that a hook took a generated request out of the
 // run before it was sent. It is not a finding and not a transport failure:
