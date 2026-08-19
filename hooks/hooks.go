@@ -14,6 +14,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -193,14 +194,23 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 				return
 			}
 		}
-		ready <- fmt.Errorf("the hooks worker exited before it was ready%s", notes.suffix())
+		ready <- errWorkerExited
 	}()
 
 	select {
 	case err := <-ready:
 		if err != nil {
+			// Stop before composing the message, because Stop reaps the
+			// command and reaping is what drains the stderr copier.
+			//
+			// The message used to be built the instant stdout hit EOF, with
+			// stderr still in flight — so the diagnostic this exists to carry
+			// was sometimes simply absent, and it failed CI that way on one Go
+			// version and not the other two. A race in the code that reports a
+			// race is its own small joke, but the effect was the original bug
+			// back again: the worker died and said nothing.
 			client.Stop()
-			return nil, err
+			return nil, fmt.Errorf("%w%s", err, notes.suffix())
 		}
 	case <-time.After(10 * time.Second):
 		client.Stop()
@@ -390,3 +400,8 @@ func (t *tail) suffix() string {
 	}
 	return ":\n" + text
 }
+
+// errWorkerExited is the bare fact, so the message carrying the worker's own
+// account can be composed once the command has been reaped and its stderr has
+// drained. See where it is used.
+var errWorkerExited = errors.New("the hooks worker exited before it was ready")

@@ -482,6 +482,31 @@ func runRun(args []string) error {
 	// different things having happened.
 	refused := newRefusals(settings)
 
+	// The probing phases probe what the run would SEND, which is not every
+	// compiled transaction: an operation the config skipped must not be
+	// generated for either.
+	//
+	// The examples phase gets this from the runner, which reports a skipped
+	// transaction as skipped. The probing phases build their own list from the
+	// compiled transactions and had no such filter — the standalone commands
+	// applied it themselves, and when they became phases the filter was left
+	// behind with them. `withoutSkipped` was then a function with no callers,
+	// which I saw while deleting the rest of that scaffolding and did not ask
+	// why.
+	//
+	// What it cost: an operation marked `skip` with the reason "must never be
+	// sent" took five generated requests. A skip list is where a suite records
+	// what it has decided not to touch, and some of those decisions are about
+	// what an endpoint DOES — one project skips an operation that would forward
+	// a credential to any host a caller names. Generating for it is worse than
+	// running it once as documented.
+	probeableTransactions, skippedFromProbing := withoutSkipped(transactions, engine.Skip)
+	if len(skippedFromProbing) > 0 && len(settings.Phases) > 1 {
+		fmt.Fprintf(os.Stderr,
+			"vertrag: %d transaction(s) are skipped, so the probing phases do not generate for them\n",
+			len(skippedFromProbing))
+	}
+
 	// --mode and --max-time were `vertrag fuzz`'s and `vertrag coverage`'s;
 	// they mean the same thing here and are read once for both phases.
 	modes, err := parseModes(flags.mode)
@@ -501,7 +526,7 @@ func runRun(args []string) error {
 	for _, phase := range settings.Phases {
 		switch phase {
 		case config.PhaseCoverage:
-			probeable, _ := partitionBySchema(transactions)
+			probeable, _ := partitionBySchema(probeableTransactions)
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
 				wantedModes(modes), 0, settings.Color, refused,
 				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept,
@@ -519,7 +544,7 @@ func runRun(args []string) error {
 			}
 			probeFindings = probeFindings || phaseErr == errFailed
 		case config.PhaseFuzz:
-			probeable, _ := partitionBySchema(transactions)
+			probeable, _ := partitionBySchema(probeableTransactions)
 			seed := settings.Fuzz.Seed
 			for seed == 0 {
 				seed = rand.Uint64()
