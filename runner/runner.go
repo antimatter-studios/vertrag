@@ -212,6 +212,11 @@ type Credential struct {
 	LoginPath   string
 }
 
+// GrantedBy reports whether this transaction is the one that obtained the
+// credential. Exported so a caller can check the exclusion engaged at all —
+// see the warning in applyConfiguredRules and the reason it exists.
+func (c Credential) GrantedBy(transaction compile.Transaction) bool { return c.grantedBy(transaction) }
+
 // grantedBy reports whether this transaction is the one that obtained the
 // credential.
 func (c Credential) grantedBy(transaction compile.Transaction) bool {
