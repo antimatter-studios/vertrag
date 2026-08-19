@@ -161,11 +161,21 @@ func TestTheCoverageReportIsTheSameWhateverTheWorkerCount(t *testing.T) {
 	// summary.
 	timings := regexp.MustCompile(`\(\d+(?:\.\d+)?(?:ns|µs|ms|s)\)`)
 
+	// And the clock in the response headers, for the same reason and with the
+	// same care. CI caught this one: two runs of the eight straddled a second
+	// boundary, so the reports differed by `date: … 05:03:32 GMT` against
+	// `… 05:03:33 GMT` and nothing else at all. That is the wall clock, not
+	// the worker count — a byte-identical assertion over output containing a
+	// timestamp asserts something stronger than the property and eventually
+	// fails on the property being true.
+	dates := regexp.MustCompile(`(?i)date: [A-Za-z]{3}, [^\n]*GMT`)
+
 	var reports []string
 	for _, workers := range []string{"1", "2", "4", "8"} {
 		dir := coverageProject(t, server.URL, 8, "")
 		output, _ := runIn(t, dir, binary, "run", "--phases", "coverage", "--workers", workers)
-		reports = append(reports, timings.ReplaceAllString(output, "(elapsed)"))
+		normalised := timings.ReplaceAllString(output, "(elapsed)")
+		reports = append(reports, dates.ReplaceAllString(normalised, "date: (when)"))
 	}
 
 	for i := 1; i < len(reports); i++ {

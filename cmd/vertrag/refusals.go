@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -92,8 +93,20 @@ func (r *refusals) report() {
 		return
 	}
 
-	fmt.Printf("\n\n%d operation(s) answered 401 or 403 to the documented request, so little was\nlearned about them:", len(r.locked))
-	for _, name := range r.locked {
+	// Sorted, because the list is built in the order operations FINISH and the
+	// coverage phase finishes them concurrently — so without this the same run
+	// prints the same operations in a different order at a different --workers,
+	// and two runs of one suite cannot be diffed.
+	//
+	// Found while chasing a CI failure that turned out to be a clock in a
+	// response header. This one is real and was not what failed: the fixture
+	// that would have caught it has no 401 in it, so the determinism test could
+	// not see this path at all.
+	names := append([]string(nil), r.locked...)
+	sort.Strings(names)
+
+	fmt.Printf("\n\n%d operation(s) answered 401 or 403 to the documented request, so little was\nlearned about them:", len(names))
+	for _, name := range names {
 		fmt.Printf("\n  %s", name)
 	}
 	if r.authSet {
