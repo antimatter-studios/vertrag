@@ -318,6 +318,10 @@ func probe(
 	collector := &collector{}
 	var found Finding
 	usable := 0
+	// sent counts the cases that actually reached the server, which is not the
+	// same as the cases that were usable: a hook may replace a generated body
+	// after the case was accepted, and then nothing was learned from it.
+	sent := 0
 	// passed remembers every value already sent AND answered acceptably, by
 	// its wire text, so a value rapid draws twice costs one request rather
 	// than two and every case a user asked for is a DISTINCT probe.
@@ -378,6 +382,9 @@ func probe(
 		usable++
 
 		reply, err := send(ctx, rendered)
+		if err == nil {
+			sent++
+		}
 		if errors.Is(err, ErrSkipped) {
 			// A hook took this request out of the run. Not the server's doing.
 			return
@@ -424,6 +431,25 @@ func probe(
 			// Not unprobeable — the budget ran out before anything was
 			// drawn. The caller reports that; there is nothing to say here.
 			return Finding{}, false
+		}
+		if usable > 0 && sent == 0 {
+			// Values were drawn and accepted, and none of them reached the
+			// server — a hook took every one out of the run, or replaced the
+			// body with its own.
+			//
+			// This is reported rather than passed over because the two look
+			// identical from the outside and mean opposite things. A hook file
+			// inherited from Dredd commonly fills in credentials for a login
+			// operation, which silently ends every probe of it; the run would
+			// otherwise say the operation was probed and found sound.
+			return Finding{
+				Mode:    mode,
+				Subject: subject,
+				Message: "every generated " + subject.Describe() + " was skipped or replaced by a " +
+					"hook before it was sent, so the values its schema " + verb(mode) +
+					" were never tested. A hook that fills in a value ends the probe of that value",
+				Unprobeable: true,
+			}, true
 		}
 		if usable == 0 {
 			// Every drawn value was the opposite of what was asked for, or had
