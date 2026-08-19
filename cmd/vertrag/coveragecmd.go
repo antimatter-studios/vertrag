@@ -131,7 +131,7 @@ func coverAll(
 						attempt := transaction
 						attempt.Request = request
 						got.sent++
-						return skipAware(engine.Send(ctx, attempt))
+						return skipAware(engine.SendGenerated(ctx, attempt))
 					}
 
 					for _, outcome := range fuzz.Cover(ctx, target.subject, target.media, target.schema, send, local) {
@@ -155,7 +155,7 @@ func coverAll(
 						if outcome.Finding == nil {
 							got.results = append(got.results, runner.Result{
 								Name: name, Status: runner.StatusPass,
-								Request: sentAs(engine, transaction.Request),
+								Request: sentAs(engine, transaction, transaction.Request),
 							})
 							continue
 						}
@@ -167,7 +167,7 @@ func coverAll(
 						}
 						got.results = append(got.results, runner.Result{
 							Name: name, Status: runner.StatusFail,
-							Request: sentAs(engine, failed), Errors: []string{outcome.Finding.Message},
+							Request: sentAs(engine, transaction, failed), Errors: []string{outcome.Finding.Message},
 						})
 					}
 				}
@@ -244,7 +244,7 @@ func printCoverageFinding(w io.Writer, engine *runner.Runner, transaction compil
 	fmt.Fprintf(w, "  %s %s %s\n", paint(reporter.Dim, "request:"), request.Method, request.URI)
 	fmt.Fprintf(w, "  %s %v\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
 	fmt.Fprintf(w, "  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
-	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
+	if repro := reporter.Curl(sentAs(engine, transaction, request)); repro != "" {
 		fmt.Fprintf(w, "  %s %s\n", paint(reporter.Dim, "repro:  "), repro)
 	}
 }

@@ -103,7 +103,7 @@ func runStateful(
 				printStatefulFinding(engine, chain, transactions, finding, color)
 				results = append(results, runner.Result{
 					Name: name + " · " + finding.Name, Status: runner.StatusFail,
-					Request: sentAs(engine, compile.Request{}), Errors: []string{finding.Message},
+					Request: sentAs(engine, compile.Transaction{}, compile.Request{}), Errors: []string{finding.Message},
 				})
 			}
 		case outcome.Stopped != "":

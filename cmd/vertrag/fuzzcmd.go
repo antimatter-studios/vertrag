@@ -272,7 +272,7 @@ func probeAll(
 					attempt := transaction
 					attempt.Request = request
 					requests++
-					return skipAware(engine.Send(ctx, attempt))
+					return skipAware(engine.SendGenerated(ctx, attempt))
 				}
 
 				var finding fuzz.Finding
@@ -291,7 +291,7 @@ func probeAll(
 					results = append(results, runner.Result{
 						Name:    probeName,
 						Status:  runner.StatusPass,
-						Request: sentAs(engine, transaction.Request),
+						Request: sentAs(engine, transaction, transaction.Request),
 					})
 				case finding.Unprobeable:
 					// Not a server mistake, so it does not fail the run — but it
@@ -317,7 +317,7 @@ func probeAll(
 					results = append(results, runner.Result{
 						Name:    probeName,
 						Status:  runner.StatusFail,
-						Request: sentAs(engine, failed),
+						Request: sentAs(engine, transaction, failed),
 						Errors:  []string{finding.Message},
 					})
 				}
@@ -364,14 +364,14 @@ func probeAll(
 					attempt := transaction
 					attempt.Request = request
 					requests++
-					return skipAware(engine.Send(ctx, attempt))
+					return skipAware(engine.SendGenerated(ctx, attempt))
 				}
 
 				finding, found := fuzz.ProbeWhole(ctx, parts, mode, sendWhole, options)
 				if !found {
 					results = append(results, runner.Result{
 						Name: wholeName, Status: runner.StatusPass,
-						Request: sentAs(engine, transaction.Request),
+						Request: sentAs(engine, transaction, transaction.Request),
 					})
 					continue
 				}
@@ -385,7 +385,7 @@ func probeAll(
 				}
 				results = append(results, runner.Result{
 					Name: wholeName, Status: runner.StatusFail,
-					Request: sentAs(engine, failed), Errors: []string{finding.Message},
+					Request: sentAs(engine, transaction, failed), Errors: []string{finding.Message},
 				})
 			}
 		}
@@ -463,7 +463,7 @@ func printFinding(engine *runner.Runner, transaction compile.Transaction, target
 	// those as `%!s(int64=5)`, which is the line the reader most needs.
 	fmt.Printf("  %s %v\n", paint(reporter.Dim, finding.Subject.Describe()+":"), finding.Value)
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
-	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
+	if repro := reporter.Curl(sentAs(engine, transaction, request)); repro != "" {
 		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro: "), repro)
 	}
 }
@@ -497,7 +497,7 @@ func printWholeFinding(engine *runner.Runner, transaction compile.Transaction, b
 		fmt.Printf("  %s %v%s\n", paint(reporter.Dim, label+":"), finding.Values[label], mark)
 	}
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
-	if repro := reporter.Curl(sentAs(engine, request)); repro != "" {
+	if repro := reporter.Curl(sentAs(engine, transaction, request)); repro != "" {
 		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro: "), repro)
 	}
 }
@@ -505,23 +505,25 @@ func printWholeFinding(engine *runner.Runner, transaction compile.Transaction, b
 // sentAs renders a compiled request the way the runner sends it, so the
 // reproduction line carries the real address and the run-wide headers instead
 // of the fragment the description states.
-func sentAs(engine *runner.Runner, request compile.Request) runner.Request {
-	headers := make(map[string]string, len(request.Headers)+len(engine.ExtraHeaders))
-	for _, header := range request.Headers {
-		headers[header.Name] = header.Value
-	}
-	for _, extra := range engine.ExtraHeaders {
-		if name, value, found := strings.Cut(extra, ":"); found {
-			headers[strings.TrimSpace(name)] = strings.TrimSpace(value)
-		}
-	}
-	return runner.Request{
-		Method:  request.Method,
-		URI:     request.URI,
-		Headers: headers,
-		Body:    request.Body,
-		URL:     engine.Endpoint + request.URI,
-	}
+func sentAs(engine *runner.Runner, source compile.Transaction, request compile.Request) runner.Request {
+	// Built by the runner rather than rebuilt here, because rebuilding it got
+	// it wrong — and got it wrong in the way that matters most.
+	//
+	// This used to assemble the reported request from the transaction's own
+	// headers plus the run-wide `--header` list. It never consulted the
+	// credential or the conditional headers, so a probe's repro line omitted
+	// exactly the headers the RUN adds and the reader does not know about. The
+	// consequence is the worst a report can have: a curl line that does not
+	// reproduce. A real project ran one character for character, got a
+	// different status from the one the finding claimed, and reasonably
+	// concluded the tool had invented the finding — while vertrag had in fact
+	// sent a header that the line did not mention.
+	//
+	// Prepare is what the runner itself calls before sending, and SentRequest
+	// is the request as it actually went out. One construction, so the report
+	// and the wire cannot disagree.
+	source.Request = request
+	return engine.PrepareGenerated(source).SentRequest()
 }
 
 // partitionBySchema separates the operations generation can work on from those
