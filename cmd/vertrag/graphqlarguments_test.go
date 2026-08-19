@@ -227,7 +227,7 @@ func TestTheProbingPhasesGenerateGraphQLArgumentValues(t *testing.T) {
 			server := &argumentServer{}
 			dir := argumentProject(t, server, "fuzz:\n  cases: 12\n  seed: 5\n")
 
-			output, code := runIn(t, dir, binary, phase)
+			output, code := runIn(t, dir, binary, "run", "--phases", phase)
 			if code > 2 {
 				t.Fatalf("the %s run did not complete, exit %d:\n%s", phase, code, output)
 			}
@@ -263,12 +263,15 @@ func TestTheProbingPhasesGenerateGraphQLArgumentValues(t *testing.T) {
 func TestAWithheldMutationIsNotReachableByGeneration(t *testing.T) {
 	binary := build(t)
 
+	// One entry point, three phase selections. This was three commands until
+	// they were folded into `run --phases`; the gate still has to hold for each
+	// selection, so the table became a table of phases rather than going away.
 	for _, command := range [][]string{
 		{"run", "--phases", "examples,coverage,fuzz"},
-		{"fuzz", "--cases", "10"},
-		{"coverage"},
+		{"run", "--phases", "fuzz", "--cases", "10"},
+		{"run", "--phases", "coverage"},
 	} {
-		t.Run(command[0], func(t *testing.T) {
+		t.Run(strings.Join(command[1:], " "), func(t *testing.T) {
 			server := &argumentServer{}
 			dir := argumentProject(t, server, "fuzz:\n  seed: 11\n")
 
@@ -303,7 +306,7 @@ func TestAPinnedGraphQLArgumentIsHeldInEveryGeneratedQuery(t *testing.T) {
 	// is not passing for want of anything to catch.
 	loose := &argumentServer{}
 	dir := argumentProject(t, loose, "fuzz:\n  cases: 12\n  seed: 5\n")
-	if _, code := runIn(t, dir, binary, "fuzz"); code > 2 {
+	if _, code := runIn(t, dir, binary, "run", "--phases", "fuzz"); code > 2 {
 		t.Fatalf("the unpinned run did not complete, exit %d", code)
 	}
 	if loose.liveReports() == 0 {
@@ -318,7 +321,7 @@ func TestAPinnedGraphQLArgumentIsHeldInEveryGeneratedQuery(t *testing.T) {
 			held := &argumentServer{}
 			dir := argumentProject(t, held, "fuzz:\n  cases: 12\n  seed: 5\n  pin:\n    dryRun: true\n")
 
-			output, code := runIn(t, dir, binary, phase)
+			output, code := runIn(t, dir, binary, "run", "--phases", phase)
 			if code > 2 {
 				t.Fatalf("the pinned run did not complete, exit %d:\n%s", code, output)
 			}
@@ -350,7 +353,7 @@ func TestAPinNamingAnArgumentNoFieldDeclaresStopsTheRun(t *testing.T) {
 	server := &argumentServer{}
 	dir := argumentProject(t, server, "fuzz:\n  cases: 4\n  pin:\n    dryrun: true\n")
 
-	output, code := runIn(t, dir, binary, "fuzz")
+	output, code := runIn(t, dir, binary, "run", "--phases", "fuzz")
 	if code == 0 {
 		t.Fatalf("a pin naming nothing should stop the run:\n%s", output)
 	}

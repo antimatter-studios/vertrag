@@ -84,7 +84,7 @@ func TestPhasesFromTheConfigFile(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit = %d, want 0 against a conforming server\n%s", code, output)
 	}
-	if !strings.Contains(output, "fuzz seed: 42") {
+	if !strings.Contains(output, "seed: 42") {
 		t.Errorf("the pinned seed is not echoed:\n%s", output)
 	}
 	if !strings.Contains(output, "fuzz:") {

@@ -18,7 +18,6 @@ import (
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/fuzz"
-	"github.com/antimatter-studios/vertrag/generate"
 	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
@@ -65,7 +64,15 @@ type runFlags struct {
 	phases       string
 
 	transport transportFlags
-	graphql   graphqlFlags
+
+	// The probing settings, which were `vertrag fuzz`'s and `vertrag
+	// coverage`'s own flags until those commands became phases.
+	cases        int
+	seed         uint64
+	maxTime      time.Duration
+	mode         string
+	wholeRequest bool
+	graphql      graphqlFlags
 
 	// positional are the arguments left after the flags: a description and an
 	// endpoint, either of which a config file may supply instead.
@@ -105,6 +112,11 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
 	fs.Var(&f.sanitizeHdrs, "sanitize-header", "also redact this header's value in reports (repeatable)")
 	fs.StringVar(&f.phases, "phases", "", "what to run, comma-separated: examples (always), coverage, fuzz, stateful — e.g. examples,stateful")
+	fs.IntVar(&f.cases, "cases", 0, "fuzz: distinct values to try per body, parameter and argument (0 = the default 50)")
+	fs.Uint64Var(&f.seed, "seed", 0, "fuzz: replay a previous run (0 picks one and reports it)")
+	fs.DurationVar(&f.maxTime, "max-time", 0, "probing: stop after this long, e.g. 2m; what was not reached is reported as skipped (0 = no limit)")
+	fs.StringVar(&f.mode, "mode", "", "probing: which values to send — valid, invalid, or both (the default)")
+	fs.BoolVar(&f.wholeRequest, "whole-request", false, "fuzz: also draw every parameter and the body together per case, to reach bugs in their interaction")
 	addTransportFlags(fs, &f.transport)
 	addGraphQLFlags(fs, &f.graphql)
 
@@ -200,6 +212,15 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 	if f.failFast {
 		settings.MaxFailures = 1
+	}
+	if f.cases > 0 {
+		settings.Fuzz.Cases = f.cases
+	}
+	if f.seed != 0 {
+		settings.Fuzz.Seed = f.seed
+	}
+	if f.wholeRequest {
+		settings.Fuzz.WholeRequest = true
 	}
 	f.transport.apply(&settings.Transport)
 	f.graphql.apply(&settings.GraphQL)
@@ -305,6 +326,31 @@ func runRun(args []string) error {
 
 	reportMissingCredentials(transactions, settings.Header)
 
+	// The pin is validated whenever it is declared, whatever phases this run
+	// will do — including none of the probing ones.
+	//
+	// It used to be checked inside the probing phases, which meant a typo'd pin
+	// passed silently through a plain `vertrag run`: all the transactions ran,
+	// no warning, normal exit. A peer found it by changing `dry_run` to
+	// `dry_runn` and watching nothing happen. `run` is the command most people
+	// type, so a configuration that reads exactly like a safety control sat
+	// there unvalidated in the most-used entry point — present, inert and
+	// silent, in the tool whose own documentation makes that argument.
+	//
+	// Validating costs one pass over the compiled transactions and no requests,
+	// so there is no reason to make it conditional on anything.
+	if len(settings.Fuzz.Pin) > 0 {
+		pins := fuzz.Pins(settings.Fuzz.Pin)
+		bodies, arguments := pinnable(transactions)
+		if err := fuzz.CheckPins(pins, bodies, arguments); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "pin: %s — declared by %s\n",
+			pins.Describe(), pinReach(pins, bodies, arguments))
+	} else if warning := unpinnedMutations(settings, transactions); warning != "" {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", warning)
+	}
+
 	if settings.DryRun {
 		for _, transaction := range transactions {
 			fmt.Fprintf(os.Stdout, "skip: %s %s %s\n",
@@ -384,6 +430,40 @@ func runRun(args []string) error {
 	}
 	defer stopHooks()
 
+	// The pin reaches the documented examples too, and it has to.
+	//
+	// This was written down as a limitation — "the examples phase sends the
+	// description's own example, unchanged" — and it was survivable while
+	// probing was a separate command, because a pinned `vertrag fuzz` sent no
+	// examples at all. Folding the probing phases into `run` removed that
+	// accident: examples always runs first, so a pinned run would have sent one
+	// UNPINNED documented body per operation before any generated one. For an
+	// API where the pinned field is what makes a request real, that is one real
+	// request per operation, introduced by a refactor whose entire argument was
+	// that one code path is safer than two. The test that had proved the pin
+	// held caught it, reporting 1 of 18.
+	//
+	// So the interlock is applied here as well, and it says when it changed
+	// something. A caller who has declared that a field must never be sent as
+	// anything else has said something about every request, not only the
+	// generated ones — and an example that contradicts the pin is worth
+	// knowing about rather than silently obeying or silently overriding.
+	if len(settings.Fuzz.Pin) > 0 {
+		pins := fuzz.Pins(settings.Fuzz.Pin)
+		held := 0
+		for i := range transactions {
+			if pinned, changed := pinnedBody(transactions[i].Request, pins); changed {
+				transactions[i].Request = pinned
+				held++
+			}
+		}
+		if held > 0 {
+			fmt.Fprintf(os.Stderr,
+				"vertrag: %d documented example(s) set a pinned field to something else; the pin holds. "+
+					"An example that contradicts the pin is worth fixing in the description\n", held)
+		}
+	}
+
 	results, err := engine.Run(ctx, transactions)
 	if err != nil {
 		return err
@@ -401,14 +481,31 @@ func runRun(args []string) error {
 	// operation in both phases, and explaining it twice would read as two
 	// different things having happened.
 	refused := newRefusals(settings)
+
+	// --mode and --max-time were `vertrag fuzz`'s and `vertrag coverage`'s;
+	// they mean the same thing here and are read once for both phases.
+	modes, err := parseModes(flags.mode)
+	if err != nil {
+		return err
+	}
+	maxTime := flags.maxTime
+
+	// The probing phases share one deadline, because --max-time bounds the RUN
+	// and not each phase in turn: two phases each given the whole budget is two
+	// budgets, and the number somebody wrote was the one they were willing to
+	// wait.
+	var deadline time.Time
+	if maxTime > 0 {
+		deadline = time.Now().Add(maxTime)
+	}
 	for _, phase := range settings.Phases {
 		switch phase {
 		case config.PhaseCoverage:
 			probeable, _ := partitionBySchema(transactions)
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
-				map[generate.Mode]bool{generate.Valid: true, generate.Invalid: true}, 0, settings.Color, refused,
+				wantedModes(modes), 0, settings.Color, refused,
 				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept,
-					Workers: settings.Workers})
+					Workers: settings.Workers, Deadline: deadline})
 			results = append(results, prefixed("coverage", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr
@@ -427,10 +524,16 @@ func runRun(args []string) error {
 			for seed == 0 {
 				seed = rand.Uint64()
 			}
-			fmt.Printf("fuzz seed: %d (replay with fuzz: {seed: %d} in vertrag.yml)\n", seed, seed)
+			// Named with the flag rather than the config key, because the
+			// flag is what somebody can paste straight back. It only became
+			// the better advice when `run` gained --seed; before that, the
+			// phase could only point at the file.
+			fmt.Printf("seed: %d (replay with --seed %d)\n", seed, seed)
 			phaseResults, phaseErr := probeAll(ctx, engine, probeable,
-				[]generate.Mode{generate.Valid, generate.Invalid}, 0,
-				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed, Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept}, settings.Color, settings.Fuzz.WholeRequest, refused)
+				modes, 0,
+				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed, Pin: settings.Fuzz.Pin,
+					Accept: settings.Fuzz.Accept, Deadline: deadline},
+				settings.Color, settings.Fuzz.WholeRequest, refused)
 			results = append(results, prefixed("fuzz", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr

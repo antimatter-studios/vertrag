@@ -372,24 +372,27 @@ func TestTransportFlagsOverrideTheFile(t *testing.T) {
 	}
 }
 
-// TestTheClientCertificateFlagsReachEveryCommandThatSends: a certificate is
-// only of use to a command that opens a connection, and the three that do share
-// one definition of these flags so they cannot drift apart. Each is still asked
-// for itself, because a flag can be perfectly implemented in the runner and
-// misspelled, unwired, or parsed into the wrong variable by the command, with
+// TestTheClientCertificateFlagsReachEveryPhaseThatSends: a certificate is only
+// of use to a phase that opens a connection, and each is still asked for
+// itself, because a flag can be perfectly implemented in the runner and
+// misspelled, unwired, or parsed into the wrong variable on the way there, with
 // every unit test in the tree staying green.
+//
+// This used to walk three commands. They are one command and three phases now,
+// which is most of the point of that change — but the flag still has to reach
+// each phase, so the table became a table of phases rather than going away.
 //
 // The certificate named does not exist, which is the reply that arrives before
 // any request — so no server is needed to prove the flag was carried.
-func TestTheClientCertificateFlagsReachEveryCommandThatSends(t *testing.T) {
+func TestTheClientCertificateFlagsReachEveryPhaseThatSends(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.pem")
 
-	commands := map[string]func([]string) error{
-		"run":      runRun,
-		"fuzz":     runFuzz,
-		"coverage": runCoverage,
+	phases := map[string][]string{
+		"examples": nil,
+		"fuzz":     {"--phases", "fuzz"},
+		"coverage": {"--phases", "coverage"},
 	}
-	for name, command := range commands {
+	for name, phase := range phases {
 		t.Run(name, func(t *testing.T) {
 			description := filepath.Join(t.TempDir(), "api.yml")
 			if err := os.WriteFile(description, []byte(parameterisedAPI), 0o600); err != nil {
@@ -399,10 +402,10 @@ func TestTheClientCertificateFlagsReachEveryCommandThatSends(t *testing.T) {
 			real := os.Stdout
 			devNull, _ := os.Open(os.DevNull)
 			os.Stdout = devNull
-			err := command([]string{
+			err := runRun(append([]string{
 				"--endpoint", "https://127.0.0.1:1", "--no-color",
 				"--cert", missing, "--cert-key", missing, description,
-			})
+			}, phase...))
 			os.Stdout = real
 			devNull.Close()
 
