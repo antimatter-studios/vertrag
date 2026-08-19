@@ -94,6 +94,12 @@ const (
 	// swallow the whole wait in a single connect.
 	dialFor = 250 * time.Millisecond
 
+	// confirmOpen is how long an answering port must keep answering, with the
+	// command still alive, before the wait believes it. One poll interval: long
+	// enough for a command that is about to die of a typo to do so, short
+	// enough to be invisible against starting a server.
+	confirmOpen = pollEvery
+
 	// detachGrace is how long polling carries on after the command itself has
 	// returned, for the command that backgrounds what it started.
 	detachGrace = time.Second
@@ -179,7 +185,7 @@ func Start(ctx context.Context, options Options) (*Process, error) {
 		close(server.exited)
 	}()
 
-	if err := server.waitUntilListening(ctx, options, occupied); err != nil {
+	if err := server.waitUntilListening(ctx, options); err != nil {
 		server.Stop()
 		return nil, err
 	}
@@ -198,7 +204,7 @@ func Start(ctx context.Context, options Options) (*Process, error) {
 
 // waitUntilListening polls the endpoint until it accepts, the command exits,
 // the wait runs out, or the run is interrupted.
-func (p *Process) waitUntilListening(ctx context.Context, options Options, occupied bool) error {
+func (p *Process) waitUntilListening(ctx context.Context, options Options) error {
 	address, err := listenAddress(options.Endpoint)
 	if err != nil {
 		// Nothing to poll. Sleeping out the wait is the crude version and the
@@ -223,62 +229,46 @@ func (p *Process) waitUntilListening(ctx context.Context, options Options, occup
 	var openedAt time.Time
 
 	for {
-		// A port that was ALREADY open before the command ran is not evidence
-		// of anything, so it cannot end the wait.
+		// A dial that answers is not proof the command succeeded, so it is
+		// not believed until the command has had a chance to fail.
 		//
-		// A port is a machine-wide resource and anything may be holding this
-		// one: another suite, a leftover process, a service somebody left up.
-		// Ending the wait on a socket opened by a stranger reports a command
-		// that died on a typo as a healthy server, and the run then tests that
-		// stranger's process with errors describing neither.
+		// A port is a machine-wide resource. Anything may be holding this one —
+		// another suite, a leftover process, a service somebody left up — and
+		// returning success on a socket a stranger opened reports a command
+		// that died on a typo as a healthy server. The run then tests the
+		// stranger's process, with errors describing neither it nor the
+		// failure.
 		//
-		// CI found it the honest way. A test whose command was
-		// `echo ... >&2; exit 1` reported "started successfully" on two of
-		// three runners, because the port it had just released had been taken
-		// again in between. Checking the exit status at the moment of a
-		// successful dial is not enough on its own — the dial answers in
-		// microseconds and the command takes milliseconds to die, so the race
-		// is lost more often than won. Refusing to believe a pre-existing
-		// occupant removes the race instead of narrowing it.
+		// Checking the exit status at the instant of a successful dial does not
+		// close it: the dial answers in microseconds and a command takes
+		// milliseconds to die, so that race is lost more often than won. CI lost
+		// it twice, on different runners, against a command whose entire body
+		// was `exit 1`.
 		//
-		// So when the port was already occupied, only the command's own exit
-		// decides: non-zero fails, and zero is the backgrounding case
-		// (`docker compose up -d`, `./start.sh &`) which the grace below
-		// accepts.
+		// So a first sighting only starts a short confirmation; success needs
+		// the port open AND the command not having failed a moment later. One
+		// poll interval is the whole cost, on a path that is about to wait for
+		// an HTTP server anyway.
 		if conn, err := net.DialTimeout("tcp", address, dialFor); err == nil {
 			conn.Close()
-			if !occupied {
-				return nil
-			}
-			// The port was already open, so give the command a moment to fail
-			// before believing it.
-			//
-			// Three arrangements end here and they need telling apart. A
-			// command that dies on a typo, with a stranger on the port: must
-			// fail. A command that backgrounds its server and returns zero:
-			// must be accepted. A server somebody already had running, with a
-			// command that simply keeps going: must also be accepted, with the
-			// note saying the wait proved nothing.
-			//
-			// Only the first is distinguishable, and only by its exit status —
-			// so the wait pauses for that status rather than for a socket, but
-			// only briefly, because the third arrangement never produces one.
-			if openedAt.IsZero() {
-				openedAt = time.Now()
-			}
 			select {
 			case <-p.exited:
+				// Decisive either way: non-zero is a failed command whatever is
+				// on the port, and zero is the backgrounding case — `docker
+				// compose up -d` and `./start.sh &` both return as soon as the
+				// server they started belongs to somebody else.
 				if p.waitErr != nil {
 					return fmt.Errorf(
-						"the server command `%s` failed (%s), and something else was already "+
-							"listening at %s before it ran — so the run would have tested whatever "+
-							"that is%s",
+						"the server command `%s` failed (%s) while something else was listening "+
+							"at %s — so the run would have tested whatever that is%s",
 						p.command, p.status(), options.Endpoint, p.printed())
 				}
 				return nil
 			default:
 			}
-			if !time.Now().Before(openedAt.Add(detachGrace)) {
+			if openedAt.IsZero() {
+				openedAt = time.Now()
+			} else if !time.Now().Before(openedAt.Add(confirmOpen)) {
 				return nil
 			}
 		}

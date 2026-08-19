@@ -42,7 +42,7 @@ func TestAFailedCommandIsNotRescuedBySomebodyElsesPort(t *testing.T) {
 	}
 	// The report has to say both halves, or the reader goes looking in the
 	// wrong place: their command failed, AND what they would have tested.
-	for _, want := range []string{"Cannot find module ./app.js", "exit status 1", "already listening"} {
+	for _, want := range []string{"Cannot find module ./app.js", "exit status 1", "something else was listening"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not mention %q: %v", want, err)
 		}
