@@ -68,15 +68,56 @@ jobs:
           # main — risk it triggering itself.
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin badges 2>/dev/null && git checkout badges || git checkout --orphan badges
-          git rm -rf --cached . >/dev/null 2>&1 || true
-          rm -rf dist
-          cp /tmp/coverage.json coverage.json
-          git add coverage.json
-          git diff --staged --quiet || {
-            git commit -m "coverage: ${total}%"
-            git push origin badges
-          }
+
+          # The branch is REPLACED on every publish, not appended to, so it
+          # holds exactly one commit forever.
+          #
+          # It used to accumulate one commit per run — "coverage: 84.1%",
+          # "coverage: 84.0%", "coverage: 83.9%" — and nothing ever read them.
+          # The badge is served from the file at the tip, so the history was a
+          # write-only log that made `git branch -a` and every branch listing
+          # harder to read, growing for as long as the project does. A
+          # generated artefact does not need a past.
+          #
+          # Force-pushing an orphan is safe precisely because it is generated:
+          # nothing branches from here, nothing merges here, and the whole
+          # content is rebuilt from the run that pushes it. The first publish
+          # after this change squashes everything already there, so no separate
+          # cleanup is needed.
+          #
+          # An unchanged number still publishes nothing, which is why the
+          # comparison is against the file rather than the commit: a rewritten
+          # orphan differs from its predecessor every time, so `git diff` can no
+          # longer answer "has the coverage moved".
+          git fetch --depth=1 origin badges 2>/dev/null || true
+          if git show FETCH_HEAD:coverage.json 2>/dev/null | diff -q - /tmp/coverage.json >/dev/null 2>&1; then
+            echo "coverage is still ${total}%; the badge is unchanged"
+            exit 0
+          fi
+
+          # Built with plumbing rather than a checkout, so it cannot append.
+          #
+          # The obvious version — checkout --orphan, commit, force-push — has a
+          # trap: --orphan refuses a branch name that already exists, and on a
+          # reused checkout it then quietly COMMITS ONTO the leftover branch,
+          # reproducing the accumulating history this is meant to remove. Adding
+          # a `git branch -D` before it does not help either, because after the
+          # first publish HEAD is standing on the branch being deleted. A
+          # simulation of repeated runs caught both.
+          #
+          # commit-tree takes no parent unless one is given, so this is a single
+          # rootless commit by construction — no branch name, no working tree,
+          # no dependence on the state the runner arrived in. It also leaves the
+          # checkout alone, which the old version disturbed with `git rm
+          # --cached` and `rm -rf dist`.
+          blob=$(git hash-object -w /tmp/coverage.json)
+          tree=$(printf '100644 blob %s\tcoverage.json\n' "$blob" | git mktree)
+          commit=$(git commit-tree "$tree" -m "coverage: ${total}%")
+          # Braced: `$commit:r` is a parameter modifier in zsh, which silently
+          # eats the `:r` and pushes to a refspec that does not exist. Actions
+          # runs bash, so this is belt and braces — but the simulation that
+          # proved this step runs in zsh, and it bit there.
+          git push --force origin "${commit}:refs/heads/badges"
 
   oracle:
     name: Differential test against Dredd
