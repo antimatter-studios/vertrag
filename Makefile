@@ -23,9 +23,16 @@ test:
 # almost everything, but it needs the reference installed — so measuring with it
 # would report a healthy number for a checkout where `go test` proves nothing.
 # What this measures is the safety net that works anywhere.
+# The test output is hidden on success and shown on failure, which it was not.
+# A failing coverage run printed `make: *** [cover] Error 1` and nothing else,
+# because >/dev/null discarded the reason along with the noise — so CI could
+# say only that the gate had failed, and which test broke was unrecoverable
+# without reproducing it. Same discarded-diagnostic bug as the hooks worker's
+# stderr, in the build rather than the product.
 cover:
 	@mkdir -p dist
-	@VERTRAG_SKIP_ORACLE=1 go test ./... -coverpkg=./... -coverprofile=dist/coverage.out -count=1 >/dev/null
+	@VERTRAG_SKIP_ORACLE=1 go test ./... -coverpkg=./... -coverprofile=dist/coverage.out -count=1 >dist/coverage.log 2>&1 \
+	  || { echo "the coverage run failed; its output follows" >&2; cat dist/coverage.log >&2; exit 1; }
 	@go tool cover -func=dist/coverage.out | tail -1
 	@total=$$(go tool cover -func=dist/coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+'); \
 	 if [ "$$(printf '%s\n' "$$total" "$(COVERAGE_MINIMUM)" | sort -g | head -1)" != "$(COVERAGE_MINIMUM)" ]; then \
