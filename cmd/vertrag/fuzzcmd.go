@@ -561,12 +561,17 @@ func partitionBySchema(transactions []compile.Transaction) ([]compile.Transactio
 // to stage by a header keyed on the expected status: 94 of 105 findings were
 // the mock doing exactly as it was asked.
 func successVariants(transactions []compile.Transaction) []compile.Transaction {
-	type key struct{ method, template string }
-	best := map[key]int{} // index into out
+	// operationOf, not a second notion of the same thing. This used to declare
+	// its own key type; the undocumented-status ledger needs exactly the same
+	// identity, and two spellings of "which operation is this" would sooner or
+	// later disagree about a GraphQL field or a URI template — with one of
+	// them silently probing the wrong variant and the other blaming the wrong
+	// operation for a status.
+	best := map[operation]int{} // index into out
 	var out []compile.Transaction
 
 	for _, transaction := range transactions {
-		k := key{transaction.Request.Method, operationKey(transaction)}
+		k := operationOf(transaction)
 		status := statusOf(transaction)
 		if i, seen := best[k]; seen {
 			// Prefer a 2xx over anything, and the lowest 2xx over a higher

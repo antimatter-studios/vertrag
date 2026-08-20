@@ -310,7 +310,15 @@ func runRun(args []string) error {
 		return fmt.Errorf("the API description could not be read; nothing was run")
 	}
 
-	selected, unmatched, err := filterTransactions(stripAPIName(result.Transactions), settings)
+	compiled := stripAPIName(result.Transactions)
+
+	// Built from the whole description, before any filter narrows the run: what
+	// an operation documents is a fact about the document, and a run limited to
+	// one tag must not conclude that the responses it left out were never
+	// written down.
+	statuses := newStatusLedger(compiled)
+
+	selected, unmatched, err := filterTransactions(compiled, settings)
 	if err != nil {
 		return err
 	}
@@ -383,6 +391,17 @@ func runRun(args []string) error {
 	if err := applyConfiguredRules(ctx, engine, settings, transactions); err != nil {
 		return err
 	}
+
+	// Installed after the rules, so the request that OBTAINS the credential is
+	// not counted: `auth.login` sends its own exchange, judged by the auth
+	// package against what it needs rather than against the description, and a
+	// 401 from a login attempt is the credential being wrong, not the document.
+	// Everything the run sends from here on goes through the runner, and the
+	// runner calls this from the one place that touches the wire.
+	engine.Observe = statuses.observe
+	// The examples phase always runs and always runs first, so the ledger opens
+	// in it rather than defaulting to a phase name nothing chose.
+	statuses.phase(config.PhaseExamples)
 
 	// Concurrency is refused rather than silently ignored where it would break
 	// an ordering contract: a sequenced step takes its values from another
@@ -524,6 +543,7 @@ func runRun(args []string) error {
 		deadline = time.Now().Add(maxTime)
 	}
 	for _, phase := range settings.Phases {
+		statuses.phase(phase)
 		switch phase {
 		case config.PhaseCoverage:
 			probeable, _ := partitionBySchema(probeableTransactions)
@@ -568,6 +588,14 @@ func runRun(args []string) error {
 	}
 
 	report.Report(results)
+
+	// Last, and to the terminal whatever --reporter was asked for, because it
+	// is a diagnostic about the description rather than a result of the run —
+	// the same place the annotations go. A junit file describes transactions;
+	// this describes the document they came from, and there is no element in
+	// that format that means "your API does things you never wrote down".
+	statuses.report(os.Stdout)
+
 	switch {
 	case !examplesPassed:
 		return errFailed

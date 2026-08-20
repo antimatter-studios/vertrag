@@ -153,6 +153,24 @@ type Runner struct {
 	// with the reason, so the report still names every transaction and its
 	// totals still add up — a truncated report reads as a shorter suite.
 	MaxFailures int
+
+	// Observe, when set, is handed every response the run received, with the
+	// transaction it answered and the context it was sent on.
+	//
+	// It is called from the one place inside this package that touches the
+	// wire, for the reason the `skip` backstop sits there: every phase of a
+	// run reaches the network through a different door — Run for the
+	// documented examples, Send for a probing phase's baseline, SendGenerated
+	// for its probes, Deliver for a stateful chain — and a collector wired up
+	// at each door is a collector that misses the door somebody adds next. The
+	// point of this one is a complete account of what the server answered, and
+	// an account with a phase quietly missing from it is worse than none: the
+	// statuses it did not see read as statuses the API never returned.
+	//
+	// It is called only when a response arrived. A request that could not be
+	// made establishes nothing about the API, which is the same reason an
+	// error is not a failure here.
+	Observe func(ctx context.Context, source compile.Transaction, reply validate.Message)
 }
 
 // ConditionalHeader is a header added only to the transactions it matches.
@@ -849,11 +867,15 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 		headers[strings.ToLower(name)] = strings.Join(values, ", ")
 	}
 
-	return validate.Message{
+	reply := validate.Message{
 		StatusCode: strconv.Itoa(response.StatusCode),
 		Headers:    headers,
 		Body:       payload,
-	}, exchange, nil
+	}
+	if r.Observe != nil && !transaction.unobserved {
+		r.Observe(ctx, transaction.source, reply)
+	}
+	return reply, exchange, nil
 }
 
 // Bounds on reading a streaming response.
@@ -961,6 +983,18 @@ type Transaction struct {
 	// consulting the response. Both are set by hooks.
 	Skip bool
 	Fail string
+
+	// unobserved keeps this request out of Observe's account of what the
+	// server answered.
+	//
+	// One thing sets it: the ignored-auth check, which re-sends a documented
+	// request with the credential deliberately removed. Its 401 is a fact
+	// about that experiment and not about the operation, and letting it
+	// through would have the run report a 401 the description never mentions
+	// against an endpoint whose documented request never gets one — a finding
+	// invented by the tester's own probe, in the one report whose whole
+	// argument is that the document should describe what really happens.
+	unobserved bool
 
 	endpoint string
 	fullURL  string
@@ -1193,8 +1227,11 @@ func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transactio
 		return "", false
 	}
 
-	// The same transaction, prepared without the credential.
+	// The same transaction, prepared without the credential — and kept out of
+	// the observation ledger, since a request stripped of its credential is
+	// not one the description describes. See Transaction.unobserved.
 	prepared := newTransaction(source, r.Endpoint, r.headers(source, false, true))
+	prepared.unobserved = true
 
 	reply, _, err := r.send(ctx, prepared)
 	if err != nil {

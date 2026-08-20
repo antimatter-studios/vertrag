@@ -381,7 +381,7 @@ func probe(
 		}
 		usable++
 
-		reply, err := send(ctx, rendered)
+		reply, err := send(WithMode(ctx, mode), rendered)
 		if err == nil {
 			sent++
 		}
