@@ -134,6 +134,41 @@ stops the run and names itself, and a value matching no transaction is reported
 test, and an exclude matching nothing sends every request it was written to
 prevent.
 
+### Checking the configuration before trusting a result
+
+```console
+$ vertrag doctor
+2 transaction(s) compiled from ./api.yml
+
+5 setting(s) reach nothing:
+  auth.login.path: "/login" matches no transaction, so the operation that grants
+    the credential will be sent it like any other, and a server may read that as
+    already authenticated
+  fuzz.pin: "dry_runn" matches no transaction, so nothing is held and generation
+    will send whatever the schema permits
+  skip: "also not a transaction" matches no transaction, so the operation it
+    names will run and be probed like any other
+  …
+```
+
+A setting that **names** something — a transaction, a path, a field — can match
+nothing, and matching nothing looks exactly like matching everything it was
+meant to. That failure costs coverage rather than correctness: the run is green
+because it stopped testing, and nothing says so. Every such bug this tool has
+had was of that shape.
+
+`doctor` answers it against the description, before a run, **sending nothing** —
+so the question "is this configuration doing what it says" can be asked from a
+laptop against an API that is not up. It exits non-zero when something reaches
+nothing, so a pipeline can gate on it, and says nothing at all when the
+configuration is sound.
+
+A new setting cannot be added without being classified as one that names things
+or one that does not, with its reason: `TestEveryConfigFieldIsClassified`
+reflects over the configuration and fails on anything unaccounted for. A
+registry somebody has to remember to update would be the same silent control it
+exists to prevent.
+
 ### Probing several operations at once
 
 The `coverage` phase takes `--workers` (or the run-wide `workers:` key), and the
