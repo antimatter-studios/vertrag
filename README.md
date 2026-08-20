@@ -357,6 +357,40 @@ One gap worth knowing about: an OpenAPI `default` response is dropped when the
 document is read, and the compiler treats it as a `200`, so an operation whose
 only error entry is `default` will have its errors listed here.
 
+### Two shapes for one status
+
+A run remembers the outline of every response body it received, and says so
+when one operation answered a single status, in a single media type, with
+bodies no one client parser could read:
+
+```
+two shapes for one status:
+  GET /items/{itemId} · 422 · application/json
+    at detail: string (examples, fuzz), array (fuzz)
+```
+
+That is FastAPI's, and it is not exotic. A handler translating a domain
+`ValueError` raises 422 with `detail` as a string; the framework's own request
+validation raises 422 — same operation, same media type — with `detail` as an
+array of error objects. Every response conforms to the description, which
+promises one body per status and has nowhere to say which one a caller will
+get. Only a contract tester meets both, and only within one run: the examples
+phase provokes the handler's version and the probing phases provoke the
+framework's. Naming the phase is what turns "two shapes" into a place to look.
+
+It is a summary and never an exit code. What it reports is a fact about the
+DESCRIPTION rather than a response that broke a promise, and a pipeline turning
+red over it would block a merge on a document nobody edited.
+
+The rule is deliberately narrow, because a false report costs the reader two
+responses and an argument. Fields present in one body and absent from the other
+are not a difference — that is what optional means — and neither is a `null`
+against an absent field, an array of a different length, or `1` against `1.5`.
+A different JSON type at a path both bodies have is. The media type is part of
+the key for the same reason: content negotiation is one status answering with
+two shapes on purpose, and a check that reports the intended behaviour of
+ordinary APIs is one people learn to scroll past.
+
 ### Webhooks are read, checked, and not sent
 
 `webhooks` is OpenAPI 3.1's, and it points the other way: a path is a request
@@ -778,6 +812,7 @@ vertrag keeps that shape:
 | `hooks` | Running Node.js hook files | Done |
 | `config` | Reading `vertrag.yml` | Done |
 | `reporter` | cli, dot, markdown, html, JUnit, HAR and VCR output | Done |
+| `shape` | Body outlines, and where one status answered with two | Done |
 
 GraphQL is the one format that does not pass through API Elements, and that is
 a decision rather than an omission. A schema has no resources, no URIs and no

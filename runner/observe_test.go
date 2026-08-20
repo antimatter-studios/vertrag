@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -46,7 +47,7 @@ func TestEveryDoorIntoTheRunnerIsObserved(t *testing.T) {
 
 	var seen recorder
 	engine := New(server.URL)
-	engine.Observe = seen.note
+	engine.AddObserver(seen.note)
 
 	transaction := compile.Transaction{
 		Name:     "thing",
@@ -93,7 +94,7 @@ func TestARequestStrippedOfItsCredentialIsNotObserved(t *testing.T) {
 
 	var seen recorder
 	engine := New(server.URL)
-	engine.Observe = seen.note
+	engine.AddObserver(seen.note)
 	engine.Auth = Credential{Header: "Authorization: Bearer good"}
 	engine.Checks = Checks{IgnoredAuth: true}
 
@@ -112,5 +113,81 @@ func TestARequestStrippedOfItsCredentialIsNotObserved(t *testing.T) {
 	got := seen.all()
 	if len(got) != 1 || got[0] != "/guarded 200" {
 		t.Errorf("the credential probe's own answer reached the ledger: %v", got)
+	}
+}
+
+// TestEveryResponseReachesTheObserverIncludingGeneratedOnes is why the observer
+// sits in send rather than beside the results.
+//
+// A Result exists for each documented transaction and for each probe's verdict,
+// and a probe's verdict is not its responses: generation sends many bodies
+// through one operation and keeps only what it concluded. So a caller wanting
+// to know something across a whole run — that one status answered with two
+// incompatible body shapes, say — cannot learn it from the results, because the
+// responses that would show it were never kept. send is the one point every
+// request of every phase passes through.
+func TestEveryResponseReachesTheObserverIncludingGeneratedOnes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"path":%q}`, r.URL.Path)
+	}))
+	defer server.Close()
+
+	var seen []string
+	engine := New(server.URL)
+	engine.AddObserver(func(_ context.Context, source compile.Transaction, reply validate.Message) {
+		seen = append(seen, source.Request.Method+" "+reply.StatusCode+" "+reply.Body)
+	})
+
+	documented := transaction("GET", "/documented", "200", `{"path":"x"}`, "")
+	if _, err := engine.Run(context.Background(), []compile.Transaction{documented}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	generated := transaction("GET", "/generated", "200", "", "")
+	if _, err := engine.SendGenerated(context.Background(), generated); err != nil {
+		t.Fatalf("SendGenerated: %v", err)
+	}
+
+	want := []string{
+		`GET 200 {"path":"/documented"}`,
+		`GET 200 {"path":"/generated"}`,
+	}
+	if fmt.Sprint(seen) != fmt.Sprint(want) {
+		t.Errorf("the observer saw %v, want %v", seen, want)
+	}
+}
+
+// TestAnObserverIsCalledFromWhicheverWorkerSent says out loud what the field's
+// documentation promises, because the alternative is a data race discovered in
+// somebody else's CI.
+func TestAnObserverIsCalledFromWhicheverWorkerSent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"1"}`)
+	}))
+	defer server.Close()
+
+	var guard sync.Mutex
+	observed := 0
+
+	engine := New(server.URL)
+	engine.Workers = 4
+	engine.AddObserver(func(context.Context, compile.Transaction, validate.Message) {
+		guard.Lock()
+		defer guard.Unlock()
+		observed++
+	})
+
+	var transactions []compile.Transaction
+	for i := 0; i < 12; i++ {
+		transactions = append(transactions, transaction("GET", fmt.Sprintf("/item/%d", i), "200", `{"id":"x"}`, ""))
+	}
+	if _, err := engine.Run(context.Background(), transactions); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if observed != len(transactions) {
+		t.Errorf("the observer saw %d of %d responses", observed, len(transactions))
 	}
 }
