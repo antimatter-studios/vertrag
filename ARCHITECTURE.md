@@ -22,6 +22,7 @@ alphabetical.
 | `link` | Orders a run by the sequences its description declares |
 | `generate` | Values drawn from a schema, valid and invalid |
 | `fuzz` | Sends generated values and judges what the server did with them |
+| `shape` | The outline of every response body, and where one status answered with two |
 | `corpus` | vertrag's own descriptions, and a server that answers what they promise |
 | `cmd/vertrag` | The command itself: flags, wiring, exit codes |
 

@@ -22,6 +22,7 @@ import (
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
 	"github.com/antimatter-studios/vertrag/server"
+	"github.com/antimatter-studios/vertrag/shape"
 )
 
 // runFlags is everything `vertrag run` accepts on the command line.
@@ -398,7 +399,7 @@ func runRun(args []string) error {
 	// 401 from a login attempt is the credential being wrong, not the document.
 	// Everything the run sends from here on goes through the runner, and the
 	// runner calls this from the one place that touches the wire.
-	engine.Observe = statuses.observe
+	engine.AddObserver(statuses.observe)
 	// The examples phase always runs and always runs first, so the ledger opens
 	// in it rather than defaulting to a phase name nothing chose.
 	statuses.phase(config.PhaseExamples)
@@ -483,6 +484,22 @@ func runRun(args []string) error {
 		}
 	}
 
+	// One recorder for the whole run, because the finding it exists to make
+	// only exists across phases.
+	//
+	// A FastAPI service that translates a domain error to 422 answers the
+	// examples phase with `detail` as a string and the probing phases with
+	// `detail` as an array — same operation, same status, same media type, and
+	// nothing in the description saying which a client will get. Neither
+	// response is wrong on its own, so neither phase can see it; only a run
+	// that remembers both can. Recording it costs a JSON parse per response and
+	// no requests.
+	shapes := &shape.Recorder{}
+	// Registered once, reading currentPhase, which the phase loop sets. See
+	// the comment there for why a plain variable is safe.
+	currentPhase := config.PhaseExamples
+	engine.AddObserver(observing(shapes, func() string { return currentPhase }))
+
 	results, err := engine.Run(ctx, transactions)
 	if err != nil {
 		return err
@@ -544,6 +561,16 @@ func runRun(args []string) error {
 	}
 	for _, phase := range settings.Phases {
 		statuses.phase(phase)
+		// The shape recorder is registered once, before the loop, and reads
+		// this. It cannot be re-registered per phase now that observers are a
+		// list — appending one per phase would record every response as many
+		// times as there are phases left.
+		//
+		// A plain assignment is enough for the same reason the observer that
+		// wanted reassignment gave: phases are sequential, and every worker of
+		// one has finished before the next begins, so nothing reads this while
+		// it is being written.
+		currentPhase = phase
 		switch phase {
 		case config.PhaseCoverage:
 			probeable, _ := partitionBySchema(probeableTransactions)
@@ -589,12 +616,14 @@ func runRun(args []string) error {
 
 	report.Report(results)
 
-	// Last, and to the terminal whatever --reporter was asked for, because it
-	// is a diagnostic about the description rather than a result of the run —
-	// the same place the annotations go. A junit file describes transactions;
-	// this describes the document they came from, and there is no element in
-	// that format that means "your API does things you never wrote down".
+	// Last, and to the terminal whatever --reporter was asked for, because
+	// these are diagnostics about the description rather than results of the
+	// run — the same place the annotations go. A junit file describes
+	// transactions; these describe the document they came from, and there is no
+	// element in that format that means "your API does things you never wrote
+	// down". Neither is a finding, so the exit code below cannot see either.
 	statuses.report(os.Stdout)
+	reportDivergences(os.Stdout, shapes.Divergences(), settings.Color)
 
 	switch {
 	case !examplesPassed:

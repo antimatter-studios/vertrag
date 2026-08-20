@@ -167,10 +167,23 @@ type Runner struct {
 	// an account with a phase quietly missing from it is worse than none: the
 	// statuses it did not see read as statuses the API never returned.
 	//
-	// It is called only when a response arrived. A request that could not be
-	// made establishes nothing about the API, which is the same reason an
-	// error is not a failure here.
-	Observe func(ctx context.Context, source compile.Transaction, reply validate.Message)
+	// It also exists because some facts about an API are only visible ACROSS
+	// responses, and most of a run's responses never reach a Result — a probing
+	// phase sends thousands of requests and keeps the verdict, not the reply.
+	//
+	// A LIST rather than one function, and added to rather than assigned.
+	// Two of these arrived in the same week, written independently, and with a
+	// single field the second would have silently replaced the first — which is
+	// the failure this codebase keeps finding: a thing that looks installed and
+	// is not. AddObserver cannot overwrite.
+	//
+	// Each is called from whichever goroutine sent the request, so an observer
+	// used by a run with workers must be safe for concurrent use. None may
+	// change the response: this is a run's bookkeeping, not another place a
+	// verdict can be decided from. They are called only when a response
+	// arrived, because a request that could not be made establishes nothing
+	// about the API — the same reason an error is not a failure here.
+	observers []func(ctx context.Context, source compile.Transaction, reply validate.Message)
 }
 
 // ConditionalHeader is a header added only to the transactions it matches.
@@ -193,6 +206,15 @@ type ConditionalHeader struct {
 
 	// Method matches the request method. Empty matches every transaction.
 	Method string
+}
+
+// AddObserver registers a function to be handed every response the run
+// receives. See observers for why this appends rather than assigns.
+func (r *Runner) AddObserver(observe func(ctx context.Context, source compile.Transaction, reply validate.Message)) {
+	if observe == nil {
+		return
+	}
+	r.observers = append(r.observers, observe)
 }
 
 // matches reports whether the header applies to a transaction.
@@ -872,8 +894,10 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 		Headers:    headers,
 		Body:       payload,
 	}
-	if r.Observe != nil && !transaction.unobserved {
-		r.Observe(ctx, transaction.source, reply)
+	if !transaction.unobserved {
+		for _, observe := range r.observers {
+			observe(ctx, transaction.source, reply)
+		}
 	}
 	return reply, exchange, nil
 }
