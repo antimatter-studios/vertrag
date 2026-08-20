@@ -148,7 +148,7 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 		}
 		usable++
 
-		reply, err := send(ctx, values)
+		reply, err := send(WithMode(ctx, mode), values)
 		if errors.Is(err, ErrSkipped) {
 			return
 		}

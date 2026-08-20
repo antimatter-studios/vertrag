@@ -318,6 +318,45 @@ different questions. `run` is deterministic and belongs in CI as a regression
 gate; generation is exploratory, and a run that discovers something new on a
 Tuesday is a feature there and a broken build here.
 
+### Statuses the description never mentions
+
+The commonest real defect in the APIs vertrag is pointed at is not a broken
+handler: it is a document that does not describe reality. An operation
+documenting `200` and nothing else, whose handler answers 401, 404 and 409,
+passes every check there is — and a client reading the description has no idea
+those answers exist or what shape they arrive in.
+
+A run already provokes them, so every run now keeps an account of what each
+operation returned and prints, at the end, whatever the description never
+mentions:
+
+```
+Statuses returned that the description does not document
+
+  Reached by a request the description describes, or by input its own schema
+  permits. The document is wrong about its own operation:
+    GET /widgets/{id}  404  x5    coverage, fuzz
+
+  Reached only by deliberately invalid input. Refusing it may well be correct,
+  but the description never says what a refusal looks like:
+    GET /widgets/{id}  400  x10   coverage, fuzz
+
+  This is a report about the description and does not affect the exit code.
+```
+
+The two groups are the whole point. A probing run provokes hundreds of correct
+refusals and a handful of statuses somebody should act on, and printed as one
+list the first buries the second. A 5xx appears in neither: it is already a
+finding in its own right, and one event with two severities gets acted on at
+the lower one.
+
+Nothing here changes the exit code. It is a defect in the document, and a
+pipeline that fails over one teaches its owners to stop reading the output.
+
+One gap worth knowing about: an OpenAPI `default` response is dropped when the
+document is read, and the compiler treats it as a `200`, so an operation whose
+only error entry is `default` will have its errors listed here.
+
 ### Webhooks are read, checked, and not sent
 
 `webhooks` is OpenAPI 3.1's, and it points the other way: a path is a request

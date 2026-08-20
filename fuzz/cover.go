@@ -96,7 +96,7 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 		}
 		outcome.Sent = true
 
-		reply, err := send(ctx, rendered)
+		reply, err := send(WithMode(ctx, probe.Mode), rendered)
 		if errors.Is(err, ErrSkipped) {
 			// A hook took this probe out of the run; nothing was sent, so
 			// nothing is concluded.
