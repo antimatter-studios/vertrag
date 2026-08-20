@@ -56,6 +56,8 @@ func run(args []string) error {
 		return runCompile(args[1:])
 	case "run":
 		return runRun(args[1:])
+	case "doctor":
+		return runDoctor(args[1:])
 	case "fuzz", "coverage":
 		// Both were commands of their own until they became phases of a run.
 		//
@@ -89,6 +91,9 @@ OpenAPI 2, or a GraphQL schema.
 Usage:
   vertrag run [flags] [description] [endpoint]
                                    Test a running API against its description
+  vertrag doctor [flags]           Check the configuration against the description
+                                   and send nothing: which settings reach
+                                   something, and which quietly reach nothing
   vertrag compile [flags] <file>   Show the transactions a description yields
   vertrag version                  Print the version
 
