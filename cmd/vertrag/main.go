@@ -28,9 +28,11 @@ func main() {
 		case errFailed:
 			os.Exit(1)
 		case errFindings:
-			// Documented transactions passed; the probing phases found
-			// something. Distinct from 1 so a pipeline can gate on the
-			// contract and merely report the findings.
+			// Documented transactions passed; something else found
+			// something — a probing phase, or a link the description
+			// declares that did not resolve. Distinct from 1 so a
+			// pipeline can gate on the contract and merely report the
+			// findings.
 			os.Exit(2)
 		default:
 			fmt.Fprintln(os.Stderr, "vertrag:", err)

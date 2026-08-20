@@ -59,6 +59,38 @@ func AgainstHeaderSchemas(schemas map[string]json.RawMessage, headers map[string
 }
 
 func checkHeaderValue(name, raw string, schema json.RawMessage) []string {
+	reasons := AgainstTextValue(schema, raw)
+	if len(reasons) == 0 {
+		return nil
+	}
+
+	findings := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		findings = append(findings, fmt.Sprintf("the %s header %s", name, reason))
+	}
+	return findings
+}
+
+// AgainstTextValue reports why a value that travels as text contradicts the
+// schema the description gave it.
+//
+// The reasons complete a subject rather than naming one — `is "banana", which
+// is not an integer the description promises` — because the caller knows what
+// the value is and this does not. A header names the header; a link names the
+// parameter of the operation it claims the value belongs to.
+//
+// Exported for link resolution, which asks this exact question of a different
+// value: an OpenAPI Link Object claims that something in one response IS a
+// parameter of another operation, and a parameter reaches the wire the way a
+// header does — as text, rendered by `simple` style for a path parameter and
+// by `form` for a query one, which agree for every primitive. Writing a second
+// decoder over there would eventually have the two checks disagreeing about
+// what "42" is on one document.
+//
+// Nothing is reported for a schema no value can be read out of unambiguously.
+// See simpleValue: checking nothing is the safe failure mode, and guessing
+// what the text meant is not.
+func AgainstTextValue(schema json.RawMessage, raw string) []string {
 	var declared map[string]any
 	if err := json.Unmarshal(schema, &declared); err != nil {
 		return nil
@@ -69,8 +101,8 @@ func checkHeaderValue(name, raw string, schema json.RawMessage) []string {
 		return nil
 	}
 	if !wellFormed {
-		return []string{fmt.Sprintf("the %s header is %q, which is not %s the description promises",
-			name, raw, subject(declared))}
+		return []string{fmt.Sprintf("is %q, which is not %s the description promises",
+			raw, subject(declared))}
 	}
 
 	field := validateValue(schema, value, "")
@@ -78,11 +110,11 @@ func checkHeaderValue(name, raw string, schema json.RawMessage) []string {
 		return nil
 	}
 
-	findings := make([]string, 0, len(field.Errors))
+	reasons := make([]string, 0, len(field.Errors))
 	for _, reason := range field.Errors {
-		findings = append(findings, fmt.Sprintf("the %s header is %q: %s", name, raw, reason))
+		reasons = append(reasons, fmt.Sprintf("is %q: %s", raw, reason))
 	}
-	return findings
+	return reasons
 }
 
 // simpleValue decodes a header's text as the type its schema declares, following

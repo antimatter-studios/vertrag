@@ -221,6 +221,19 @@ type Checks struct {
 	// doubles the requests a run makes.
 	IgnoredAuth bool
 
+	// LinkResolution resolves every OpenAPI Link Object the description
+	// declares against the response it is declared on, and reports a link
+	// that produces no value or a value its target would refuse.
+	//
+	// On by default, and the only one of these that costs no request at all:
+	// the responses it reads are the ones the run has already received. What
+	// it judges is the description's own words — a Link Object claims that the
+	// value at some place in this response IS that operation's parameter — so
+	// it is the same kind of check as validating a body against its schema,
+	// and it needs no lifecycle, no fixtures and no assumption about what the
+	// server stores. Turn it off for a description whose links are aspirational.
+	LinkResolution bool
+
 	// MaxResponseTime is how long a transaction may take before it is
 	// reported. Zero, the default, means nothing is timed.
 	//
@@ -536,6 +549,7 @@ type checksFile struct {
 	ContentType     *bool   `yaml:"content-type"`
 	HeaderSchema    *bool   `yaml:"header-schema"`
 	IgnoredAuth     *bool   `yaml:"ignored-auth"`
+	LinkResolution  *bool   `yaml:"link-resolution"`
 	MaxResponseTime *string `yaml:"max-response-time"`
 }
 
@@ -551,7 +565,7 @@ func Default() Config {
 		HooksWorkerTimeout:     5 * time.Second,
 		HooksWorkerConnectWait: 100 * time.Millisecond,
 		Reporters:              []string{"cli"},
-		Checks:                 Checks{ServerError: true, ContentType: true},
+		Checks:                 Checks{ServerError: true, ContentType: true, LinkResolution: true},
 	}
 }
 
@@ -941,6 +955,7 @@ func apply(config *Config, parsed file) {
 		setBool(&config.Checks.ContentType, parsed.Checks.ContentType)
 		setBool(&config.Checks.HeaderSchema, parsed.Checks.HeaderSchema)
 		setBool(&config.Checks.IgnoredAuth, parsed.Checks.IgnoredAuth)
+		setBool(&config.Checks.LinkResolution, parsed.Checks.LinkResolution)
 	}
 
 	// Keys read into Config and then acted on by nobody. They were reported as

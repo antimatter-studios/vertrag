@@ -30,6 +30,38 @@ import (
 //
 // Both are properties of the sequence rather than of any request in it, which
 // is why the ordinary phases cannot reach them however many values they draw.
+//
+// # Both are inferred, and now say so
+//
+// Everything else vertrag reports is a claim the description itself makes: a
+// status, a schema, a content type, a link. These two are not. OpenAPI has no
+// grammar for "a resource stops being readable once it has been deleted" — no
+// keyword, no extension, nothing an author can write to affirm it or to deny
+// it — so the assertion belongs to vertrag, drawn from what DELETE and GET
+// mean in RFC 9110, and it cannot be falsified from the document under test.
+//
+// That matters because this codebase refuses exactly that move everywhere
+// else. The possessed-ID exemption in fuzz/ and the login exemption in
+// refusals.go both turn on one sentence: a description promises which values
+// are WELL FORMED, not which resources exist. A phase asserting what the
+// server must be HOLDING is on the far side of that line, and it was reporting
+// its conclusions in the same voice as a schema violation.
+//
+// They are kept, because they find defects nothing else can — a resource that
+// outlives its delete passes every documented transaction there is — and an
+// assertion deleted finds nothing at all. What has changed is that each
+// finding now carries the assumption it rests on, in the report as well as on
+// the terminal, so a reader who disputes the inference can say which inference
+// they dispute instead of hunting for the rule that produced it. The defect
+// was never the check; it was an unfalsifiable claim printed as though the
+// description had made it.
+//
+// The other half of what this phase used to be the only route to has been
+// taken out of it. Resolving a link's runtime expressions is reading the
+// description's own words back to it, so it now runs on every `vertrag run`,
+// with no lifecycle, no fixtures and no server that has to survive being
+// knocked about — see linkcheck.go. That it lived here is how a check with no
+// assumptions in it came to be reachable only behind two.
 
 // statefulOutcome is one chain, run.
 type statefulOutcome struct {
@@ -44,12 +76,34 @@ type statefulOutcome struct {
 
 // statefulFinding is a property of a sequence that did not hold.
 type statefulFinding struct {
-	Step    int
-	Name    string
+	Step int
+	Name string
+	// Message is what happened. Basis is the assumption that makes it a
+	// finding, which is not in the description and has to travel with it —
+	// see the note above.
 	Message string
+	Basis   string
 	Status  string
 	Request runner.Request
 }
+
+// The assumptions the two findings rest on, written out for the reader rather
+// than left implicit in the code that decided.
+//
+// They are phrased as what vertrag assumed and where the assumption came from,
+// because that is what someone disputing a finding needs: an author who
+// intends a soft delete that keeps serving reads has not violated their
+// description, and should be able to see that in one line rather than deduce
+// it. Neither sentence can be written in OpenAPI, which is the whole of why
+// they are here.
+const (
+	deletedStaysGone = "inferred, not documented: OpenAPI cannot state that a deleted resource stops " +
+		"being readable, so this rests on what DELETE means in RFC 9110 rather than on anything this " +
+		"description says"
+	createdIsThere = "inferred, not documented: the description declares the link, not that following " +
+		"it must find something, so this rests on what a successful create means rather than on " +
+		"anything this description says"
+)
 
 // runStateful executes every chain and reports.
 func runStateful(
@@ -103,7 +157,8 @@ func runStateful(
 				printStatefulFinding(engine, chain, transactions, finding, color)
 				results = append(results, runner.Result{
 					Name: name + " · " + finding.Name, Status: runner.StatusFail,
-					Request: sentAs(engine, compile.Transaction{}, compile.Request{}), Errors: []string{finding.Message},
+					Request: sentAs(engine, compile.Transaction{}, compile.Request{}),
+					Errors:  []string{finding.Message, finding.Basis},
 				})
 			}
 		case outcome.Stopped != "":
@@ -203,6 +258,7 @@ func runChain(ctx context.Context, engine *runner.Runner, transactions []compile
 				Request: prepared.SentRequest(),
 				Message: fmt.Sprintf("%s answered %d for a resource the sequence had already deleted; "+
 					"a read after a successful DELETE must not find it", source.Name, status),
+				Basis: deletedStaysGone,
 			})
 		case position > 0 && status == http.StatusNotFound && documented >= 200 && documented < 300 && createdEarlier(transactions, chain, position):
 			outcome.Findings = append(outcome.Findings, statefulFinding{
@@ -210,6 +266,7 @@ func runChain(ctx context.Context, engine *runner.Runner, transactions []compile
 				Request: prepared.SentRequest(),
 				Message: fmt.Sprintf("%s answered 404 for a resource the sequence had just created; "+
 					"the create reported success, so following its own link must find what it made", source.Name),
+				Basis: createdIsThere,
 			})
 		}
 
@@ -273,6 +330,7 @@ func runChain(ctx context.Context, engine *runner.Runner, transactions []compile
 				Name: "use after free", Status: reply.StatusCode, Request: replay.SentRequest(),
 				Message: fmt.Sprintf("%s still answered %d after the sequence deleted the resource; "+
 					"a read repeated after a successful DELETE must not find it", source.Name, status),
+				Basis: deletedStaysGone,
 			})
 		}
 	}
@@ -324,6 +382,7 @@ func printStatefulFinding(engine *runner.Runner, chain link.Chain, transactions 
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "chain:  "), chain.Names(transactions))
 	fmt.Printf("  %s %s %s\n", paint(reporter.Dim, "request:"), finding.Request.Method, finding.Request.URI)
 	fmt.Printf("  %s %s\n", paint(reporter.Dim, "status: "), finding.Status)
+	fmt.Printf("  %s %s\n", paint(reporter.Dim, "basis:  "), finding.Basis)
 	if repro := reporter.Curl(finding.Request); repro != "" {
 		fmt.Printf("  %s %s\n", paint(reporter.Dim, "repro:  "), repro)
 	}

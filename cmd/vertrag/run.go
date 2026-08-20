@@ -311,12 +311,14 @@ func runRun(args []string) error {
 		return fmt.Errorf("the API description could not be read; nothing was run")
 	}
 
+	// Everything the DESCRIPTION defines, kept apart from what this run
+	// selects, because two checks need the difference and both would be wrong
+	// without it: what an operation documents is a fact about the document, so
+	// a run limited to one tag must not conclude that the responses it left out
+	// were never written down — and a link naming an operation the run filtered
+	// away is not a link naming an operation the description lacks.
 	compiled := stripAPIName(result.Transactions)
 
-	// Built from the whole description, before any filter narrows the run: what
-	// an operation documents is a fact about the document, and a run limited to
-	// one tag must not conclude that the responses it left out were never
-	// written down.
 	statuses := newStatusLedger(compiled)
 
 	selected, unmatched, err := filterTransactions(compiled, settings)
@@ -425,8 +427,14 @@ func runRun(args []string) error {
 	// the plan is fixed by the description, so the same document always
 	// produces the same order — which is why it belongs on `run` rather than
 	// in a mode of its own.
+	//
+	// The sequencer outlives the block because the link check reads its
+	// exchanges afterwards: they are the only record of the values a link put
+	// INTO a request, which is what `$request.path.id` means in a sequenced
+	// run.
+	var sequencer *link.Sequencer
 	if flags.sequence {
-		sequencer := link.NewSequencer(transactions)
+		sequencer = link.NewSequencer(transactions)
 		for _, note := range sequencer.Notes() {
 			fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
 		}
@@ -505,6 +513,27 @@ func runRun(args []string) error {
 		return err
 	}
 	examplesPassed := passed(results)
+
+	// Every Link Object the description declares, resolved against the
+	// responses that just arrived.
+	//
+	// It is here rather than in a phase because it sends nothing: the
+	// exchanges are already in hand, so the argument that makes a check
+	// opt-in — it doubles the traffic, it needs a server that can be knocked
+	// about — does not apply. A link is a written claim about two operations,
+	// and checking a written claim is the same job as checking a response
+	// against its schema; requiring a flag for it would put the document's own
+	// words behind an option nobody knows about.
+	//
+	// Before this, the only thing that resolved a link was the stateful phase,
+	// which needs a create-and-delete lifecycle and asserts things OpenAPI
+	// cannot state. The documentary half was gated behind the inferential one.
+	linkFindings := false
+	if settings.Checks.LinkResolution {
+		linkResults, found := runLinkCheck(transactions, compiled, results, sequencer, settings.Color)
+		results = append(results, prefixed("links", linkResults)...)
+		linkFindings = found
+	}
 
 	// The probing phases, when asked for, run over the SAME engine — same
 	// auth, same transport, same skips — and land in the same report, so a
@@ -621,17 +650,62 @@ func runRun(args []string) error {
 	// run — the same place the annotations go. A junit file describes
 	// transactions; these describe the document they came from, and there is no
 	// element in that format that means "your API does things you never wrote
-	// down". Neither is a finding, so the exit code below cannot see either.
+	// down". None of them is a finding, so the exit code below cannot see them.
 	statuses.report(os.Stdout)
 	reportDivergences(os.Stdout, shapes.Divergences(), settings.Color)
+	noteIgnoredAuthIsOff(settings, engine, transactions)
 
 	switch {
 	case !examplesPassed:
 		return errFailed
-	case probeFindings:
+	case probeFindings || linkFindings:
 		return errFindings
 	}
 	return nil
+}
+
+// noteIgnoredAuthIsOff says, once, that this run did not test whether its
+// credential mattered.
+//
+// `--check-ignored-auth` re-sends every authenticated request without the
+// credential and reports each endpoint that answers anyway. It is off by
+// default for a good reason — it doubles those requests — and the cost of that
+// default is that almost nobody knows it exists. At one project it found 56 of
+// 117 endpoints answering unauthenticated: both rejection branches in their
+// middleware had been commented out for months, in the mock and in the live
+// service alike, and it was found only because somebody happened to mention
+// the flag. A check nobody knows about is a check nobody runs, which is the
+// failure this tool argues against everywhere else.
+//
+// Said at the END, where a reader is looking at what the run concluded, and in
+// one line. It is not printed when there is no credential configured, because
+// then there is nothing to withhold and nothing for the check to find — the
+// silence has to mean "this was not worth telling you", or it is noise and
+// gets filtered.
+//
+// The count is of requests that actually carried the credential, for the same
+// reason: a suite whose every transaction is in `auth.except` has already
+// answered the question this line would ask.
+func noteIgnoredAuthIsOff(settings config.Config, engine *runner.Runner, transactions []compile.Transaction) {
+	if !settings.Auth.Configured() || settings.Checks.IgnoredAuth {
+		return
+	}
+
+	authenticated := 0
+	for _, transaction := range transactions {
+		if engine.Auth.Except[transaction.Name] || engine.Auth.GrantedBy(transaction) {
+			continue
+		}
+		authenticated++
+	}
+	if authenticated == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stderr,
+		"vertrag: %d request(s) carried a credential and nothing checked whether it mattered; "+
+			"--check-ignored-auth (or `checks.ignored-auth`) re-sends each of them without it and reports "+
+			"every endpoint that answers anyway, at the cost of doubling those requests\n", authenticated)
 }
 
 // startServer runs the `server:` command, if the config has one, and hands
@@ -762,11 +836,12 @@ func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
 // printing it as an error message.
 var errFailed = fmt.Errorf("some transactions failed")
 
-// errFindings reports a run whose documented transactions all passed but
-// whose probing phases found something. It is a different exit status from
-// errFailed on purpose: a contract regression blocks a merge, a discovered
-// bug files an issue, and a pipeline that cannot tell them apart treats both
-// as the first — or, more likely, learns to ignore both.
+// errFindings reports a run whose documented transactions all passed but which
+// found something anyway: a probing phase, or a link whose claim did not hold.
+// It is a different exit status from errFailed on purpose: a contract
+// regression blocks a merge, a discovered bug files an issue, and a pipeline
+// that cannot tell them apart treats both as the first — or, more likely,
+// learns to ignore both.
 var errFindings = fmt.Errorf("the probing phases found something")
 
 // resolveConfig loads the configuration file, whether it was named or found.

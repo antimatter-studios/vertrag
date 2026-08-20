@@ -97,6 +97,34 @@ func TestStatefulFindsAResourceThatOutlivedItsDelete(t *testing.T) {
 	}
 }
 
+// TestALifecycleFindingSaysItIsInferredRatherThanDocumented pins the one
+// change this phase needed.
+//
+// Its two assertions cannot be written in OpenAPI. There is no keyword for "a
+// deleted resource stops being readable", so a reader cannot check the finding
+// against their description, cannot affirm it and cannot deny it — while every
+// other thing vertrag reports is a claim the document makes. This codebase
+// refuses that move elsewhere on one sentence: a description promises which
+// values are WELL FORMED, not which resources exist.
+//
+// The assertion stays, because it catches what nothing else can. What it now
+// carries is the assumption it rests on, so an author who means a soft delete
+// can see in one line which inference they are disputing.
+func TestALifecycleFindingSaysItIsInferredRatherThanDocumented(t *testing.T) {
+	binary := build(t)
+	endpoint, description := serveStateful(t, "chained", corpus.FaultResourceLingersAfterDelete)
+
+	output, _ := runCommand(t, binary, "run", "--endpoint", endpoint, "--no-color",
+		"--sequence", "--phases", "examples,stateful", description)
+
+	for _, want := range []string{"inferred, not documented", "RFC 9110"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("a lifecycle finding does not say %q, so it reads as something the description said:\n%s",
+				want, output)
+		}
+	}
+}
+
 // TestStatefulSaysSoWhenThereIsNothingToRun: a description with no links
 // produces no chains, and says why rather than reporting a clean run — a
 // phase that silently did nothing would read as a phase that found nothing.

@@ -243,6 +243,35 @@ checks:
   # for a single run.
   header-schema: false
 
+  # Whether the credential mattered at all. This re-sends every authenticated
+  # request WITHOUT it and reports each endpoint that answers anyway — the one
+  # thing an ordinary run cannot see, since every request it makes carries the
+  # credential and every response is therefore correct.
+  #
+  # At one project it found 56 of 117 endpoints answering unauthenticated: both
+  # rejection branches in their middleware had been commented out for months,
+  # in the mock and in the live service alike, and every suite they had stayed
+  # green throughout. They ran it because somebody happened to mention that the
+  # flag existed.
+  #
+  # Off by default because it doubles the requests a run makes, which is the
+  # only reason and a real one. So that the default is not also a secret, a run
+  # that has a credential and is NOT making this check says so in one line at
+  # the end. `--check-ignored-auth` turns it on for a single run.
+  ignored-auth: false
+
+  # Every OpenAPI Link Object, resolved against the response it is declared on.
+  # A link is a written claim — the value at THIS place in my response is THAT
+  # operation's parameter — and this reports a claim that produced no value, or
+  # a value the target operation's own schema would refuse.
+  #
+  # On by default, and alone among these it costs no request: what it reads is
+  # the responses the run has already received. Its findings exit 2 rather than
+  # 1, because every documented transaction can pass while the description
+  # contradicts itself. Turn it off where the links are aspirational and you
+  # would rather fix them on your own schedule than fail a pipeline.
+  link-resolution: true
+
   # How long a transaction may take before it is reported. This is the one check
   # the description cannot ask for: OpenAPI has no way to write "this endpoint
   # answers within 750ms", so the number can only come from you, and there is no
