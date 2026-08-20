@@ -175,8 +175,36 @@ func apply(target *runner.Transaction, source compile.Transaction, values map[st
 // Record keeps what a completed step sent and received, so a later step can
 // read values out of it.
 func (s *Sequencer) Record(index int, transaction *runner.Transaction, result runner.Result) {
+	s.exchanges[index] = exchangeOf(
+		s.transactions[index], transaction.FullURL(), result, s.substituted[index])
+}
+
+// Exchange is what a step sent and received, for a caller that wants to resolve
+// expressions against a run this sequencer drove.
+//
+// Check would otherwise rebuild it from the compiled transaction and get the
+// path parameters wrong for exactly the runs where they matter: in a sequenced
+// run the value that addressed a resource came from an earlier response, and
+// only this holds it. See substituted.
+func (s *Sequencer) Exchange(index int) (Exchange, bool) {
+	exchange, recorded := s.exchanges[index]
+	return exchange, recorded
+}
+
+// exchangeOf assembles the exchange a runtime expression reads from.
+//
+// substituted, which may be nil, holds the parameter values a link put into
+// the request, keyed by location and name. Without them the request side of
+// the exchange would carry the description's example rather than what was
+// sent — see substituted for what that cost.
+func exchangeOf(
+	source compile.Transaction,
+	url string,
+	result runner.Result,
+	substituted map[string]string,
+) Exchange {
 	exchange := Exchange{
-		URL:            transaction.FullURL(),
+		URL:            url,
 		Method:         result.Request.Method,
 		StatusCode:     result.Actual.StatusCode,
 		ResponseHeader: result.Actual.Headers,
@@ -190,7 +218,7 @@ func (s *Sequencer) Record(index int, transaction *runner.Transaction, result ru
 	for name, value := range result.Request.Headers {
 		exchange.RequestHeader[name] = value
 	}
-	for _, parameter := range s.transactions[index].Request.Parameters {
+	for _, parameter := range source.Request.Parameters {
 		if !parameter.HasValue {
 			continue
 		}
@@ -198,7 +226,7 @@ func (s *Sequencer) Record(index int, transaction *runner.Transaction, result ru
 		// What was actually sent, which is the description's example only when
 		// no link replaced it.
 		value := stringify(parameter.Value)
-		if replaced, ok := s.substituted[index][parameter.In+"."+parameter.Name]; ok {
+		if replaced, ok := substituted[parameter.In+"."+parameter.Name]; ok {
 			value = replaced
 		}
 
@@ -209,6 +237,16 @@ func (s *Sequencer) Record(index int, transaction *runner.Transaction, result ru
 			exchange.RequestQuery[parameter.Name] = value
 		}
 	}
+	return exchange
+}
 
-	s.exchanges[index] = exchange
+// ExchangeFrom builds the exchange a link's expressions resolve against from a
+// transaction the ordinary run already completed.
+//
+// This is what makes link resolution cost nothing: the examples phase has
+// already sent every documented request and kept what came back, so checking
+// what a link claims about those responses needs no request of its own. A
+// check that doubled a run's traffic would be one people switch off.
+func ExchangeFrom(source compile.Transaction, result runner.Result) Exchange {
+	return exchangeOf(source, result.Request.URL, result, nil)
 }

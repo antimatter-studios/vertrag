@@ -75,19 +75,7 @@ type Plan struct {
 func Build(transactions []compile.Transaction) Plan {
 	plan := Plan{Steps: make([]Step, 0, len(transactions))}
 
-	byOperation := map[string][]int{}
-	byPathMethod := map[pathMethod][]int{}
-	for i, transaction := range transactions {
-		// The template is the path as the document wrote it, which is what an
-		// operationRef points at; the expanded URI is not.
-		if template := transaction.Request.Template; template != "" {
-			key := pathMethod{path: templatePath(template), method: strings.ToLower(transaction.Request.Method)}
-			byPathMethod[key] = append(byPathMethod[key], i)
-		}
-		if transaction.OperationID != "" {
-			byOperation[transaction.OperationID] = append(byOperation[transaction.OperationID], i)
-		}
-	}
+	byOperation, byPathMethod := targetIndex(transactions)
 
 	// The edges a link asks for: target index -> the step it must follow.
 	after := make([]int, len(transactions))
@@ -132,6 +120,30 @@ func Build(transactions []compile.Transaction) Plan {
 
 	plan.Steps = order(plan.Steps)
 	return plan
+}
+
+// targetIndex indexes the transactions the two spellings of a link target name
+// them by: an operationId, or the path and method an operationRef points at.
+//
+// Shared with Check, which asks the same question of the same document for a
+// different reason. Two indexes built from two loops would eventually disagree
+// about which transaction a link names, and then ordering a run and judging it
+// would be talking about different operations.
+func targetIndex(transactions []compile.Transaction) (map[string][]int, map[pathMethod][]int) {
+	byOperation := map[string][]int{}
+	byPathMethod := map[pathMethod][]int{}
+	for i, transaction := range transactions {
+		// The template is the path as the document wrote it, which is what an
+		// operationRef points at; the expanded URI is not.
+		if template := transaction.Request.Template; template != "" {
+			key := pathMethod{path: templatePath(template), method: strings.ToLower(transaction.Request.Method)}
+			byPathMethod[key] = append(byPathMethod[key], i)
+		}
+		if transaction.OperationID != "" {
+			byOperation[transaction.OperationID] = append(byOperation[transaction.OperationID], i)
+		}
+	}
+	return byOperation, byPathMethod
 }
 
 // resolveTarget finds the transactions a link points at.

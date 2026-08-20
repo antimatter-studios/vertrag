@@ -294,6 +294,28 @@ the description could not have known, so a run sends exactly as many requests as
 it did before. A step whose dependency failed is skipped rather than run and
 failed a second time — one root cause, one finding.
 
+Every link is also *checked*, on every run, whether or not you ask for the
+ordering. A Link Object is a claim about two operations at once — the value at
+this place in my response is that operation's parameter — and an ordinary run
+already holds the response it is a claim about, so resolving it costs no
+request. A link whose expression finds nothing, one naming an operation the
+description does not define, one supplying a parameter the target does not
+declare, or one supplying a value the target's schema refuses, is reported by
+name against the response it was resolved against.
+
+This is where it earns its place: a project's `POST /roles` declared a link to
+`renameRole` that could not resolve, and the reason was not the link. The create
+answered 400 where its description promises success, because the schema said
+`name: string` while the handler demanded alphanumeric — a defect in the
+description, found by nothing but a link that could not be followed. That case
+is reported as *not checked* rather than as a false link, because the link was
+never the problem and the reader has to be sent to the create.
+
+`checks.link-resolution: false` turns it off. The lifecycle questions — does a
+create's own link find what it made, does a deleted resource stop answering —
+are a separate thing, in `--phases stateful`, and each of their findings says
+which assumption it rests on, because OpenAPI cannot state either one.
+
 ### Generated input
 
 A description shows one request per operation, so a run establishes the happy
@@ -503,6 +525,8 @@ checks:
   server-error: true
   content-type: true
   header-schema: false             # off by default; see below
+  ignored-auth: false              # off by default; it doubles the requests
+  link-resolution: true            # on by default; it costs no request
   max-response-time: 750ms         # unset by default; nothing is timed
 ```
 
@@ -545,6 +569,36 @@ It never reads a Header Object's schema at all. So no description has ever had
 this enforced, and yours may well carry a header schema that was never true. It
 is therefore the one check that starts off; turn it on here or with
 `--check-header-schema` when you are ready to read what it finds.
+
+`ignored-auth` re-sends every authenticated request without the credential and
+reports each endpoint that answers it anyway. Nothing in an ordinary run can
+tell you this: every request carries the credential, so every response is
+correct, and an endpoint that would have answered without one looks exactly
+like an endpoint that is guarded.
+
+At one project it found 56 of 117 endpoints answering unauthenticated — both
+rejection branches in their middleware had been commented out for months, in
+the mock and in the live service alike, and every suite they had was green
+throughout. They ran it because somebody happened to mention that it existed.
+
+It stays off by default because it doubles the requests a run makes, which is a
+real cost. So that the default is not also a secret, a run that has a credential
+and is not making this check now says so in one line at the end, naming the flag
+and what it costs — and says nothing at all when there is no credential, because
+then there is nothing to withhold. `--check-ignored-auth` turns it on for a
+single run.
+
+`link-resolution` resolves every OpenAPI Link Object against the response it is
+declared on, and reports a link that produced no value or a value the target
+operation's own schema would refuse. A Link Object is a written claim — the
+value at *this* place in my response is *that* operation's parameter — so
+checking it is checking the description, exactly as validating a body against
+its schema is.
+
+It is on by default because it is the one check here that sends nothing: the
+responses it reads have already arrived. Its findings exit 2 rather than 1,
+since every documented transaction can pass while the description contradicts
+itself. See [Sequences](#sequences) for what it catches.
 
 `max-response-time` reports a response that took longer than the bound you give
 it — `--max-response-time 750ms` for a single run. It is the one check the
