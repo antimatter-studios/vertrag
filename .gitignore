@@ -18,3 +18,6 @@ node_modules
 
 # The binary a bare `go build` at the repo root drops here.
 /vertrag
+
+# chore's record of which tasks are up to date (see `chore help up-to-date`).
+.chore/

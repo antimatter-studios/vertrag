@@ -1,0 +1,86 @@
+version: "3"
+
+# vertrag's tasks. Run `chore` with no arguments to list them.
+
+vars:
+  # The coverage floor. It is checked in CI, so lowering it is a visible decision
+  # rather than something that happens by attrition. `chore cover
+  # COVERAGE_MINIMUM=60` overrides it for one run.
+  COVERAGE_MINIMUM: 70
+
+tasks:
+  build:
+    desc: Build the vertrag binary into dist/
+    cmds:
+      - go build -o dist/vertrag ./cmd/vertrag
+
+  test:
+    desc: Run the unit tests (no Node required)
+    cmds:
+      - go test ./...
+
+  cover:
+    desc: Run the unit tests and enforce the coverage floor
+    cmds:
+      # Coverage is measured with Node absent, deliberately. The oracle suite
+      # covers almost everything, but it needs the reference installed — so
+      # measuring with it would report a healthy number for a checkout where
+      # `go test` proves nothing. What this measures is the safety net that
+      # works anywhere.
+      #
+      # The test output is hidden on success and shown on failure. A failing
+      # coverage run once printed `make: *** [cover] Error 1` and nothing else,
+      # because >/dev/null discarded the reason along with the noise — so CI
+      # could say only that the gate had failed, and which test broke was
+      # unrecoverable without reproducing it.
+      - |
+        set -euo pipefail
+        mkdir -p dist
+        VERTRAG_SKIP_ORACLE=1 go test ./... -coverpkg=./... -coverprofile=dist/coverage.out -count=1 >dist/coverage.log 2>&1 \
+          || { echo "the coverage run failed; its output follows" >&2; cat dist/coverage.log >&2; exit 1; }
+        summary=$(go tool cover -func=dist/coverage.out | tail -1)
+        echo "$summary"
+        total=$(echo "$summary" | grep -oE '[0-9]+\.[0-9]+')
+        if [ "$(printf '%s\n' "$total" "{{.COVERAGE_MINIMUM}}" | sort -g | head -1)" != "{{.COVERAGE_MINIMUM}}" ]; then
+          echo "coverage $total% is below the {{.COVERAGE_MINIMUM}}% floor" >&2
+          exit 1
+        fi
+        echo "coverage is at or above the {{.COVERAGE_MINIMUM}}% floor"
+
+  oracle:
+    desc: Differential-test against the reference Dredd implementation
+    deps: [oracle-deps]
+    cmds:
+      # -count=1 defeats the test cache: this suite's result depends on the
+      # installed reference implementation, which Go's cache does not track.
+      - go test ./internal/oracle/... -count=1 -v
+
+  oracle-deps:
+    desc: Install the reference implementation the oracle compares against
+    dir: oracle/reference
+    # Reinstalls when the lockfile's content changes or the install is gone.
+    # npm writes node_modules/.package-lock.json on every install, so its
+    # absence means there is nothing installed to trust.
+    sources: [package-lock.json]
+    generates: [node_modules/.package-lock.json]
+    cmds:
+      - npm ci --no-audit --no-fund
+
+  property:
+    desc: Run the property tests at 20000 draws instead of the default hundred
+    cmds:
+      # Property tests at the default hundred draws find the obvious cases. The
+      # interesting ones need thousands: the maximum-breaks-multipleOf bug
+      # passed a hundred draws and failed at two thousand. Too slow for every
+      # commit, so it is a task rather than part of `test`.
+      - go test ./generate/ ./link/ ./fuzz/ ./uritemplate/ ./validate/ -count=1 -rapid.checks=20000
+
+  fmt:
+    desc: Format the source
+    cmds:
+      - gofmt -w .
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf dist

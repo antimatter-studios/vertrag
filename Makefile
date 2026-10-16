@@ -1,66 +1,31 @@
-.PHONY: help build test cover oracle oracle-deps fmt clean
+# Deprecated. The tasks live in chores.yml and run with chore
+# (https://github.com/antimatter-studios/chore):
+#
+#     brew install antimatter-studios/tap/chore
+#     chore            # list the tasks
+#     chore cover      # run one
+#
+# This file only forwards each old target to the chore task of the same name,
+# so `make cover` keeps working while habits move over. It holds no logic of
+# its own, so the two cannot drift, and it will be removed.
 
-# The coverage floor. It is checked in CI, so lowering it is a visible decision
-# rather than something that happens by attrition.
-COVERAGE_MINIMUM ?= 70
+TARGETS := build test cover oracle oracle-deps property fmt clean
 
+.PHONY: help $(TARGETS)
+
+# Expanded only when a target runs, so a missing chore fails with the install
+# command rather than `chore: command not found`.
+CHORE = $(or $(shell command -v chore),$(error chore is not installed: brew install antimatter-studios/tap/chore))
+
+DEPRECATED = echo "make is deprecated in this repository; the tasks are in chores.yml. Run: $(1)" >&2
+
+# `chore help` is chore's own manual, not this project's task list.
 help:
-	@echo "build        Build the vertrag binary"
-	@echo "test         Run the unit tests (no Node required)"
-	@echo "cover        Run the unit tests and enforce the coverage floor"
-	@echo "oracle       Differential-test against the reference Dredd implementation"
-	@echo "oracle-deps  Install the reference implementation the oracle compares against"
-	@echo "fmt          Format the source"
-	@echo "clean        Remove build output"
+	@$(call DEPRECATED,chore)
+	@$(CHORE) --list
 
-build:
-	go build -o dist/vertrag ./cmd/vertrag
-
-test:
-	go test ./...
-
-# Coverage is measured with Node absent, deliberately. The oracle suite covers
-# almost everything, but it needs the reference installed — so measuring with it
-# would report a healthy number for a checkout where `go test` proves nothing.
-# What this measures is the safety net that works anywhere.
-# The test output is hidden on success and shown on failure, which it was not.
-# A failing coverage run printed `make: *** [cover] Error 1` and nothing else,
-# because >/dev/null discarded the reason along with the noise — so CI could
-# say only that the gate had failed, and which test broke was unrecoverable
-# without reproducing it. Same discarded-diagnostic bug as the hooks worker's
-# stderr, in the build rather than the product.
-cover:
-	@mkdir -p dist
-	@VERTRAG_SKIP_ORACLE=1 go test ./... -coverpkg=./... -coverprofile=dist/coverage.out -count=1 >dist/coverage.log 2>&1 \
-	  || { echo "the coverage run failed; its output follows" >&2; cat dist/coverage.log >&2; exit 1; }
-	@go tool cover -func=dist/coverage.out | tail -1
-	@total=$$(go tool cover -func=dist/coverage.out | tail -1 | grep -oE '[0-9]+\.[0-9]+'); \
-	 if [ "$$(printf '%s\n' "$$total" "$(COVERAGE_MINIMUM)" | sort -g | head -1)" != "$(COVERAGE_MINIMUM)" ]; then \
-	   echo "coverage $$total% is below the $(COVERAGE_MINIMUM)% floor" >&2; exit 1; \
-	 fi
-	@echo "coverage is at or above the $(COVERAGE_MINIMUM)% floor"
-
-# -count=1 defeats the test cache: this suite's result depends on the installed
-# reference implementation, which Go's cache does not track.
-oracle: oracle-deps
-	go test ./internal/oracle/... -count=1 -v
-
-oracle-deps: oracle/reference/node_modules
-
-oracle/reference/node_modules: oracle/reference/package-lock.json
-	cd oracle/reference && npm ci --no-audit --no-fund
-	@touch $@
-
-fmt:
-	gofmt -w .
-
-clean:
-	rm -rf dist
-
-# Property tests at the default hundred draws find the obvious cases. The
-# interesting ones need thousands: the maximum-breaks-multipleOf bug passed a
-# hundred draws and failed at two thousand. Too slow for every commit, so it is
-# a target rather than part of `test`.
-.PHONY: property
-property:
-	go test ./generate/ ./link/ ./fuzz/ ./uritemplate/ ./validate/ -count=1 -rapid.checks=20000
+# COVERAGE_MINIMUM is passed through so `make cover COVERAGE_MINIMUM=60` and
+# the same variable in the environment still lower the floor for one run.
+$(TARGETS):
+	@$(call DEPRECATED,chore $@)
+	@$(CHORE) $@ $(if $(COVERAGE_MINIMUM),COVERAGE_MINIMUM=$(COVERAGE_MINIMUM))
