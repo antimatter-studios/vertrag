@@ -17,14 +17,15 @@ server, and checks the responses against what was promised.
 
 It began as a Go implementation of [Dredd](https://github.com/antimatter-studios/dredd),
 whose upstream is archived, and stays compatible with the things a project
-depends on — the configuration keys, hook files, and the names hooks address
+depends on — the configuration keys, the hook API, and the names hooks address
 transactions by. Where Dredd is simply wrong, vertrag is not: see
 [Where vertrag differs](#where-vertrag-differs-from-dredd).
 
 > **Status: usable for OpenAPI 3, OpenAPI 2 and GraphQL.** vertrag reads a
 > description, sends the requests it promises, validates the responses and exits
-> non-zero on failure — with an existing Dredd configuration and Node.js hook
-> files working unchanged. A GraphQL schema is tested from its query root, with
+> non-zero on failure. A project coming from Dredd keeps its configuration keys
+> and its Node.js hooks, after [two renames](#where-vertrag-differs-from-dredd).
+> A GraphQL schema is tested from its query root, with
 > [mutations withheld until they are asked for](#graphql). See
 > [Roadmap](#roadmap).
 
@@ -49,7 +50,7 @@ Pin the version *and* the checksum. Every release publishes `checksums.txt` over
 the archives and `binaries.txt` over the binaries inside them:
 
 ```sh
-VERTRAG_VERSION=0.4.0
+VERTRAG_VERSION=0.27.0   # the release you have tested against
 arch=$(uname -m); [ "$arch" = "aarch64" ] && arch=arm64
 base="https://github.com/antimatter-studios/vertrag/releases/download/v${VERTRAG_VERSION}"
 file="vertrag-${VERTRAG_VERSION}-linux-${arch}.tar.gz"
@@ -80,7 +81,8 @@ testers. A pinned checksum makes that impossible rather than unlikely.
 ## Use
 
 A configured project needs no arguments — vertrag reads `./vertrag.yml`, whose
-keys are a superset of Dredd's, so migrating is `mv dredd.yml vertrag.yml`:
+keys are a superset of Dredd's, so migrating the file is
+`mv dredd.yml vertrag.yml`:
 
 ```console
 $ vertrag run
@@ -107,6 +109,7 @@ vertrag run --reporter junit --output report.xml
 
 vertrag run --reporter dot                          # one character per transaction
 vertrag run --reporter html --output report.html    # a page to publish
+vertrag run --reporter markdown --output report.md  # a table and every failure
 
 # The traffic itself, rather than a verdict about it.
 vertrag run --reporter har --output run.har         # open it in devtools
@@ -171,9 +174,12 @@ exists to prevent.
 
 ### Probing several operations at once
 
-The `coverage` phase takes `--workers` (or the run-wide `workers:` key), and the
-`fuzz` phase does not. That is a library limit rather than a decision: `rapid`
-takes its case count and seed from **process-global flags**, so two probes at
+`--workers` (or the run-wide `workers:` key) sends that many transactions at
+once, and probes that many operations at once in the `coverage` phase. The
+examples phase ignores it, and says so, under `--sequence` or with hook files
+loaded: both are ordering contracts. The `fuzz` phase does not take it at all.
+That is a library limit rather than a decision: `rapid` takes its case count
+and seed from **process-global flags**, so two probes at
 once would overwrite each other's seed and neither would replay. Coverage draws
 nothing at random — it sends the boundaries a schema implies, which are computed
 — so nothing is shared between two operations being probed at the same time.
@@ -335,10 +341,16 @@ input is a decision and failing on it is not.
 Findings are shrunk to the smallest input that still fails, and the seed is
 reported so any finding replays exactly.
 
-It is a separate command rather than a flag on `run` because the two answer
-different questions. `run` is deterministic and belongs in CI as a regression
-gate; generation is exploratory, and a run that discovers something new on a
-Tuesday is a feature there and a broken build here.
+It is a phase you ask for rather than part of every run, because the two
+answer different questions. The examples phase is deterministic and belongs in
+CI as a regression gate; generation is exploratory, and a run that discovers
+something new on a Tuesday is a feature there and a broken build here. The
+same goes for `--phases coverage`, which sends every boundary a schema implies
+— the maximum, one past it, the required property missing — and is the same on
+every run. Choose the phases with `--phases` or the `phases:` key.
+
+Findings from a probing phase exit 2 rather than 1, so a pipeline can gate on
+the documented contract and still read what probing found.
 
 ### Statuses the description never mentions
 
@@ -506,7 +518,7 @@ vertrag reads `vertrag.yml`. Every setting it takes is in
 [`vertrag.example.yml`](vertrag.example.yml), with the reasoning next to it.
 
 ```yaml
-spec: ./openapi.json               # the API description: OpenAPI 2 or 3
+spec: ./openapi.json               # OpenAPI 2 or 3, or a GraphQL schema
 endpoint: http://localhost:4000
 hookfiles: ./hooks.js
 
@@ -531,8 +543,8 @@ checks:
 ```
 
 Coming from Dredd, every key a `dredd.yml` understands means the same thing
-here, so the migration is `mv dredd.yml vertrag.yml` and nothing else. vertrag
-used to read a `dredd.yml` where no vertrag file was present, which made
+here, so migrating the file is `mv dredd.yml vertrag.yml` and nothing else.
+vertrag used to read a `dredd.yml` where no vertrag file was present, which made
 adoption a no-op; that fallback is gone. It meant a key's meaning depended on
 the name of the file holding it — vertrag's own settings had to be refused from
 one of the two names, or two testers reading one shared-looking file would have
@@ -624,8 +636,8 @@ all, is the duration every reporter already prints.
 `transport` is the network between vertrag and the API. None of it changes what
 is sent or how a response is judged; it is what a CI job turns when the server
 under test is slow, self-signed, behind a proxy, or shared with somebody else.
-Every key has a `--flag` of the same name, on `run` and on the probing commands
-alike, for a single run. Only `timeout` has a default; leave the rest out and
+Every key has a `--flag` of the same name on `run`, whichever phases it runs,
+for a single run. Only `timeout` has a default; leave the rest out and
 vertrag sends the way it always has.
 
 ```yaml
@@ -740,14 +752,17 @@ condition here can grow into a programming language.
 
 ## Why
 
-Dredd works, and this project exists to keep it working rather than to replace
-it with something subtly different. The reasons for a Go port are operational:
+vertrag began as a port, to keep projects that depend on Dredd working once its
+upstream was archived. The reasons for a Go port were operational:
 
 - **One binary.** Dredd needs a Node runtime and a dependency tree; `brew
-  install vertrag` needs neither.
+  install antimatter-studios/tap/vertrag` needs neither.
 - **Testing a Go service shouldn't need a JavaScript toolchain.** A Go project
   whose only reason to carry a `package.json` is its API tests can drop it.
 - **Speed.** No interpreter start-up per run.
+
+It no longer stops at Dredd's behaviour: the probing phases, link checks,
+GraphQL, `doctor` and recordings are all things Dredd never did.
 
 ## How correctness was established
 
@@ -797,7 +812,7 @@ $ chore oracle
 ok  github.com/antimatter-studios/vertrag/internal/oracle
 ```
 
-Agreeing, field for field, as of the last full run:
+Compared, field for field, as of the last full run:
 
 | Suite | Compared | Covers |
 | --- | --- | --- |
@@ -808,6 +823,12 @@ Agreeing, field for field, as of the last full run:
 Agreement includes the generated request and response bodies, the JSON Schemas
 attached to responses, and the parser diagnostics down to their exact wording,
 source positions and occurrence counts.
+
+Not every difference is a failure. Nine of the twelve OpenAPI 3 documents
+differ from Dredd on purpose, in 24 places, each one listed with its reason in
+[`internal/oracle/parse_test.go`](internal/oracle/parse_test.go) and logged by
+`chore oracle`. The suite fails if a listed difference stops differing, so the
+list cannot go stale.
 
 The suites are separate on purpose. The compile stage is format-agnostic, so it
 can be checked for all three formats using the API Elements Dredd ships — which
@@ -857,14 +878,21 @@ vertrag keeps that shape:
 | --- | --- | --- |
 | `refract` | The API Elements object model | Done |
 | `compile` | API Elements → HTTP transactions | Done, oracle-verified |
-| `uritemplate` | URI template expansion | Done, oracle-verified |
+| `uritemplate` | URI template expansion | Done, oracle-verified except the percent-encoding Dredd gets wrong |
+| `apidesc` | Recognising a document's format and choosing its parser | Done |
 | `apidesc/openapi3` | OpenAPI 3 → API Elements | Done, oracle-verified; 3.0, 3.1 and 3.2 |
 | `apidesc/openapi2` | Swagger 2.0 → API Elements | Done, oracle-verified |
 | `apidesc/graphql` | GraphQL schema → the schema model | Done |
+| `yamldoc` | YAML and JSON with the source positions diagnostics need | Done |
 | `validate` | Response validation (Gavel) | Done, oracle-verified |
 | `runner` | Sending requests, judging responses | Done |
-| `hooks` | Running Node.js hook files | Done |
+| `auth` | Obtaining the credential a run sends | Done |
+| `hooks` | Running Node.js and Python hook files | Done |
 | `config` | Reading `vertrag.yml` | Done |
+| `server` | Starting the API under test, and stopping it | Done |
+| `generate` | Values drawn from a JSON Schema | Done |
+| `fuzz` | The `fuzz` phase: generated requests, shrunk findings | Done |
+| `link` | Ordering a run by its links, and checking them | Done |
 | `reporter` | cli, dot, markdown, html, JUnit, HAR and VCR output | Done |
 | `shape` | Body outlines, and where one status answered with two | Done |
 
@@ -893,12 +921,13 @@ when it reproduces its pair.
    [inpace](https://github.com/semdatex/inpace) uses
 3. ~~Response validation~~ — done, oracle-verified against Gavel
 4. ~~Transaction runner~~ — done
-5. ~~Hooks and configuration~~ — done; hook files run unchanged
+5. ~~Hooks and configuration~~ — done; Dredd's hook API, in Node.js and Python
 6. ~~OpenAPI 2 parser~~ — done, oracle-verified
 7. ~~Reporters~~ — done; cli, dot, markdown, html, JUnit XML, and HAR and
    VCR recordings of the traffic
 8. ~~Adversarial input generation, with shrinking~~ — done; the `fuzz` phase
 9. ~~Stateful sequences from OpenAPI links~~ — done; `vertrag run --sequence`
+   orders a run by them, and `--phases stateful` checks whole lifecycles
 10. Generated input across a sequence, rather than one operation at a time
 11. ~~GraphQL schemas → transactions, sent and validated~~ — done; queries by
     default, mutations on request
@@ -931,8 +960,12 @@ Compatibility is kept where it is convention and dropped where Dredd is wrong.
 **Kept**, because breaking it breaks working projects and improves nothing:
 every configuration key, the hook API and its wire protocol, and the names hooks
 address transactions by. There is no better transaction name — only the one
-already written in someone's hook file. The *filename* is not on this list — a
-`dredd.yml` is no longer discovered, and renaming it is the migration.
+already written in someone's hook file.
+
+Two names are not on this list, and changing them is the whole migration. A
+`dredd.yml` is no longer discovered, so rename it to `vertrag.yml`. A Node hook
+file's `require('hooks')` becomes `require('vertrag_hooks')`; see
+[Hooks](#hooks) for why.
 
 **Dropped**, because reproducing a defect makes the tests wrong:
 
@@ -997,14 +1030,19 @@ One name in both languages, and the underscore is what allows that: a hyphen
 is a syntax error in a Python import, where it parses as subtraction. Node
 accepts `vertrag-hooks` too, for the muscle memory.
 
+Dredd's bare `hooks` is not answered, so a hook file arriving from Dredd
+changes that one line. A name that generic, injected into Node's resolver,
+would shadow any real package called `hooks`.
+
 Python needs `python3` on PATH and uses nothing but the standard library — no
 virtualenv, no pip install. Node hook files may be TypeScript if the project
 has `tsx` or `ts-node`; without one, vertrag says so rather than letting Node
 fail on syntax it cannot parse.
 
 `beforeAll`, `beforeEach`, `before(name)`, `beforeEachValidation`,
-`after(name)`, `afterEach` and `afterAll` all work, as do `transaction.skip`,
-`transaction.fail`, and rewriting the request or the expectation.
+`beforeValidation(name)`, `after(name)`, `afterEach` and `afterAll` all work, as
+do `transaction.skip`, `transaction.fail`, and rewriting the request or the
+expectation.
 
 Python adds two things Node does not have, because Python hook files are new
 and had nothing to stay compatible with: a named hook may select by
