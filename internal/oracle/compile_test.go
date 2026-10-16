@@ -7,7 +7,7 @@
 // Dredd's exact behaviour.
 //
 // The reference runs as a subprocess (Node), so these tests skip rather than
-// fail when its dependencies are not installed. Run `make oracle-deps` first.
+// fail when its dependencies are not installed. Run `chore oracle-deps` first.
 package oracle
 
 import (
@@ -261,7 +261,7 @@ func requireReference(t *testing.T, root string) {
 	}
 	modules := filepath.Join(root, "oracle", "reference", "node_modules")
 	if _, err := os.Stat(modules); err != nil {
-		t.Skip("reference dependencies are not installed; run `make oracle-deps`")
+		t.Skip("reference dependencies are not installed; run `chore oracle-deps`")
 	}
 }
 

@@ -35,8 +35,15 @@ jobs:
 
       # A floor, not a target. It exists so the safety net that works without
       # Node cannot quietly rot while the oracle carries all the weight.
+      #
+      # The floor and the script that checks it live in chores.yml, so CI and a
+      # developer's `chore cover` cannot disagree. Pinned, so a chore release
+      # cannot change what this gate does without a commit here saying so.
+      - name: Install chore
+        run: go install github.com/antimatter-studios/chore@v0.17.0
+
       - name: Enforce the coverage floor
-        run: make cover
+        run: chore cover
 
       # Publish the figure as well as enforcing it. A floor says the number has
       # not fallen below 70; it does not say what the number is, and a reader
@@ -143,7 +150,7 @@ jobs:
     # What it was protecting is now held by compile/testdata/golden, captured
     # while this differential passed over every fixture, so the verification is
     # carried forward rather than dropped. This stays runnable for when a second
-    # opinion is actually wanted: run it from the Actions tab, or `make oracle`.
+    # opinion is actually wanted: run it from the Actions tab, or `chore oracle`.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:

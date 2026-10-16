@@ -773,7 +773,7 @@ its server is built from vertrag's own reading of a document, so a misparse
 produces a server and a tester wrong in exactly the same way.
 
 The differential is still there for when a second opinion is wanted: run the
-`CI` workflow manually, or `make oracle` locally.
+`CI` workflow manually, or `chore oracle` locally.
 
 For every fixture, both implementations run over the same input and their output
 must match:
@@ -793,7 +793,7 @@ implementation shows up as a failing diff rather than quietly redefining what
 "correct" means.
 
 ```console
-$ make oracle
+$ chore oracle
 ok  github.com/antimatter-studios/vertrag/internal/oracle
 ```
 
@@ -1030,13 +1030,22 @@ hook registered against the name without it silently never runs.
 
 ## Development
 
+The tasks live in [`chores.yml`](chores.yml) and run with
+[chore](https://github.com/antimatter-studios/chore)
+(`brew install antimatter-studios/tap/chore`):
+
 ```console
-make build        # build the binary
-make test         # unit tests, no Node required
-make oracle       # differential test against the real Dredd
+chore             # list every task
+chore build       # build the binary
+chore test        # unit tests, no Node required
+chore cover       # unit tests plus the coverage floor CI enforces
+chore oracle      # differential test against the real Dredd
 ```
 
-The oracle needs Node to run the reference. `make oracle-deps` installs it; the
+The Makefile is deprecated. It forwards each target to the chore task of the
+same name and will be removed.
+
+The oracle needs Node to run the reference. `chore oracle-deps` installs it; the
 suite skips rather than fails when it is missing, so a fresh checkout does not
 report a wall of failures that are really one missing install step.
 
