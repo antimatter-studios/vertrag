@@ -481,6 +481,52 @@ their own. An operation whose required parameter has no example cannot be
 compiled into a request, and the description error that says so stops the run
 before anything is sent.
 
+### Who may call what: the authorization phase
+
+`--phases authorization` sends every selected operation's documented request
+once as every configured principal and checks the answer against the
+operation's `security`: a principal satisfying one requirement gets the
+documented success (judged as any response is, body and all), one with no
+credential gets 401, one whose credential lacks the roles or scopes gets 403.
+Role names are matched literally — `*` is a role called `*`, not a wildcard.
+
+```yaml
+phases: [authorization]
+principals:
+  - name: anonymous                 # no credential
+  - name: reader
+    auth: {header: "Authorization: Bearer ${READER_TOKEN}"}
+    roles: [mail:read]
+  - name: admin                     # any `auth` setup: header, cookie, login, oauth2
+    auth: {oauth2: {token-url: https://id.example/token, client-id: ci, client-secret-env: ADMIN_SECRET}}
+    roles: [mail:read, admin]
+```
+
+Each principal obtains its credential once, before any cell is sent; the
+run's own `auth` and `--header` never travel with a principal's request.
+Supported carriers are the `Authorization` header (bearer, basic), a named
+header (an apiKey in the header) and one cookie. A credential that arrives
+somewhere else than planned — an OAuth2 `token_type` other than Bearer, say —
+leaves that principal's cells unsent with the reason.
+
+The terminal ends with the matrix of operations × principals; the JSON report
+carries it under `authorization`, Markdown and HTML as a table, JUnit as
+`vertrag.authorization.*` suite properties. Every cell is also an ordinary
+result named `authorization: <operation> as <principal>`. A failing cell has a
+replay with every credential `<redacted>`; the matrix is redacted even under
+`--no-sanitize`.
+
+A cell is **unsent** when the run did not send it: a `skip` entry, an
+operation without a documented success, a security the description leaves
+undecided, an unsupported scheme or carrier, a hook that skipped the request or
+changed its credential, or a dry run. An unsent cell is counted and shown and
+never counts as a pass; it does not fail the run, so a matrix with unsent cells
+is not proof of complete coverage. Any failing cell — an authorization bypass
+(success where 401/403 is required), a different refusal, a 5xx, a broken
+success body — exits 1, as a failed documented transaction does.
+`--dry-run` prints the planned matrix with what each cell would require, and
+sends nothing: no cell, no login, no token request.
+
 ### Statuses the description never mentions
 
 The commonest real defect in the APIs vertrag is pointed at is not a broken

@@ -160,7 +160,7 @@ type Transaction struct {
 
 	// Security is what the operation requires a caller to prove. Absent from
 	// the JSON for the same reason OperationID is.
-	Security []Security `json:"-"`
+	Security Security `json:"-"`
 
 	// Tags are the operation's grouping labels, which `--tag` narrows a run
 	// by. Absent from the JSON for the same reason OperationID is.

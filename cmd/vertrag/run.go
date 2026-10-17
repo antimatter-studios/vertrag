@@ -277,7 +277,6 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
-
 	report, closeReport, err := newReporter(settings)
 	if err != nil {
 		return err
@@ -411,6 +410,17 @@ func runRun(args []string) error {
 				continue
 			}
 			surface.plan(transaction)
+		}
+
+		// The matrix the authorization phase would send, planned with the same
+		// skips and printed with every cell unsent: no principal logs in and
+		// nothing reaches the server.
+		if slices.Contains(settings.Phases, config.PhaseAuthorization) {
+			plan, _, err := planAuthorizationPhase(settings, transactions, skips)
+			if err != nil {
+				return err
+			}
+			reporter.WriteAuthorization(os.Stdout, *dryRunAuthorization(plan), settings.Color)
 		}
 		ceiling := surface.summary(settings.Surface.Require, true)
 		reporter.WriteSurface(os.Stdout, ceiling, settings.Color)
@@ -646,6 +656,9 @@ func runRun(args []string) error {
 	if maxTime > 0 {
 		deadline = time.Now().Add(maxTime)
 	}
+	// The authorization matrix, when the phase ran; nil leaves every report as
+	// it was.
+	var authorization *reporter.Authorization
 	for _, phase := range settings.Phases {
 		statuses.phase(phase)
 		surface.phase(phase)
@@ -678,6 +691,15 @@ func runRun(args []string) error {
 				return phaseErr
 			}
 			probeFindings = probeFindings || phaseErr == errFailed
+		case config.PhaseAuthorization:
+			// The selected transactions, pinned as the examples were sent; the
+			// skips are read from the engine, as the probing phases read them.
+			phaseResults, matrix, phaseErr := runAuthorization(ctx, engine, settings, transactions)
+			if phaseErr != nil {
+				return phaseErr
+			}
+			results = append(results, prefixed("authorization", phaseResults)...)
+			authorization = matrix
 		case config.PhaseFuzz:
 			probeable, _ := partitionBySchema(probeableTransactions)
 			seed := settings.Fuzz.Seed
@@ -704,6 +726,7 @@ func runRun(args []string) error {
 
 	reached := surface.summary(settings.Surface.Require, false)
 	report = reporter.WithSurface(report, &reached)
+	report = reporter.WithAuthorization(report, authorization)
 	report.Report(results)
 
 	// Last, and to the terminal whatever --reporter was asked for, because
@@ -717,6 +740,9 @@ func runRun(args []string) error {
 	// The surface comes after the sections about the document and is printed
 	// on every run: it is the one that can end in the verdict deciding the
 	// exit code, and the verdict belongs where a reader stops reading.
+	if authorization != nil {
+		reporter.WriteAuthorization(os.Stdout, *authorization, settings.Color)
+	}
 	reporter.WriteSurface(os.Stdout, reached, settings.Color)
 	noteIgnoredAuthIsOff(settings, engine, transactions)
 
@@ -729,6 +755,12 @@ func runRun(args []string) error {
 	case !examplesPassed:
 		return errFailed
 	case !reached.Met():
+		return errFailed
+	// A cell that failed — a bypass, a wrong refusal, a 5xx, a success whose
+	// body breaks its schema — is the description's own security broken, so it
+	// fails the run as a documented transaction does. An unsent cell does not
+	// by itself: it is counted and shown, and never as a pass.
+	case authorization != nil && !authorization.Met():
 		return errFailed
 	case probeFindings || linkFindings:
 		return errFindings
@@ -774,7 +806,10 @@ func noteIgnoredAuthIsOff(settings config.Config, engine *runner.Runner, transac
 
 	authenticated := 0
 	for _, transaction := range transactions {
-		if engine.Auth.Except[transaction.Name] || engine.Auth.GrantedBy(transaction) {
+		// A public operation is one the check would not ask about, so a
+		// credential sent to it is not one whose effect went unchecked.
+		if engine.Auth.Except[transaction.Name] || engine.Auth.GrantedBy(transaction) ||
+			transaction.Security.Public {
 			continue
 		}
 		authenticated++
@@ -1357,7 +1392,7 @@ func reportMissingCredentials(transactions []compile.Transaction, headers []stri
 }
 
 // missingCredentials selects the schemes a run has nothing to satisfy.
-func missingCredentials(transactions []compile.Transaction, headers []string) []compile.Security {
+func missingCredentials(transactions []compile.Transaction, headers []string) []compile.SecurityScheme {
 	supplied := map[string]bool{}
 	for _, line := range headers {
 		if name, _, ok := strings.Cut(line, ":"); ok {
@@ -1366,10 +1401,10 @@ func missingCredentials(transactions []compile.Transaction, headers []string) []
 	}
 
 	seen := map[string]bool{}
-	var missing []compile.Security
+	var missing []compile.SecurityScheme
 
 	for _, transaction := range transactions {
-		for _, security := range transaction.Security {
+		for _, security := range transaction.Security.Schemes() {
 			if seen[security.Name] {
 				continue
 			}
@@ -1403,7 +1438,7 @@ func missingCredentials(transactions []compile.Transaction, headers []string) []
 	return missing
 }
 
-func describeScheme(security compile.Security) string {
+func describeScheme(security compile.SecurityScheme) string {
 	switch {
 	case security.Type == "apiKey":
 		return security.Type + " " + security.Parameter + " in the " + security.In

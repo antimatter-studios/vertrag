@@ -32,6 +32,10 @@ type JUnit struct {
 	// join the provenance in <properties>, and a gate on it becomes a test case
 	// of its own — see surfaceCase.
 	Surface *Surface
+	// Authorization is the authorization phase's matrix, carried as
+	// properties: its totals and each cell's verdict. Its cells are already
+	// test cases, as results. Nil leaves it out.
+	Authorization *Authorization
 }
 
 // Provenance names the run a report describes: which binary, which
@@ -133,6 +137,9 @@ func (r JUnit) Report(results []runner.Result) bool {
 	if r.Surface != nil {
 		suite.Properties = r.Surface.properties(suite.Properties)
 	}
+	if r.Authorization != nil {
+		suite.Properties = r.Authorization.properties(suite.Properties)
+	}
 
 	var total time.Duration
 	passed := true
@@ -193,7 +200,7 @@ func (r JUnit) Report(results []runner.Result) bool {
 	encoder.Encode(suite)
 	fmt.Fprintln(r.Out)
 
-	return passed
+	return passed && (r.Authorization == nil || r.Authorization.Met())
 }
 
 // properties adds the surface figures to the suite's properties: the run's,
@@ -294,14 +301,16 @@ func detail(result runner.Result) string {
 	fmt.Fprintf(&b, "\nrequest: %s %s\n", result.Request.Method, result.Request.URI)
 	writeIndentedHeaders(&b, result.Request.Headers)
 	if result.Request.Body != "" {
-		fmt.Fprintf(&b, "\n%s\n", truncate(result.Request.Body))
+		fmt.Fprintf(&b, "\n%s\n", truncate(RedactSecrets(result.Request.Body)))
 	}
 
 	if result.Actual.StatusCode != "" {
 		fmt.Fprintf(&b, "\nresponse: %s\n", result.Actual.StatusCode)
 		writeIndentedHeaders(&b, result.Actual.Headers)
 		if result.Actual.Body != "" {
-			fmt.Fprintf(&b, "\n%s\n", truncate(result.Actual.Body))
+			// Redacted before truncating, as the CLI does, so a registered
+			// credential the server echoed cannot reach the file.
+			fmt.Fprintf(&b, "\n%s\n", truncate(RedactSecrets(result.Actual.Body)))
 		}
 	}
 

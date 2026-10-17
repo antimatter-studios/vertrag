@@ -142,7 +142,17 @@ func RegisterSecretsIn(body map[string]any) {
 // password reused as the start of an API key, say — does not leave the tail of
 // the longer one exposed by a shorter match landing first.
 func RedactSecrets(body string) string {
-	if body == "" || !sanitizing.Load() {
+	if !sanitizing.Load() {
+		return body
+	}
+	return redactRegistered(body)
+}
+
+// redactRegistered redacts every registered value whether or not the run
+// sanitizes: the authorization matrix is a finding written for somebody else,
+// and --no-sanitize is for reading one's own credential.
+func redactRegistered(body string) string {
+	if body == "" {
 		return body
 	}
 
