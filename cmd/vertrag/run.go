@@ -66,6 +66,10 @@ type runFlags struct {
 
 	transport transportFlags
 
+	// requireSurface is the share of the description's operations the run
+	// must reach; zero leaves the file's setting alone.
+	requireSurface float64
+
 	// The probing settings, which were `vertrag fuzz`'s and `vertrag
 	// coverage`'s own flags until those commands became phases.
 	cases        int
@@ -95,7 +99,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
 	fs.DurationVar(&f.maxResponseTime, "max-response-time", 0, "report any response that took longer than this to arrive, e.g. 750ms; --delay and retry backoff are not counted (0 = do not time them)")
 	fs.IntVar(&f.workers, "workers", 1, "send this many transactions at once; refused with --sequence or hooks, which are ordering contracts")
-	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html, junit, har or vcr (overrides the config)")
+	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html, junit, json, har or vcr (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
 	fs.Var(&f.headers, "header", "extra header to send with every request, as 'Name: value' (repeatable)")
 	fs.Var(&f.only, "only", "run only the named transaction (repeatable)")
@@ -118,6 +122,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.DurationVar(&f.maxTime, "max-time", 0, "probing: stop after this long, e.g. 2m; what was not reached is reported as skipped (0 = no limit)")
 	fs.StringVar(&f.mode, "mode", "", "probing: which values to send — valid, invalid, or both (the default)")
 	fs.BoolVar(&f.wholeRequest, "whole-request", false, "fuzz: also draw every parameter and the body together per case, to reach bugs in their interaction")
+	fs.Float64Var(&f.requireSurface, "require-surface", 0, "fail unless the run reaches this percentage of the description's operations, in any phase; excluded operations do not count (0 = no gate)")
 	addTransportFlags(fs, &f.transport)
 	addGraphQLFlags(fs, &f.graphql)
 
@@ -223,6 +228,12 @@ func settingsFor(f runFlags) (config.Config, error) {
 	if f.wholeRequest {
 		settings.Fuzz.WholeRequest = true
 	}
+	if f.requireSurface != 0 {
+		if err := config.CheckRequire(f.requireSurface); err != nil {
+			return settings, fmt.Errorf("--require-surface: %w", err)
+		}
+		settings.Surface.Require = f.requireSurface
+	}
 	f.transport.apply(&settings.Transport)
 	f.graphql.apply(&settings.GraphQL)
 	reporter.SetSanitize(!f.noSanitize)
@@ -321,17 +332,36 @@ func runRun(args []string) error {
 
 	statuses := newStatusLedger(compiled)
 
-	selected, unmatched, err := filterTransactions(compiled, settings)
+	// Built from the same whole description, for the same reason: a filter
+	// narrows what the run sends, never what it is measured against.
+	surface, unmatchedExclusions := newSurfaceLedger(compiled, settings.Surface.Exclude)
+	for _, note := range unmatchedExclusions {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
+
+	selected, dropped, unmatched, err := narrowTransactions(compiled, settings)
 	if err != nil {
 		return err
 	}
 	for _, report := range unmatched {
 		fmt.Fprintf(os.Stderr, "vertrag: %s\n", report)
 	}
+	for _, each := range dropped {
+		surface.leftOut(each.transaction, each.reason)
+	}
 
 	transactions := sortTransactions(selected, settings.Sorted)
 	if len(transactions) == 0 {
 		fmt.Fprintln(os.Stdout, "No transactions to run.")
+		// Not a pass when something was required of the run. A filter that
+		// selects nothing — a tag misspelled, an operationId renamed — is
+		// the run that most needs the gate, and leaving here quietly would
+		// let it through.
+		reached := surface.summary(settings.Surface.Require, false)
+		reporter.WriteSurface(os.Stdout, reached, settings.Color)
+		if !reached.Met() {
+			return errFailed
+		}
 		return nil
 	}
 
@@ -368,6 +398,25 @@ func runRun(args []string) error {
 				transaction.Request.Method, transaction.Request.URI, transaction.Name)
 		}
 		fmt.Fprintf(os.Stdout, "\n%d transaction(s), none sent (dry run)\n", len(transactions))
+
+		// What a run could reach at most, which is knowable without a server:
+		// what the filters dropped and what `skip` takes out are both decided
+		// before anything is sent. A gate it cannot meet fails here, so a
+		// configuration that could never pass is found from a laptop rather
+		// than at the end of a pipeline.
+		skips, _ := configuredSkips(settings.Skip, transactions)
+		for _, transaction := range transactions {
+			if reason, skipped := skips[transaction.Name]; skipped {
+				surface.leftOut(transaction, skipReasonText(reason))
+				continue
+			}
+			surface.plan(transaction)
+		}
+		ceiling := surface.summary(settings.Surface.Require, true)
+		reporter.WriteSurface(os.Stdout, ceiling, settings.Color)
+		if !ceiling.Met() {
+			return errFailed
+		}
 		return nil
 	}
 
@@ -402,9 +451,11 @@ func runRun(args []string) error {
 	// Everything the run sends from here on goes through the runner, and the
 	// runner calls this from the one place that touches the wire.
 	engine.AddObserver(statuses.observe)
+	engine.AddObserver(surface.observe)
 	// The examples phase always runs and always runs first, so the ledger opens
 	// in it rather than defaulting to a phase name nothing chose.
 	statuses.phase(config.PhaseExamples)
+	surface.phase(config.PhaseExamples)
 
 	// Concurrency is refused rather than silently ignored where it would break
 	// an ordering contract: a sequenced step takes its values from another
@@ -513,6 +564,13 @@ func runRun(args []string) error {
 		return err
 	}
 	examplesPassed := passed(results)
+	// The runner hands back one result per transaction, in the order it was
+	// given them, whatever order it sent them in.
+	for i, result := range results {
+		if i < len(transactions) {
+			surface.outcome(transactions[i], result)
+		}
+	}
 
 	// Every Link Object the description declares, resolved against the
 	// responses that just arrived.
@@ -590,6 +648,7 @@ func runRun(args []string) error {
 	}
 	for _, phase := range settings.Phases {
 		statuses.phase(phase)
+		surface.phase(phase)
 		// The shape recorder is registered once, before the loop, and reads
 		// this. It cannot be re-registered per phase now that observers are a
 		// list — appending one per phase would record every response as many
@@ -643,6 +702,8 @@ func runRun(args []string) error {
 		}
 	}
 
+	reached := surface.summary(settings.Surface.Require, false)
+	report = reporter.WithSurface(report, &reached)
 	report.Report(results)
 
 	// Last, and to the terminal whatever --reporter was asked for, because
@@ -653,15 +714,35 @@ func runRun(args []string) error {
 	// down". None of them is a finding, so the exit code below cannot see them.
 	statuses.report(os.Stdout)
 	reportDivergences(os.Stdout, shapes.Divergences(), settings.Color)
+	// The surface comes after the sections about the document and is printed
+	// on every run: it is the one that can end in the verdict deciding the
+	// exit code, and the verdict belongs where a reader stops reading.
+	reporter.WriteSurface(os.Stdout, reached, settings.Color)
 	noteIgnoredAuthIsOff(settings, engine, transactions)
 
+	// A run short of the surface it requires exits 1, the status of a run
+	// whose contract failed, and not 2. Exit 2 means "the documented contract
+	// held and probing found something to file"; a run that left part of the
+	// contract untested has not established that it held, so it must not be
+	// readable as that — however much the probing phases found as well.
 	switch {
 	case !examplesPassed:
+		return errFailed
+	case !reached.Met():
 		return errFailed
 	case probeFindings || linkFindings:
 		return errFindings
 	}
 	return nil
+}
+
+// skipReasonText labels a configured skip the way the runner does, so a dry
+// run and a real one list the same skip in the same words.
+func skipReasonText(reason string) string {
+	if reason == "" {
+		return "skipped by configuration"
+	}
+	return "skipped by configuration: " + reason
 }
 
 // noteIgnoredAuthIsOff says, once, that this run did not test whether its
@@ -810,6 +891,8 @@ func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
 			// The report is what a pipeline archives, so it carries the run's
 			// provenance — the terminal has the signature line, the XML has this.
 			reporters = append(reporters, reporter.JUnit{Out: destination, Run: provenance(settings)})
+		case "json":
+			reporters = append(reporters, reporter.JSON{Out: destination, Run: provenance(settings)})
 		case "har":
 			// A cassette is traffic rather than verdicts, so it carries the
 			// same provenance for a stronger reason than the JUnit file does:
@@ -821,7 +904,7 @@ func newReporter(settings config.Config) (reporter.Reporter, func(), error) {
 		default:
 			closeAll()
 			return nil, closeAll, fmt.Errorf(
-				"unknown reporter %q; vertrag has cli, dot, markdown, html, junit, har and vcr", name)
+				"unknown reporter %q; vertrag has cli, dot, markdown, html, junit, json, har and vcr", name)
 		}
 	}
 
@@ -996,14 +1079,33 @@ func filterTransactions(
 	transactions []compile.Transaction,
 	settings config.Config,
 ) ([]compile.Transaction, []string, error) {
+	kept, _, unmatched, err := narrowTransactions(transactions, settings)
+	return kept, unmatched, err
+}
+
+// droppedTransaction is one transaction a filter took out of the run, and the
+// filter that did it, in the words the surface report says it with.
+type droppedTransaction struct {
+	transaction compile.Transaction
+	reason      string
+}
+
+// narrowTransactions is filterTransactions, also saying which filter dropped
+// each transaction it dropped — which is what turns "this operation was not
+// reached" into something a reader can go and change.
+func narrowTransactions(
+	transactions []compile.Transaction,
+	settings config.Config,
+) ([]compile.Transaction, []droppedTransaction, []string, error) {
 	filters, err := narrowingFilters(settings)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	filtered := make([]compile.Transaction, 0, len(transactions))
+	var dropped []droppedTransaction
 	for _, transaction := range transactions {
-		keep := true
+		reason := ""
 		for i := range filters {
 			// Every filter is tested against every transaction even once the
 			// verdict is settled, rather than breaking out early, because the
@@ -1011,16 +1113,35 @@ func filterTransactions(
 			// circuit here and `--only a --exclude-tag admin` reports the tag
 			// as matching nothing whenever `a` happens not to carry it — a
 			// false alarm about the filter that was working perfectly well.
-			if filters[i].test(transaction) == filters[i].exclude {
-				// An exclude that matched, or an include that did not.
-				keep = false
+			if filters[i].test(transaction) == filters[i].exclude && reason == "" {
+				// An exclude that matched, or an include that did not. The
+				// first one is named: excludes are listed after includes, so
+				// a transaction no include selected is reported as that
+				// rather than as whichever exclude also caught it.
+				reason = filters[i].dropped(transaction)
 			}
 		}
-		if keep {
+		if reason == "" {
 			filtered = append(filtered, transaction)
+			continue
+		}
+		dropped = append(dropped, droppedTransaction{transaction: transaction, reason: reason})
+	}
+	return filtered, dropped, unmatchedFilters(filters), nil
+}
+
+// dropped says how this filter took a transaction out of the run: which
+// exclude value caught it, or which include it matched none of.
+func (f *narrowingFilter) dropped(transaction compile.Transaction) string {
+	if !f.exclude {
+		return "not selected by " + f.key
+	}
+	for _, value := range f.values {
+		if f.matches(value, transaction) {
+			return "left out by " + f.key + " " + value
 		}
 	}
-	return filtered, unmatchedFilters(filters), nil
+	return "left out by " + f.key
 }
 
 // narrowingFilter is one option that narrows a run: the key it is written

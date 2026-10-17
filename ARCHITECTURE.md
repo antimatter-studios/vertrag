@@ -17,7 +17,7 @@ alphabetical.
 | `config` | Reads `vertrag.yml`, whose keys are a superset of Dredd's |
 | `runner` | Sends the transactions and judges what comes back |
 | `hooks` | Runs Node.js hook files and lets them rewrite transactions |
-| `reporter` | Renders results — a terminal log or dots, a Markdown or HTML document, JUnit XML for CI |
+| `reporter` | Renders results — a terminal log or dots, a Markdown or HTML document, JUnit XML for CI, JSON for a script — and how much of the description a run reached |
 | `server` | Starts the API under test from `server:`, waits for it, stops its process group |
 | `link` | Orders a run by the sequences its description declares, and checks that the links resolve |
 | `generate` | Values drawn from a schema, valid and invalid |

@@ -145,7 +145,7 @@ func TestEveryReporterWritesToAFile(t *testing.T) {
 	binary := build(t)
 	endpoint, description := serve(t, "widgets", corpus.FaultWrongStatus)
 
-	for _, format := range []string{"cli", "dot", "markdown", "html", "junit"} {
+	for _, format := range []string{"cli", "dot", "markdown", "html", "junit", "json"} {
 		t.Run(format, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "report."+format)
 

@@ -28,6 +28,10 @@ type JUnit struct {
 	Name string
 	// Run says what produced the report. It becomes the suite's <properties>.
 	Run Provenance
+	// Surface is how much of the description the run reached. Its figures
+	// join the provenance in <properties>, and a gate on it becomes a test case
+	// of its own — see surfaceCase.
+	Surface *Surface
 }
 
 // Provenance names the run a report describes: which binary, which
@@ -126,6 +130,9 @@ func (r JUnit) Report(results []runner.Result) bool {
 		Tests:      len(results),
 		Properties: r.Run.properties(),
 	}
+	if r.Surface != nil {
+		suite.Properties = r.Surface.properties(suite.Properties)
+	}
 
 	var total time.Duration
 	passed := true
@@ -170,6 +177,14 @@ func (r JUnit) Report(results []runner.Result) bool {
 
 		suite.Cases = append(suite.Cases, testCase)
 	}
+	if testCase, gated := r.surfaceCase(); gated {
+		suite.Tests++
+		if testCase.Failure != nil {
+			suite.Failures++
+			passed = false
+		}
+		suite.Cases = append(suite.Cases, testCase)
+	}
 	suite.Time = seconds(total)
 
 	fmt.Fprint(r.Out, xml.Header)
@@ -179,6 +194,62 @@ func (r JUnit) Report(results []runner.Result) bool {
 	fmt.Fprintln(r.Out)
 
 	return passed
+}
+
+// properties adds the surface figures to the suite's properties: the run's,
+// then each phase's, then the gate. Each figure is "reached/total", which is
+// the one form a property's string value can carry without a reader having to
+// know which of two numbers came first.
+func (s Surface) properties(existing *junitProperties) *junitProperties {
+	if existing == nil {
+		existing = &junitProperties{}
+	}
+	add := func(name, value string) {
+		existing.Properties = append(existing.Properties, junitProperty{Name: name, Value: value})
+	}
+	figures := func(prefix string, f SurfaceFigures) {
+		add(prefix+".operations", fmt.Sprintf("%d/%d", f.OperationsReached, f.Operations))
+		if !s.DryRun {
+			add(prefix+".statuses", fmt.Sprintf("%d/%d", f.StatusesReached, f.Statuses))
+		}
+	}
+	figures("vertrag.surface", s.Run)
+	for _, phase := range s.Phases {
+		figures("vertrag.surface."+phase.Phase, phase)
+	}
+	if s.Required > 0 {
+		add("vertrag.surface.required", Percent(s.Required))
+	}
+	add("vertrag.surface.excluded", fmt.Sprint(len(s.Excluded)))
+	return existing
+}
+
+// surfaceCase is the gate as a test case, present only when a run was given
+// one.
+//
+// A property is somewhere to keep a number, and no CI interface shows one
+// unless asked. A gate that failed is the reason the job is red, and a job
+// that is red with every test case green sends its reader looking for a
+// failure that is not in the list — so the gate is in the list.
+func (r JUnit) surfaceCase() (junitCase, bool) {
+	if r.Surface == nil || r.Surface.Required == 0 {
+		return junitCase{}, false
+	}
+	testCase := junitCase{Name: "API surface", ClassName: "vertrag.surface", Time: seconds(0)}
+	if r.Surface.Met() {
+		return testCase, true
+	}
+
+	var body strings.Builder
+	for _, miss := range r.Surface.OperationMisses() {
+		fmt.Fprintf(&body, "%s: %s\n", miss.Operation, miss.Reason)
+	}
+	testCase.Failure = &junitFailure{
+		Message: r.Surface.Verdict(),
+		Type:    "surface",
+		Body:    body.String(),
+	}
+	return testCase, true
 }
 
 func (r JUnit) suiteName() string {

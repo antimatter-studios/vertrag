@@ -27,6 +27,7 @@ func reporters(out *bytes.Buffer) map[string]interface {
 		"markdown": &reporter.Markdown{Out: out},
 		"html":     &reporter.HTML{Out: out},
 		"junit":    &reporter.JUnit{Out: out},
+		"json":     &reporter.JSON{Out: out},
 		"har":      &reporter.HAR{Out: out},
 		"vcr":      &reporter.VCR{Out: out},
 	}
@@ -152,6 +153,35 @@ func TestJUnitIsAlwaysWellFormedXML(t *testing.T) {
 						}
 						t.Fatalf("not well-formed XML: %v\n%s", err, out.String())
 					}
+				}
+			})
+		}
+	}
+}
+
+// TestTheJSONReportAlwaysParsesAcrossTheCorpus is the JUnit check above, for
+// the other report a program reads. A JSON report that does not parse fails
+// the script reading it in a way that says nothing about the API — and the
+// failure messages it carries quote response bodies, which in this corpus hold
+// NUL bytes, invalid UTF-8 and astral-plane unicode.
+func TestTheJSONReportAlwaysParsesAcrossTheCorpus(t *testing.T) {
+	for _, name := range corpus.Names() {
+		for _, fault := range corpus.Faults() {
+			results := run(t, name, runner.Checks{ServerError: true, ContentType: true}, fault)
+			if len(failures(results)) == 0 {
+				continue
+			}
+			t.Run(name+"/"+string(fault), func(t *testing.T) {
+				var out bytes.Buffer
+				(&reporter.JSON{Out: &out}).Report(results)
+				var document struct {
+					Results []json.RawMessage `json:"results"`
+				}
+				if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+					t.Fatalf("not JSON: %v\n%s", err, out.String())
+				}
+				if len(document.Results) != len(results) {
+					t.Errorf("%d result(s) written for %d", len(document.Results), len(results))
 				}
 			})
 		}

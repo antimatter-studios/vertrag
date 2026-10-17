@@ -22,6 +22,9 @@ type Markdown struct {
 	// Details includes the exchange of passing transactions too, matching the
 	// CLI reporter's flag.
 	Details bool
+	// Surface is how much of the description the run reached. It gets a
+	// section of its own after the table; nil leaves it out.
+	Surface *Surface
 }
 
 // Report writes the document and returns true when the run passed.
@@ -32,11 +35,61 @@ func (r Markdown) Report(results []runner.Result) bool {
 	fmt.Fprintf(r.Out, "**%s**\n", doc.Summary.Line())
 
 	r.table(doc)
+	if r.Surface != nil {
+		r.surface(*r.Surface)
+	}
 	for _, entry := range doc.Cases {
 		r.section(entry)
 	}
 
-	return doc.Summary.Passed()
+	return doc.Summary.Passed() && (r.Surface == nil || r.Surface.Met())
+}
+
+// surface is how much of the description the run reached. It comes before the
+// failures, beside the table, because it answers the same question the table
+// does — what did this run test — and a reader deciding whether to trust the
+// table needs it first.
+func (r Markdown) surface(s Surface) {
+	fmt.Fprintf(r.Out, "\n## API surface\n\n")
+	if s.DryRun {
+		fmt.Fprintf(r.Out, "A dry run: nothing was sent, so this is what a run would send a request to.\n\n")
+		fmt.Fprintf(r.Out, "| Phase | Operations |\n| --- | --- |\n")
+	} else {
+		fmt.Fprintf(r.Out, "| Phase | Operations | Documented statuses |\n| --- | --- | --- |\n")
+	}
+	for _, row := range s.Rows() {
+		if s.DryRun {
+			fmt.Fprintf(r.Out, "| %s | %s |\n", cell(row.Label), cell(row.Operations))
+			continue
+		}
+		fmt.Fprintf(r.Out, "| %s | %s | %s |\n", cell(row.Label), cell(row.Operations), cell(row.Statuses))
+	}
+
+	if missed := s.OperationMisses(); len(missed) > 0 {
+		fmt.Fprintf(r.Out, "\n### Operations not reached\n\n| Operation | Why |\n| --- | --- |\n")
+		for _, miss := range missed {
+			fmt.Fprintf(r.Out, "| %s | %s |\n", cell(miss.Operation), cell(miss.Reason))
+		}
+	}
+	if missed := s.StatusMisses(); len(missed) > 0 {
+		fmt.Fprintf(r.Out, "\n### Documented statuses not reached\n\n| Operation | Statuses | Why |\n| --- | --- | --- |\n")
+		for _, miss := range missed {
+			fmt.Fprintf(r.Out, "| %s | %s | %s |\n", cell(miss.Operation), cell(miss.StatusList()), cell(miss.Reason))
+		}
+	}
+	if len(s.Excluded) > 0 {
+		fmt.Fprintf(r.Out, "\n### Excluded, and not counted\n\n| Operation | Reason | Written in |\n| --- | --- | --- |\n")
+		for _, excluded := range s.Excluded {
+			reason := excluded.Reason
+			if note := excluded.Note(); note != "" {
+				reason += "; " + note
+			}
+			fmt.Fprintf(r.Out, "| %s | %s | %s |\n", cell(excluded.Operation), cell(reason), cell(excluded.Source))
+		}
+	}
+	if verdict := s.Verdict(); verdict != "" {
+		fmt.Fprintf(r.Out, "\n**%s**\n", verdict)
+	}
 }
 
 func (r Markdown) title() string {

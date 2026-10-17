@@ -162,6 +162,7 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		Links:       compileLinks(element.Child("httpResponse")),
 		Security:    compileSecurity(element.FindParent("transition")),
 		Tags:        compileTags(element.FindParent("transition")),
+		Exclude:     element.FindParent("transition").Attr(refract.ExcludeAttribute).String(),
 	}, annotations
 }
 

@@ -157,6 +157,16 @@ func (d *document) parseOperation(path, method string, operation node, pathParam
 		}
 	}
 
+	// The reason the description gives for leaving this operation out of a
+	// run's surface figures. Read only when it is a reason — a non-empty
+	// string — because an exclusion is worth exactly as much as what it says,
+	// and `x-vertrag-exclude: true` says nothing a later reader can check.
+	// validateOperation warns about any other value, so it is not dropped in
+	// silence.
+	if reason := excludeReason(operation); reason != "" {
+		transition.SetAttr(refract.ExcludeAttribute, refract.String(reason))
+	}
+
 	// What the operation requires a caller to prove. vertrag cannot invent a
 	// credential and does not try; carrying the requirement is what lets a run
 	// say WHICH scheme is missing instead of returning a wall of 401s that
@@ -187,6 +197,21 @@ func (d *document) parseOperation(path, method string, operation node, pathParam
 	}
 
 	return transition
+}
+
+// excludeKey is the extension an operation uses to leave itself out of a run's
+// surface figures, with the reason as its value.
+const excludeKey = "x-vertrag-exclude"
+
+// excludeReason is the reason an operation's `x-vertrag-exclude` gives, or ""
+// when it gives none. Only a string is a reason: YAML reads `true` and `yes`
+// as booleans, and either would otherwise arrive here as the text "true".
+func excludeReason(operation node) string {
+	value := operation.Get(excludeKey)
+	if !value.IsScalar() || value.ShortTag() != "!!str" {
+		return ""
+	}
+	return strings.TrimSpace(value.Str())
 }
 
 // message is a request or response under construction, before it is paired with

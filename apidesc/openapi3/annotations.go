@@ -499,6 +499,17 @@ func (d *document) validateOperation(operation node) []annotation {
 		for _, server := range op.Get("servers").Items() {
 			out = append(out, d.validateServer(server)...)
 		}
+		// An exclusion that is not a reason is ignored, and saying so here is
+		// what stops it being ignored in silence: the operation it was written
+		// on goes on counting against the run's surface, and the person who
+		// wrote `x-vertrag-exclude: true` believes it does not.
+		if value := op.Get(excludeKey); value.Valid() && excludeReason(op) == "" {
+			out = append(out, d.at(annotation{
+				class: "warning",
+				message: "'" + excludeKey + "' needs the reason as a string, such as " +
+					"x-vertrag-exclude: \"needs a payment provider\"; the operation is not excluded",
+			}, value))
+		}
 		return out
 	})
 }

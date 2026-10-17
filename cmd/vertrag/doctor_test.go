@@ -90,6 +90,9 @@ var doesNotSelect = map[string]string{
 var registeredSelectorFields = map[string]string{
 	"Skip":               "skip",
 	"ConditionalHeaders": "header (conditional)",
+	// Surface.Require is a value; Surface.Exclude names operations, and is
+	// what the selector covers.
+	"Surface": "surface.exclude",
 }
 
 // TestEveryConfigFieldIsClassified is the mechanism, and everything else in
@@ -177,6 +180,7 @@ func TestASettingThatReachesNothingIsReported(t *testing.T) {
 		},
 		Fuzz:               config.FuzzSettings{Pin: map[string]any{"dry_runn": true}},
 		ConditionalHeaders: []config.HeaderRule{{Name: "X-Mock", Value: "on", Status: "404"}},
+		Surface:            config.SurfaceSettings{Exclude: []config.SurfaceExclusion{{Operation: "GET /thing", Reason: "typo"}}},
 	}
 
 	dead := inertSelectors(settings, transactions)
@@ -189,6 +193,7 @@ func TestASettingThatReachesNothingIsReported(t *testing.T) {
 		"auth.login.path":      true, // matched nothing, so the login carried its own session
 		"fuzz.pin":             true, // a typo held nothing while reading as a safety control
 		"header (conditional)": true,
+		"surface.exclude":      true, // excluded nothing while the file read as accounted for
 	}
 	for _, d := range dead {
 		delete(want, d.key)

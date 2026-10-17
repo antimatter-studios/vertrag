@@ -289,6 +289,31 @@ checks:
   # duration.
   max-response-time: 750ms
 
+# --- How much a run must reach ----------------------------------------------
+
+# Every run ends by saying how much of the description it reached: operations
+# answered, and documented statuses answered with, phase by phase, with the
+# reason for everything it missed. The yardstick is the whole description, so
+# a filter narrows what is sent and not what the run is measured against.
+surface:
+  # Fail the run (exit 1) unless it reaches this percentage of the
+  # description's operations in some phase. 0, or no key, gates nothing.
+  # `--require-surface` sets it for a single run, and `--dry-run` says whether
+  # a run could meet it at all.
+  require: 100
+
+  # Operations that do not count, each with the reason, which is required: an
+  # exclusion is a claim that an operation does not need reaching, and it is
+  # worth what its reason says. Name the operation as the surface report does,
+  # or by its operationId. An operation can also exclude itself with
+  # `x-vertrag-exclude: "<reason>"` in the description.
+  #
+  # An exclusion decides what COUNTS, not what is sent. An operation that must
+  # never be sent belongs in `skip` as well.
+  exclude:
+    - operation: POST /admin/reindex
+      reason: an operator task, not part of the public contract
+
 # --- Probing phases ----------------------------------------------------------
 
 # `coverage` and `fuzz` generate request bodies and parameters rather than
@@ -386,7 +411,7 @@ loglevel: warning
 
 # Reporters pair with outputs by position, and an empty output means stdout — so
 # this writes a readable log to the terminal AND a machine-readable file.
-# Available: cli, dot, markdown, html, junit, har, vcr. The last two record the
+# Available: cli, dot, markdown, html, junit, json, har, vcr. The last two record the
 # traffic rather than a verdict about it — a HAR file for devtools, a VCR
 # cassette for a replay library. Credential headers are redacted in both;
 # bodies are not, so a recording of a login still holds the password.

@@ -1,0 +1,32 @@
+
+API surface reached
+
+            operations      documented statuses
+  examples  3 of 5  60.0%   4 of 9  44.4%
+  coverage  2 of 5  40.0%   3 of 9  33.3%
+  the run   3 of 5  60.0%   5 of 9  55.5%
+
+  Operations no phase reached:
+    DELETE /widgets/{id}  skipped by configuration: destroys shared state
+    POST /admin/reindex   left out by exclude-tag admin
+
+  Documented statuses of reached operations that no phase reached:
+    GET /widgets/{id}  404, 409  answered 200
+    POST /widgets      422       a hook skipped it
+
+  Excluded, and not counted:
+    POST /billing/charge  charges a real card (x-vertrag-exclude)
+                          reached anyway: an exclusion decides what counts, not what is sent, and `skip` is what keeps a request back
+    GET /reports          needs a reporting backend (surface.exclude)
+
+  The run reached 3 of 5 operation(s), 60.0%, below the 100.0% it requires.
+
+API surface a run would reach (dry run: nothing was sent)
+
+              operations
+  would send  4 of 5  80.0%
+
+  Operations a run would send nothing to:
+    DELETE /widgets/{id}  skipped by configuration: destroys shared state
+
+  A run would send a request to 4 of 5 operation(s), 80.0%, so it cannot reach the 100.0% it requires.
