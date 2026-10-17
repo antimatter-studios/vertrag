@@ -187,3 +187,22 @@ func (c Carriers) carriesCookie(name string) bool {
 	}
 	return false
 }
+
+// JudgeAs judges a reply SendAs got the way an ordinary transaction is
+// judged — status, headers, body and the run's own checks — for a request
+// whose right answer is the documented success. A refusal is judged by the
+// caller, which alone knows a 401 or 403 was the answer to want.
+func (r *Runner) JudgeAs(source compile.Transaction, sent Result) Result {
+	transaction := &Transaction{
+		Name:     sent.Name,
+		Request:  sent.Request,
+		FullPath: sent.Request.URI,
+		source:   source,
+		Expected: sent.Expected,
+		Real:     sent.Actual,
+	}
+	judged := transaction.validated(r.Checks, sent.Duration, sent.ResponseTime)
+	judged.Request = sent.Request
+	judged.ResponseTime, judged.Started = sent.ResponseTime, sent.Started
+	return judged
+}
