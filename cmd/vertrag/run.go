@@ -277,6 +277,11 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	// This branch has the principal plumbing, but not the phase loop yet.
+	// Never report a successful authorization run that sent no matrix cells.
+	if slices.Contains(settings.Phases, config.PhaseAuthorization) {
+		return fmt.Errorf("the authorization phase is not implemented on this work-in-progress branch")
+	}
 
 	report, closeReport, err := newReporter(settings)
 	if err != nil {

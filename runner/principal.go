@@ -92,10 +92,10 @@ func (r *Runner) SendAs(ctx context.Context, name string, source compile.Transac
 }
 
 // credentialFor is the header line a principal presents on this transaction:
-// its credential, unless this is the operation that granted it, which never
-// receives the credential it minted — see Credential.LoginPath.
+// its credential, unless excluded by auth.except or this is the operation
+// that granted it — see Credential.LoginPath.
 func credentialFor(source compile.Transaction, credential Credential) string {
-	if credential.Header == "" || credential.grantedBy(source) {
+	if credential.Header == "" || credential.Except[source.Name] || credential.grantedBy(source) {
 		return ""
 	}
 	return credential.Header

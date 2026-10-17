@@ -104,6 +104,57 @@ var selectors = []selector{
 		consequence: "nothing is held and generation will send whatever the schema permits",
 	},
 	{
+		key: "principals.auth.except",
+		values: func(c config.Config) []string {
+			var values []string
+			for _, principal := range c.Principals {
+				for _, name := range principal.Auth.Except {
+					values = append(values, principal.Name+": "+name)
+				}
+			}
+			return values
+		},
+		matches: func(c config.Config, value string, transactions []compile.Transaction) int {
+			for _, principal := range c.Principals {
+				for _, name := range principal.Auth.Except {
+					if value == principal.Name+": "+name {
+						return byTransactionName(c, name, transactions)
+					}
+				}
+			}
+			return 0
+		},
+		consequence: "the principal's credential will not be withheld from the intended transaction",
+	},
+	{
+		key: "principals.auth.login.path",
+		values: func(c config.Config) []string {
+			var values []string
+			for _, principal := range c.Principals {
+				if principal.Auth.Login.Path != "" {
+					values = append(values, principal.Name+": "+principal.Auth.Login.Path)
+				}
+			}
+			return values
+		},
+		matches: func(c config.Config, value string, transactions []compile.Transaction) int {
+			for _, principal := range c.Principals {
+				if value != principal.Name+": "+principal.Auth.Login.Path {
+					continue
+				}
+				matched := 0
+				for _, transaction := range transactions {
+					if pathOf(transaction.Request.URI) == principal.Auth.Login.Path {
+						matched++
+					}
+				}
+				return matched
+			}
+			return 0
+		},
+		consequence: "the principal's credential will not be withheld from the operation that granted it",
+	},
+	{
 		key: "surface.exclude",
 		values: func(c config.Config) []string {
 			names := make([]string, 0, len(c.Surface.Exclude))
