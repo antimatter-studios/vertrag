@@ -14,23 +14,23 @@ import (
 // getting right, because it is the one where the obvious answer is wrong.
 func TestSupplierNamesSomethingThatWorks(t *testing.T) {
 	for _, test := range []struct {
-		security compile.Security
+		security compile.SecurityScheme
 		want     string
 	}{
-		{compile.Security{Type: "apiKey", In: "header", Parameter: "X-Api-Key"},
+		{compile.SecurityScheme{Type: "apiKey", In: "header", Parameter: "X-Api-Key"},
 			"--header 'X-Api-Key: <value>'"},
-		{compile.Security{Type: "http", Scheme: "bearer"},
+		{compile.SecurityScheme{Type: "http", Scheme: "bearer"},
 			"--header 'Authorization: Bearer <token>'"},
-		{compile.Security{Type: "http", Scheme: "basic"},
+		{compile.SecurityScheme{Type: "http", Scheme: "basic"},
 			"--header 'Authorization: Basic <base64>'"},
-		{compile.Security{Type: "apiKey", In: "query", Parameter: "api_key"},
+		{compile.SecurityScheme{Type: "apiKey", In: "query", Parameter: "api_key"},
 			"no flag supplies a credential in the query; a hook can set it"},
 		// A cookie IS suppliable now: a run merges Cookie headers instead of
 		// replacing them, so `--header` puts the credential beside whatever
 		// cookies the description declares rather than deleting them.
-		{compile.Security{Type: "apiKey", In: "cookie", Parameter: "session"},
+		{compile.SecurityScheme{Type: "apiKey", In: "cookie", Parameter: "session"},
 			"--header 'Cookie: session=<value>'"},
-		{compile.Security{Type: "oauth2"},
+		{compile.SecurityScheme{Type: "oauth2"},
 			"a hook can set the credential this scheme needs"},
 	} {
 		if got := test.security.Supplier(); got != test.want {
@@ -43,10 +43,10 @@ func TestSupplierNamesSomethingThatWorks(t *testing.T) {
 // the run carries the header, so a correctly configured suite stays quiet.
 func TestASuppliedCredentialIsNotReportedMissing(t *testing.T) {
 	transactions := []compile.Transaction{{
-		Security: []compile.Security{
-			{Name: "ApiKeyHeader", Type: "apiKey", In: "header", Parameter: "X-Api-Key"},
-			{Name: "BearerAuth", Type: "http", Scheme: "bearer"},
-		},
+		Security: compile.Security{Declared: true, Requirements: []compile.Requirement{
+			{{Scheme: compile.SecurityScheme{Name: "ApiKeyHeader", Type: "apiKey", In: "header", Parameter: "X-Api-Key"}}},
+			{{Scheme: compile.SecurityScheme{Name: "BearerAuth", Type: "http", Scheme: "bearer"}}},
+		}},
 	}}
 
 	// Nothing supplied: both are missing.

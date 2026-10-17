@@ -300,10 +300,20 @@ func (r *Runner) headersFor(transaction compile.Transaction) []string {
 // `go vet` rightly refused once the Runner held a mutex — and copying a
 // runner to change one decision was the wrong shape regardless.
 func (r *Runner) headers(transaction compile.Transaction, withCredential, staged bool) []string {
-	authenticated := withCredential &&
-		r.Auth.Header != "" &&
-		!r.Auth.Except[transaction.Name] &&
-		!r.Auth.grantedBy(transaction)
+	credential := Credential{}
+	if withCredential {
+		credential = r.Auth
+	}
+	return r.headersCarrying(transaction, credential, staged)
+}
+
+// headersCarrying is headers with the credential named rather than taken from
+// the run, which is what lets the authorization phase send one transaction as
+// several principals through the same code every other request goes through.
+func (r *Runner) headersCarrying(transaction compile.Transaction, credential Credential, staged bool) []string {
+	authenticated := credential.Header != "" &&
+		!credential.Except[transaction.Name] &&
+		!credential.grantedBy(transaction)
 
 	var conditional []string
 	for _, header := range r.ConditionalHeaders {
@@ -347,7 +357,7 @@ func (r *Runner) headers(transaction compile.Transaction, withCredential, staged
 	// order in which stating both is useful.
 	headers = append(headers, conditional...)
 	if authenticated {
-		headers = append(headers, r.Auth.Header)
+		headers = append(headers, credential.Header)
 	}
 	return headers
 }
@@ -1239,11 +1249,19 @@ func (t *Transaction) validated(checks Checks, elapsed, exchange time.Duration) 
 // documented as failing, or one already excluded from authentication, says
 // nothing about whether the credential mattered. The bare attempt must be
 // refused — 401 or 403 — and anything else means the endpoint is open.
+//
+// Nor for an operation its description calls public. `security: []` is
+// OpenAPI's way of saying an operation needs no credential, overriding the
+// document's default, and a health check that answers 200 without one is
+// doing exactly what it promised. The run still sends the credential there —
+// the description says it is not needed, not that it is refused — but asking
+// whether it mattered is asking a question the description has already
+// answered, and the answer came back as a finding against the API.
 func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transaction, sent Result) (string, bool) {
 	if !r.Checks.IgnoredAuth || r.Auth.Header == "" {
 		return "", false
 	}
-	if r.Auth.Except[source.Name] || r.Auth.grantedBy(source) {
+	if r.Auth.Except[source.Name] || r.Auth.grantedBy(source) || source.Security.Public {
 		return "", false
 	}
 	status, err := strconv.Atoi(strings.TrimSpace(sent.Actual.StatusCode))

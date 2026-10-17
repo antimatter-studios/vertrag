@@ -774,7 +774,10 @@ func noteIgnoredAuthIsOff(settings config.Config, engine *runner.Runner, transac
 
 	authenticated := 0
 	for _, transaction := range transactions {
-		if engine.Auth.Except[transaction.Name] || engine.Auth.GrantedBy(transaction) {
+		// A public operation is one the check would not ask about, so a
+		// credential sent to it is not one whose effect went unchecked.
+		if engine.Auth.Except[transaction.Name] || engine.Auth.GrantedBy(transaction) ||
+			transaction.Security.Public {
 			continue
 		}
 		authenticated++
@@ -1357,7 +1360,7 @@ func reportMissingCredentials(transactions []compile.Transaction, headers []stri
 }
 
 // missingCredentials selects the schemes a run has nothing to satisfy.
-func missingCredentials(transactions []compile.Transaction, headers []string) []compile.Security {
+func missingCredentials(transactions []compile.Transaction, headers []string) []compile.SecurityScheme {
 	supplied := map[string]bool{}
 	for _, line := range headers {
 		if name, _, ok := strings.Cut(line, ":"); ok {
@@ -1366,10 +1369,10 @@ func missingCredentials(transactions []compile.Transaction, headers []string) []
 	}
 
 	seen := map[string]bool{}
-	var missing []compile.Security
+	var missing []compile.SecurityScheme
 
 	for _, transaction := range transactions {
-		for _, security := range transaction.Security {
+		for _, security := range transaction.Security.Schemes() {
 			if seen[security.Name] {
 				continue
 			}
@@ -1403,7 +1406,7 @@ func missingCredentials(transactions []compile.Transaction, headers []string) []
 	return missing
 }
 
-func describeScheme(security compile.Security) string {
+func describeScheme(security compile.SecurityScheme) string {
 	switch {
 	case security.Type == "apiKey":
 		return security.Type + " " + security.Parameter + " in the " + security.In
