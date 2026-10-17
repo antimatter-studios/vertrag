@@ -296,11 +296,17 @@ checks:
 # reason for everything it missed. The yardstick is the whole description, so
 # a filter narrows what is sent and not what the run is measured against.
 surface:
-  # Fail the run (exit 1) unless it reaches this percentage of the
+  # Fail the run (exit 3) unless it reaches this percentage of the
   # description's operations in some phase. 0, or no key, gates nothing.
   # `--require-surface` sets it for a single run, and `--dry-run` says whether
-  # a run could meet it at all.
+  # a run could meet it at all. A failed transaction still exits 1 first.
   require: 100
+
+  # What the gate counts an operation for: `reached`, the default, when any
+  # request to it was answered, a 500 included; or `passed`, when every
+  # documented transaction of it that counts was sent and passed, none
+  # skipped, none failed, none answered 5xx. `--surface-count` for one run.
+  count: reached
 
   # Operations that do not count, each with the reason, which is required: an
   # exclusion is a claim that an operation does not need reaching, and it is
@@ -310,9 +316,17 @@ surface:
   #
   # An exclusion decides what COUNTS, not what is sent. An operation that must
   # never be sent belongs in `skip` as well.
+  #
+  # `status` takes only the documented statuses it matches out of the
+  # figures: exact (`403`, `4XX`, `default`) or a pattern (`4XX` also matches
+  # a documented 403; `?` is one character, `*` any run). Without an
+  # operation it applies to every operation; a `*` in an operation is any run
+  # of characters.
   exclude:
     - operation: POST /admin/reindex
       reason: an operator task, not part of the public contract
+    - status: "403"
+      reason: no second account to be refused with yet
 
 # --- Probing phases ----------------------------------------------------------
 

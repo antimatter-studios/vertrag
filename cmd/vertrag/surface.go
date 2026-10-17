@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -48,6 +50,23 @@ type surfaceLedger struct {
 	// excluded are the operations left out of the figures, with the reason.
 	excluded map[operation]reporter.SurfaceExclusion
 
+	// excludedStatus are the documented statuses left out of the figures,
+	// per operation, with the reason. An operation whose every documented
+	// status is excluded has nothing left to count and is left out whole.
+	excludedStatus map[operation]map[string]reporter.SurfaceExclusion
+
+	// transactions are each operation's documented transactions, by name and
+	// the status each documents: what a passed operation must have passed.
+	transactions map[operation][]surfaceTransaction
+
+	// passed are the examples-phase transactions that passed with an answer
+	// below 500, by name; failedWhy says, for the others, why not.
+	passed    map[string]bool
+	failedWhy map[string]string
+
+	// plannedTransactions are the transactions a dry run would have sent.
+	plannedTransactions map[string]bool
+
 	// answered is every status each operation answered with, per phase.
 	// Recorded raw and judged at the end, so the judgement is made once and
 	// by the rule that decides pass and fail.
@@ -65,6 +84,10 @@ type surfaceLedger struct {
 	current string
 	phases  []string
 }
+
+// surfaceTransaction is one documented transaction as a passed operation
+// counts it.
+type surfaceTransaction struct{ name, status string }
 
 // surfaceLabel is how the surface report names an operation: the method and
 // the path template, as somebody would write it in `surface.exclude`.
@@ -102,9 +125,15 @@ func newSurfaceLedger(transactions []compile.Transaction, exclusions []config.Su
 		documented: map[operation][]string{},
 		excluded:   map[operation]reporter.SurfaceExclusion{},
 		answered:   map[string]map[operation]map[string]bool{},
-		planned:    map[operation]bool{},
-		why:        map[operation][]string{},
-		whyStatus:  map[operation]map[string][]string{},
+
+		excludedStatus:      map[operation]map[string]reporter.SurfaceExclusion{},
+		transactions:        map[operation][]surfaceTransaction{},
+		passed:              map[string]bool{},
+		failedWhy:           map[string]string{},
+		plannedTransactions: map[string]bool{},
+		planned:             map[operation]bool{},
+		why:                 map[operation][]string{},
+		whyStatus:           map[operation]map[string][]string{},
 	}
 
 	for _, transaction := range transactions {
@@ -118,6 +147,7 @@ func newSurfaceLedger(transactions []compile.Transaction, exclusions []config.Su
 		if !slices.Contains(ledger.documented[op], status) {
 			ledger.documented[op] = append(ledger.documented[op], status)
 		}
+		ledger.transactions[op] = append(ledger.transactions[op], surfaceTransaction{name: transaction.Name, status: status})
 		// The description's own exclusion. Written on the operation, so any
 		// of its transactions carries it; the first is as good as any.
 		if transaction.Exclude != "" {
@@ -139,12 +169,38 @@ func newSurfaceLedger(transactions []compile.Transaction, exclusions []config.Su
 			if !ledger.names(op, exclusion.Operation, transactions) {
 				continue
 			}
-			matched = true
-			ledger.excluded[op] = reporter.SurfaceExclusion{
-				Operation: ledger.labels[op], Reason: exclusion.Reason, Source: "surface.exclude",
+			if exclusion.Status == "" {
+				matched = true
+				ledger.excluded[op] = reporter.SurfaceExclusion{
+					Operation: ledger.labels[op], Reason: exclusion.Reason, Source: "surface.exclude",
+				}
+				continue
+			}
+			for _, status := range ledger.documented[op] {
+				if !statusExcludedBy(exclusion.Status, status) {
+					continue
+				}
+				matched = true
+				if ledger.excludedStatus[op] == nil {
+					ledger.excludedStatus[op] = map[string]reporter.SurfaceExclusion{}
+				}
+				// The first entry naming a status gives the reason; a later,
+				// broader one does not overwrite what was written for it.
+				if _, already := ledger.excludedStatus[op][status]; !already {
+					ledger.excludedStatus[op][status] = reporter.SurfaceExclusion{
+						Operation: ledger.labels[op], Status: status, Reason: exclusion.Reason, Source: "surface.exclude",
+					}
+				}
 			}
 		}
-		if !matched {
+		switch {
+		case matched:
+		case exclusion.Status != "":
+			unmatched = append(unmatched, fmt.Sprintf(
+				"surface.exclude names no documented status %q of %s, so it excludes nothing and the "+
+					"status it meant still counts against the run; write a status the description documents, "+
+					"`403`, a range, `4XX`, or a pattern, `40?`", exclusion.Status, exclusionTarget(exclusion.Operation)))
+		default:
 			unmatched = append(unmatched, fmt.Sprintf(
 				"surface.exclude names no operation %q, so it excludes nothing and the operation it meant "+
 					"still counts against the run; name it as the surface report does, `GET /path/{id}`, "+
@@ -154,27 +210,80 @@ func newSurfaceLedger(transactions []compile.Transaction, exclusions []config.Su
 	return ledger, unmatched
 }
 
+func exclusionTarget(operation string) string {
+	if operation == "" {
+		return "any operation"
+	}
+	return fmt.Sprintf("an operation named %q", operation)
+}
+
 // names reports whether an exclusion's value names an operation: by the label
 // the surface report prints, or by the operationId the description gives it.
+// A `*` in the value matches any run of characters, in either; an empty value,
+// which only a status exclusion may have, names every operation.
 func (l *surfaceLedger) names(op operation, value string, transactions []compile.Transaction) bool {
-	if value == l.labels[op] {
+	if value == "" {
+		return true
+	}
+	match := func(candidate string) bool { return candidate == value }
+	if strings.Contains(value, "*") {
+		pattern := regexp.MustCompile("^" + strings.ReplaceAll(regexp.QuoteMeta(value), `\*`, ".*") + "$")
+		match = pattern.MatchString
+	}
+	if match(l.labels[op]) {
 		return true
 	}
 	for _, transaction := range transactions {
-		if transaction.OperationID != "" && transaction.OperationID == value && operationOf(transaction) == op {
+		if transaction.OperationID != "" && match(transaction.OperationID) && operationOf(transaction) == op {
 			return true
 		}
 	}
 	return false
 }
 
-// exclusionReach counts the operations an exclusion value names, for doctor.
-func exclusionReach(value string, transactions []compile.Transaction) int {
+// statusExcludedBy reports whether an exclusion's status pattern matches a
+// documented status. `default` matches only itself. Otherwise the pattern is
+// read a character at a time, without regard to case: a digit is itself, `X`
+// and `?` are any one character, and `*` any run of them — so `4XX` excludes
+// a documented 403 and a documented 4XX alike, and `403` excludes only 403.
+func statusExcludedBy(pattern, documented string) bool {
+	if strings.EqualFold(pattern, "default") || strings.EqualFold(documented, "default") {
+		return strings.EqualFold(pattern, documented)
+	}
+	var expression strings.Builder
+	expression.WriteString("(?i)^")
+	for _, r := range pattern {
+		switch r {
+		case 'X', 'x', '?':
+			expression.WriteString(".")
+		case '*':
+			expression.WriteString(".*")
+		default:
+			expression.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	expression.WriteString("$")
+	matched, err := regexp.MatchString(expression.String(), documented)
+	return err == nil && matched
+}
+
+// exclusionReach counts what an exclusion names, for doctor: the operations,
+// or for a status exclusion the documented statuses.
+func exclusionReach(exclusion config.SurfaceExclusion, transactions []compile.Transaction) int {
 	ledger, _ := newSurfaceLedger(transactions, nil)
 	reached := 0
 	for _, op := range ledger.order {
-		if ledger.names(op, value, transactions) {
+		if !ledger.names(op, exclusion.Operation, transactions) {
+			continue
+		}
+		if exclusion.Status == "" {
 			reached++
+			continue
+		}
+		for _, status := range ledger.documented[op] {
+			if statusExcludedBy(exclusion.Status, status) {
+				reached++
+			}
 		}
 	}
 	return reached
@@ -224,6 +333,11 @@ func (l *surfaceLedger) observe(_ context.Context, source compile.Transaction, r
 // leftOut records why a transaction was not going to be sent at all.
 func (l *surfaceLedger) leftOut(transaction compile.Transaction, reason string) {
 	l.note(transaction, reason)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, already := l.failedWhy[transaction.Name]; !already && reason != "" {
+		l.failedWhy[transaction.Name] = reason
+	}
 }
 
 // plan records that a dry run would have sent this transaction.
@@ -231,6 +345,7 @@ func (l *surfaceLedger) plan(transaction compile.Transaction) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.planned[operationOf(transaction)] = true
+	l.plannedTransactions[transaction.Name] = true
 }
 
 // outcome records why the examples phase did, or did not, get the answer one
@@ -240,6 +355,36 @@ func (l *surfaceLedger) plan(transaction compile.Transaction) {
 // nothing to probe in is not one they failed to reach.
 func (l *surfaceLedger) outcome(transaction compile.Transaction, result runner.Result) {
 	l.note(transaction, outcomeReason(result))
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if passing, why := passedOutright(result); passing {
+		l.passed[transaction.Name] = true
+		delete(l.failedWhy, transaction.Name)
+	} else {
+		l.failedWhy[transaction.Name] = why
+	}
+}
+
+// passedOutright reports whether a transaction counts towards a passed
+// operation, or says why not. It passed, and it was answered, and the answer
+// was not a 5xx: a server error is the server failing whatever the
+// description says it may do, so a 500 never counts as passed — not even one
+// a documented 500 matched. Exclude that status if it is not meant to count.
+func passedOutright(result runner.Result) (bool, string) {
+	answer := strings.TrimSpace(result.Actual.StatusCode)
+	code, _ := strconv.Atoi(answer)
+	switch {
+	case result.Status == runner.StatusPass && answer != "" && code < 500:
+		return true, ""
+	case result.Status == runner.StatusPass && answer != "":
+		return false, "answered " + answer + ", which never counts as passed"
+	case result.Status == runner.StatusPass:
+		return false, "passed without an answer, which never counts as passed"
+	case result.Status == runner.StatusFail && answer != "":
+		return false, "answered " + answer + " and failed"
+	}
+	return false, outcomeReason(result)
 }
 
 // outcomeReason says what became of a transaction, in the words the surface
@@ -296,24 +441,48 @@ func (l *surfaceLedger) note(transaction compile.Transaction, reason string) {
 // them — and nothing is read out of a map in the map's order. The coverage
 // phase probes operations concurrently, and a report that reordered itself
 // between two runs of one suite could not be diffed.
-func (l *surfaceLedger) summary(required float64, dryRun bool) reporter.Surface {
+func (l *surfaceLedger) summary(settings config.SurfaceSettings, dryRun bool) reporter.Surface {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	count := settings.Count
+	if count == "" {
+		count = config.CountReached
+	}
 	surface := reporter.Surface{
-		Required: required, DryRun: dryRun,
+		Required: settings.Require, Count: count, DryRun: dryRun,
 		Phases: []reporter.SurfaceFigures{}, Missed: []reporter.SurfaceMiss{},
-		Excluded: []reporter.SurfaceExclusion{},
+		Excluded: []reporter.SurfaceExclusion{}, NotPassed: []reporter.SurfaceMiss{},
 	}
 
+	// Each counted operation, with the documented statuses of it that count.
+	// Both sides of every figure are taken from these, so an exclusion takes
+	// the same thing out of what was reached and out of what there was.
 	var counted []operation
+	statusesOf := map[operation][]string{}
 	for _, op := range l.order {
 		if exclusion, excluded := l.excluded[op]; excluded {
 			exclusion.Reached = l.reachedByRun(op, dryRun)
 			surface.Excluded = append(surface.Excluded, exclusion)
 			continue
 		}
+		var statuses []string
+		for _, status := range l.documented[op] {
+			if exclusion, excluded := l.excludedStatus[op][status]; excluded {
+				exclusion.Reached = !dryRun && l.statusReachedByRun(op, status)
+				surface.Excluded = append(surface.Excluded, exclusion)
+				continue
+			}
+			statuses = append(statuses, status)
+		}
+		// Every documented status excluded leaves nothing to count, and an
+		// operation with nothing to count is neither reached nor passed; it
+		// is listed above, status by status, and left out of the figures.
+		if len(statuses) == 0 {
+			continue
+		}
 		counted = append(counted, op)
+		statusesOf[op] = statuses
 	}
 
 	if !dryRun {
@@ -322,13 +491,18 @@ func (l *surfaceLedger) summary(required float64, dryRun bool) reporter.Surface 
 			for _, op := range counted {
 				answered := l.answered[phase][op]
 				figures.Operations++
-				figures.Statuses += len(l.documented[op])
+				figures.Statuses += len(statusesOf[op])
 				if len(answered) > 0 {
 					figures.OperationsReached++
 				}
-				for _, status := range l.documented[op] {
+				for _, status := range statusesOf[op] {
 					if reachedStatus(status, answered) {
 						figures.StatusesReached++
+					}
+				}
+				if phase == config.PhaseExamples {
+					if passed, _ := l.operationPassed(op, statusesOf[op], false); passed {
+						figures.OperationsPassed++
 					}
 				}
 			}
@@ -339,7 +513,11 @@ func (l *surfaceLedger) summary(required float64, dryRun bool) reporter.Surface 
 	surface.Run = reporter.SurfaceFigures{Phase: "run"}
 	for _, op := range counted {
 		surface.Run.Operations++
-		surface.Run.Statuses += len(l.documented[op])
+		surface.Run.Statuses += len(statusesOf[op])
+		passed, why := l.operationPassed(op, statusesOf[op], dryRun)
+		if passed {
+			surface.Run.OperationsPassed++
+		}
 		if !l.reachedByRun(op, dryRun) {
 			surface.Missed = append(surface.Missed, reporter.SurfaceMiss{
 				Operation: l.labels[op], Reason: reasons(l.why[op], "no request to it was answered"),
@@ -350,7 +528,10 @@ func (l *surfaceLedger) summary(required float64, dryRun bool) reporter.Surface 
 		if dryRun {
 			continue
 		}
-		for _, status := range l.documented[op] {
+		if !passed {
+			surface.NotPassed = append(surface.NotPassed, reporter.SurfaceMiss{Operation: l.labels[op], Reason: why})
+		}
+		for _, status := range statusesOf[op] {
 			if l.statusReachedByRun(op, status) {
 				surface.Run.StatusesReached++
 				continue
@@ -362,6 +543,36 @@ func (l *surfaceLedger) summary(required float64, dryRun bool) reporter.Surface 
 		}
 	}
 	return surface
+}
+
+// operationPassed reports whether every documented transaction of an
+// operation whose status counts passed in the examples phase — or, for a dry
+// run, would be sent — and when not, what kept it from passing.
+func (l *surfaceLedger) operationPassed(op operation, statuses []string, dryRun bool) (bool, string) {
+	var why []string
+	for _, transaction := range l.transactions[op] {
+		if !slices.Contains(statuses, transaction.status) {
+			continue
+		}
+		if dryRun {
+			if !l.plannedTransactions[transaction.name] {
+				why = append(why, "not sent")
+			}
+			continue
+		}
+		if l.passed[transaction.name] {
+			continue
+		}
+		reason := l.failedWhy[transaction.name]
+		if reason == "" {
+			reason = "not sent"
+		}
+		reason = transaction.status + " " + reason
+		if !slices.Contains(why, reason) {
+			why = append(why, reason)
+		}
+	}
+	return len(why) == 0, strings.Join(why, "; ")
 }
 
 // reachedByRun reports whether any phase reached an operation, or for a dry

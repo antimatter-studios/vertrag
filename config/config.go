@@ -217,8 +217,35 @@ type SurfaceSettings struct {
 	// the figures are still printed.
 	Require float64
 
-	// Exclude takes operations out of the figures, each with the reason.
+	// Count is what the gate counts an operation for: CountReached, the
+	// default, when any request to it was answered, or CountPassed when every
+	// documented transaction of it that counts was sent and passed.
+	Count string
+
+	// Exclude takes operations, or documented statuses of them, out of the
+	// figures, each with the reason.
 	Exclude []SurfaceExclusion
+}
+
+// The values `surface.count` takes.
+const (
+	// CountReached counts an operation that answered at all, a 500 included.
+	CountReached = "reached"
+	// CountPassed counts an operation only when every documented transaction
+	// of it that is not excluded was sent in the examples phase and passed:
+	// none failed, none skipped, none left without an answer.
+	CountPassed = "passed"
+)
+
+// CheckCount refuses a `surface.count` that is neither of the two things a
+// gate can count, rather than falling back to one of them: a misspelt
+// `passd` that quietly gated on reached would read as the stricter gate.
+func CheckCount(count string) error {
+	switch count {
+	case CountReached, CountPassed:
+		return nil
+	}
+	return fmt.Errorf("count is %q or %q; got %q", CountReached, CountPassed, count)
 }
 
 // SurfaceExclusion leaves one operation out of a run's surface figures.
@@ -231,8 +258,16 @@ type SurfaceSettings struct {
 type SurfaceExclusion struct {
 	// Operation is the operation as the surface report names it — the method
 	// and path template, `GET /widgets/{id}`, or a GraphQL field's
-	// transaction name — or its operationId.
+	// transaction name — or its operationId. A `*` in it matches any run of
+	// characters, so `GET /admin/*` names every GET under /admin. Empty, with
+	// a Status, means every operation.
 	Operation string
+
+	// Status, when set, excludes only the documented statuses it matches
+	// rather than the whole operation: an exact status (`403`, `4XX`,
+	// `default`), a range (`4XX` also matches each documented 4xx status), or
+	// a pattern in which `?` is one character and `*` any run of them.
+	Status string
 
 	// Reason is required. An exclusion is a claim that an operation does not
 	// need reaching, and the claim is worth exactly as much as its reason.
@@ -514,6 +549,7 @@ type graphqlFile struct {
 // surfaceFile is the `surface` section as written.
 type surfaceFile struct {
 	Require *float64             `yaml:"require"`
+	Count   *string              `yaml:"count"`
 	Exclude []surfaceExcludeFile `yaml:"exclude"`
 }
 
@@ -522,6 +558,7 @@ type surfaceFile struct {
 // and a form without one would be the form everybody wrote.
 type surfaceExcludeFile struct {
 	Operation string `yaml:"operation"`
+	Status    string `yaml:"status"`
 	Reason    string `yaml:"reason"`
 }
 
@@ -793,21 +830,61 @@ func applySurface(surface *SurfaceSettings, parsed surfaceFile) error {
 		}
 		surface.Require = *parsed.Require
 	}
+	if parsed.Count != nil {
+		count := strings.TrimSpace(*parsed.Count)
+		if err := CheckCount(count); err != nil {
+			return err
+		}
+		surface.Count = count
+	}
 	for i, entry := range parsed.Exclude {
 		operation := strings.TrimSpace(entry.Operation)
+		status := strings.TrimSpace(entry.Status)
 		reason := strings.TrimSpace(entry.Reason)
+		named := operation
+		if status != "" {
+			named = strings.TrimSpace(operation + " " + status)
+		}
 		switch {
-		case operation == "":
-			return fmt.Errorf("exclude entry %d names no operation; write `operation: GET /path` or an operationId", i+1)
+		case operation == "" && status == "":
+			return fmt.Errorf("exclude entry %d names no operation and no status; write `operation: GET /path`, "+
+				"an operationId, or `status: 403`", i+1)
+		case status != "" && !ValidStatusPattern(status):
+			return fmt.Errorf("exclude %q: status %q is not a documented status or a pattern of one; "+
+				"write `403`, `4XX`, `default`, or a pattern such as `40?`", named, status)
 		case reason == "":
 			// An exclusion with no reason is the one that will never be
 			// revisited, because nothing says what would have to change for
 			// the operation to be worth reaching again.
-			return fmt.Errorf("exclude %q gives no reason; an exclusion is only worth what its reason says", operation)
+			return fmt.Errorf("exclude %q gives no reason; an exclusion is only worth what its reason says", named)
 		}
-		surface.Exclude = append(surface.Exclude, SurfaceExclusion{Operation: operation, Reason: reason})
+		surface.Exclude = append(surface.Exclude, SurfaceExclusion{Operation: operation, Status: status, Reason: reason})
 	}
 	return nil
+}
+
+// ValidStatusPattern reports whether a `surface.exclude` status could match a
+// documented status: `default`, or up to three characters of digits, `X`,
+// `?` and `*`, beginning with a class from 1 to 5, and exactly three unless a
+// `*` stands in for the rest. `600` or `abc` could never match anything, and
+// an exclusion that cannot match is refused rather than silently inert.
+func ValidStatusPattern(pattern string) bool {
+	if strings.EqualFold(pattern, "default") {
+		return true
+	}
+	if pattern == "" || len(pattern) > 3 {
+		return false
+	}
+	for i, r := range pattern {
+		switch {
+		case r == '*' || r == '?':
+		case i == 0 && (r < '1' || r > '5'):
+			return false
+		case i > 0 && !(r >= '0' && r <= '9') && r != 'X' && r != 'x':
+			return false
+		}
+	}
+	return len(pattern) == 3 || strings.Contains(pattern, "*")
 }
 
 // CheckRequire refuses a surface gate that cannot mean what it says: below

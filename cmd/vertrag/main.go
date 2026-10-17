@@ -34,6 +34,10 @@ func main() {
 			// pipeline can gate on the contract and merely report the
 			// findings.
 			os.Exit(2)
+		case errShortfall:
+			// Nothing failed, and the run reached or passed less of the
+			// description than its surface gate requires.
+			os.Exit(3)
 		default:
 			fmt.Fprintln(os.Stderr, "vertrag:", err)
 			os.Exit(1)
