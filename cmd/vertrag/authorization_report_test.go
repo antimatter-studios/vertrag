@@ -26,11 +26,13 @@ const (
 	carrierCookie = "SENTINEL-SID-3e2f1a0b"
 )
 
-// carrierAPI checks an X-Api-Key and a sid cookie, with /keyed's role check
+// carrierAPI checks an X-Tenant-Key and a sid cookie, with /keyed's role check
 // broken, and echoes whatever credential it was given in every body — the
 // careless server a report must not turn into a leak.
+//
+// X-Tenant-Key is the header the description names for its key.
 func carrierAPI(w http.ResponseWriter, r *http.Request) {
-	key := r.Header.Get("X-Api-Key")
+	key := r.Header.Get("X-Tenant-Key")
 	sid := ""
 	if cookie, err := r.Cookie("sid"); err == nil {
 		sid = cookie.Value
@@ -53,8 +55,12 @@ func carrierAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// tenantScheme names a header no reporter redacts by default: only the
+// phase's own carrier registration keeps its value out of a report.
+var tenantScheme = compile.SecurityScheme{Name: "tenantKey", Type: "apiKey", In: "header", Parameter: "X-Tenant-Key"}
+
 func carrierTransactions() []compile.Transaction {
-	keyed := transactionFor("GET", "/keyed", "200", requires(compile.Requirement{need(keyScheme, "admin")}))
+	keyed := transactionFor("GET", "/keyed", "200", requires(compile.Requirement{need(tenantScheme, "admin")}))
 	keyed.Response.Schema = `{"type":"object","required":["users"]}`
 	cookied := transactionFor("GET", "/cookied", "200", requires(compile.Requirement{need(cookieScheme, "admin")}))
 	cookied.Response.Schema = `{"type":"object","required":["users"]}`
@@ -63,7 +69,7 @@ func carrierTransactions() []compile.Transaction {
 
 func carrierPrincipals() []config.Principal {
 	return []config.Principal{
-		{Name: "keyholder", Auth: config.Auth{Header: "X-Api-Key: " + carrierKey}},
+		{Name: "keyholder", Auth: config.Auth{Header: "X-Tenant-Key: " + carrierKey}},
 		{Name: "sessionadmin", Auth: config.Auth{Header: "Cookie: sid=" + carrierCookie}, Roles: []string{"admin"}},
 	}
 }
@@ -157,7 +163,7 @@ func TestTheAuthorizationMatrixReportsTheExecutorsOutcomes(t *testing.T) {
 		t.Errorf("JSON summary = %+v, want %+v", parsed.Authorization.Summary, want)
 	}
 	bypass := parsed.Authorization.Cells[2]
-	if !strings.HasPrefix(bypass.Replay, "curl ") || !strings.Contains(bypass.Replay, "X-Api-Key: "+reporter.Redacted) ||
+	if !strings.HasPrefix(bypass.Replay, "curl ") || !strings.Contains(bypass.Replay, "X-Tenant-Key: "+reporter.Redacted) ||
 		!strings.Contains(bypass.Reason, "authorization bypass") {
 		t.Errorf("the bypass is not a redacted, replayable finding: %+v", bypass)
 	}
