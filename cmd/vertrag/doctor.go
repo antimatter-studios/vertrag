@@ -108,12 +108,17 @@ var selectors = []selector{
 		values: func(c config.Config) []string {
 			names := make([]string, 0, len(c.Surface.Exclude))
 			for _, exclusion := range c.Surface.Exclude {
-				names = append(names, exclusion.Operation)
+				names = append(names, exclusionKey(exclusion))
 			}
 			return names
 		},
-		matches: func(_ config.Config, value string, transactions []compile.Transaction) int {
-			return exclusionReach(value, transactions)
+		matches: func(c config.Config, value string, transactions []compile.Transaction) int {
+			for _, exclusion := range c.Surface.Exclude {
+				if exclusionKey(exclusion) == value {
+					return exclusionReach(exclusion, transactions)
+				}
+			}
+			return 0
 		},
 		consequence: "nothing is excluded, and the operation it meant still counts against the run's surface",
 	},
@@ -333,4 +338,13 @@ func runDoctor(args []string) error {
 		return errFailed
 	}
 	return nil
+}
+
+// exclusionKey names a `surface.exclude` entry the way doctor lists it: the
+// operation, and the status when the entry has one.
+func exclusionKey(exclusion config.SurfaceExclusion) string {
+	if exclusion.Status == "" {
+		return exclusion.Operation
+	}
+	return strings.TrimSpace(exclusion.Operation + " status " + exclusion.Status)
 }

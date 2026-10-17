@@ -64,3 +64,50 @@ func TestASurfaceSettingThatCannotMeanWhatItSaysIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// TestTheSurfaceCountAndStatusExclusionsAreRead: `count` takes either of its
+// two values, and an exclusion may name a status, an operation, or both.
+func TestTheSurfaceCountAndStatusExclusionsAreRead(t *testing.T) {
+	path := writeConfig(t, "vertrag.yml", `
+spec: ./api.yml
+surface:
+  count: passed
+  exclude:
+    - {operation: deleteWidget, reason: covered elsewhere}
+    - {status: 4XX, reason: error responses}
+    - {operation: "GET /admin/*", status: "40?", reason: needs a second account}
+    - {status: default, reason: the catch-all}
+`)
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.Surface.Count != config.CountPassed {
+		t.Errorf("count = %q, want passed", settings.Surface.Count)
+	}
+	want := []config.SurfaceExclusion{
+		{Operation: "deleteWidget", Reason: "covered elsewhere"},
+		{Status: "4XX", Reason: "error responses"},
+		{Operation: "GET /admin/*", Status: "40?", Reason: "needs a second account"},
+		{Status: "default", Reason: "the catch-all"},
+	}
+	if len(settings.Surface.Exclude) != len(want) {
+		t.Fatalf("exclude = %+v, want %+v", settings.Surface.Exclude, want)
+	}
+	for i := range want {
+		if settings.Surface.Exclude[i] != want[i] {
+			t.Errorf("exclude[%d] = %+v, want %+v", i, settings.Surface.Exclude[i], want[i])
+		}
+	}
+}
+
+func TestAStatusPatternIsValidOnlyWhenItCouldMatchAStatus(t *testing.T) {
+	for pattern, valid := range map[string]bool{
+		"403": true, "4XX": true, "4xx": true, "40?": true, "4*": true, "*": true, "default": true,
+		"600": false, "0XX": false, "40": false, "4031": false, "forbidden": false, "4X?Y": false, "": false,
+	} {
+		if got := config.ValidStatusPattern(pattern); got != valid {
+			t.Errorf("ValidStatusPattern(%q) = %v, want %v", pattern, got, valid)
+		}
+	}
+}
