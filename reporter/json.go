@@ -25,6 +25,9 @@ type JSON struct {
 	// Surface is how much of the description the run reached. Nil leaves the
 	// key out, which a caller building this reporter outside a run will want.
 	Surface *Surface
+	// Authorization is the authorization phase's matrix. Nil leaves the key
+	// out, as it does for a run without the phase.
+	Authorization *Authorization
 }
 
 type jsonDocument struct {
@@ -32,6 +35,15 @@ type jsonDocument struct {
 	Summary jsonSummary     `json:"summary"`
 	Results []jsonResult    `json:"results"`
 	Surface *Surface        `json:"surface,omitempty"`
+
+	Authorization *jsonAuthorization `json:"authorization,omitempty"`
+}
+
+// jsonAuthorization is the matrix as the document carries it: normalised, so
+// a reader sees the same cells and verdicts every other report shows.
+type jsonAuthorization struct {
+	Summary AuthorizationCounts `json:"summary"`
+	Authorization
 }
 
 type jsonProvenance struct {
@@ -89,6 +101,12 @@ func (r JSON) Report(results []runner.Result) bool {
 	}
 	if r.Surface != nil && r.Surface.Required > 0 && !r.Surface.Met() {
 		doc.Summary.Passed = false
+	}
+	if r.Authorization != nil {
+		doc.Authorization = &jsonAuthorization{Summary: r.Authorization.Counts(), Authorization: r.Authorization.Normal()}
+		if !r.Authorization.Met() {
+			doc.Summary.Passed = false
+		}
 	}
 
 	for _, result := range results {
