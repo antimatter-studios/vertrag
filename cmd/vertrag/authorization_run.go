@@ -72,10 +72,15 @@ func authorizationCredentials(ctx context.Context, client *http.Client, endpoint
 		}
 		line := ""
 		if configuredAuth.Configured() {
+			// Registered as the run's own auth is: its secrets before the
+			// exchange that uses them, and what came back as soon as it does,
+			// so no report of any principal's request can carry either.
+			registerAuthSecrets(configuredAuth)
 			obtained, err := auth.Obtain(ctx, client, endpoint, configuredAuth)
 			if err != nil {
 				return nil, nil, fmt.Errorf("principal %q: obtaining its credential: %w", principal.Name, err)
 			}
+			reporter.RegisterCredential(obtained)
 			line = obtained
 		}
 		observed, err := observedCarrier(line)
@@ -145,6 +150,12 @@ func describeCarrier(carrier credentialCarrier) string {
 // reported unsent, so a cancelled run never reads as a passing one.
 func executeAuthorization(ctx context.Context, engine *runner.Runner, plan authorizationPlan,
 	credentials map[string]runner.Credential, unsupported map[string]string) []authorizationOutcome {
+	// Every carrier is redacted by name in every report of these results, not
+	// only the names reporters know by default: a cell's Request holds the
+	// credential it was sent with, and an X-Tenant-Key is one too.
+	for _, name := range plan.Carriers.Headers {
+		reporter.AddRedactedHeader(name)
+	}
 	outcomes := make([]authorizationOutcome, 0, len(plan.Cells))
 	for _, cell := range plan.Cells {
 		outcomes = append(outcomes, executeCell(ctx, engine, plan.Carriers, cell,

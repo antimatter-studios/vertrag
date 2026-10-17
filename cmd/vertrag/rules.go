@@ -79,26 +79,7 @@ func applyConfiguredRules(
 		// are encouraged to commit. See reporter/secrets.go for why redacting
 		// these exact values is not the body-guessing the sanitiser refuses to
 		// do.
-		reporter.RegisterSecretsIn(settings.Auth.Login.Body)
-		if settings.Auth.Header != "" {
-			// Written as "Name: value"; only the value is the secret, and
-			// registering the name would redact a header name out of every
-			// report that mentions it.
-			if _, value, found := strings.Cut(settings.Auth.Header, ":"); found {
-				reporter.RegisterSecret(strings.TrimSpace(value))
-			} else {
-				reporter.RegisterSecret(strings.TrimSpace(settings.Auth.Header))
-			}
-		}
-		if settings.Auth.OAuth2.Configured() {
-			// Both spellings, because the documented one puts the secret in an
-			// environment variable and registering only the literal would
-			// protect exactly the configurations that did not need protecting.
-			reporter.RegisterSecret(settings.Auth.OAuth2.ClientSecret)
-			if name := settings.Auth.OAuth2.ClientSecretEnv; name != "" {
-				reporter.RegisterSecret(os.Getenv(name))
-			}
-		}
+		registerAuthSecrets(settings.Auth)
 
 		credential, err := auth.Obtain(ctx, engine.Client, settings.Endpoint, settings.Auth)
 		if err != nil {
@@ -253,4 +234,31 @@ func transactionNames(transactions []compile.Transaction) map[string]bool {
 		names[transaction.Name] = true
 	}
 	return names
+}
+
+// registerAuthSecrets registers every secret an auth configuration holds —
+// the login body, a static header's value, an OAuth2 client secret in either
+// spelling — before any exchange can carry one into a report. The run's own
+// auth and each authorization principal's go through here alike.
+func registerAuthSecrets(a config.Auth) {
+	reporter.RegisterSecretsIn(a.Login.Body)
+	if a.Header != "" {
+		// Written as "Name: value"; only the value is the secret, and
+		// registering the name would redact a header name out of every
+		// report that mentions it.
+		if _, value, found := strings.Cut(a.Header, ":"); found {
+			reporter.RegisterSecret(strings.TrimSpace(value))
+		} else {
+			reporter.RegisterSecret(strings.TrimSpace(a.Header))
+		}
+	}
+	if a.OAuth2.Configured() {
+		// Both spellings, because the documented one puts the secret in an
+		// environment variable and registering only the literal would
+		// protect exactly the configurations that did not need protecting.
+		reporter.RegisterSecret(a.OAuth2.ClientSecret)
+		if name := a.OAuth2.ClientSecretEnv; name != "" {
+			reporter.RegisterSecret(os.Getenv(name))
+		}
+	}
 }
