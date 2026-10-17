@@ -277,12 +277,6 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	// This branch has the principal plumbing, but not the phase loop yet.
-	// Never report a successful authorization run that sent no matrix cells.
-	if slices.Contains(settings.Phases, config.PhaseAuthorization) {
-		return fmt.Errorf("the authorization phase is not implemented on this work-in-progress branch")
-	}
-
 	report, closeReport, err := newReporter(settings)
 	if err != nil {
 		return err
@@ -416,6 +410,17 @@ func runRun(args []string) error {
 				continue
 			}
 			surface.plan(transaction)
+		}
+
+		// The matrix the authorization phase would send, planned with the same
+		// skips and printed with every cell unsent: no principal logs in and
+		// nothing reaches the server.
+		if slices.Contains(settings.Phases, config.PhaseAuthorization) {
+			plan, _, err := planAuthorizationPhase(settings, transactions, skips)
+			if err != nil {
+				return err
+			}
+			reporter.WriteAuthorization(os.Stdout, *dryRunAuthorization(plan), settings.Color)
 		}
 		ceiling := surface.summary(settings.Surface.Require, true)
 		reporter.WriteSurface(os.Stdout, ceiling, settings.Color)
@@ -651,6 +656,9 @@ func runRun(args []string) error {
 	if maxTime > 0 {
 		deadline = time.Now().Add(maxTime)
 	}
+	// The authorization matrix, when the phase ran; nil leaves every report as
+	// it was.
+	var authorization *reporter.Authorization
 	for _, phase := range settings.Phases {
 		statuses.phase(phase)
 		surface.phase(phase)
@@ -683,6 +691,15 @@ func runRun(args []string) error {
 				return phaseErr
 			}
 			probeFindings = probeFindings || phaseErr == errFailed
+		case config.PhaseAuthorization:
+			// The selected transactions, pinned as the examples were sent; the
+			// skips are read from the engine, as the probing phases read them.
+			phaseResults, matrix, phaseErr := runAuthorization(ctx, engine, settings, transactions)
+			if phaseErr != nil {
+				return phaseErr
+			}
+			results = append(results, prefixed("authorization", phaseResults)...)
+			authorization = matrix
 		case config.PhaseFuzz:
 			probeable, _ := partitionBySchema(probeableTransactions)
 			seed := settings.Fuzz.Seed
@@ -709,6 +726,7 @@ func runRun(args []string) error {
 
 	reached := surface.summary(settings.Surface.Require, false)
 	report = reporter.WithSurface(report, &reached)
+	report = reporter.WithAuthorization(report, authorization)
 	report.Report(results)
 
 	// Last, and to the terminal whatever --reporter was asked for, because
@@ -722,6 +740,9 @@ func runRun(args []string) error {
 	// The surface comes after the sections about the document and is printed
 	// on every run: it is the one that can end in the verdict deciding the
 	// exit code, and the verdict belongs where a reader stops reading.
+	if authorization != nil {
+		reporter.WriteAuthorization(os.Stdout, *authorization, settings.Color)
+	}
 	reporter.WriteSurface(os.Stdout, reached, settings.Color)
 	noteIgnoredAuthIsOff(settings, engine, transactions)
 
@@ -734,6 +755,12 @@ func runRun(args []string) error {
 	case !examplesPassed:
 		return errFailed
 	case !reached.Met():
+		return errFailed
+	// A cell that failed — a bypass, a wrong refusal, a 5xx, a success whose
+	// body breaks its schema — is the description's own security broken, so it
+	// fails the run as a documented transaction does. An unsent cell does not
+	// by itself: it is counted and shown, and never as a pass.
+	case authorization != nil && !authorization.Met():
 		return errFailed
 	case probeFindings || linkFindings:
 		return errFindings

@@ -166,21 +166,6 @@ func TestDoctorChecksEachPrincipalsAuthSelectors(t *testing.T) {
 	}
 }
 
-func TestUnimplementedAuthorizationPhaseCannotPassSilently(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "vertrag.yml")
-	if err := os.WriteFile(path, []byte(`spec: ./not-read.yaml
-endpoint: http://127.0.0.1:1
-phases: [authorization]
-principals:
-  - name: anonymous
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := runRun([]string{"--config", path}); err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("unfinished authorization phase returned %v", err)
-	}
-}
-
 // TestTheKnownGapIsRecordedRatherThanForgotten pins a deferral so that it
 // cannot rot into a thing nobody remembers.
 //
