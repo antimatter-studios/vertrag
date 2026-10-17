@@ -219,6 +219,9 @@ func (s Surface) properties(existing *junitProperties) *junitProperties {
 		if !s.DryRun {
 			add(prefix+".statuses", fmt.Sprintf("%d/%d", f.StatusesReached, f.Statuses))
 		}
+		if !s.DryRun && (f.Phase == "examples" || f.Phase == "run") {
+			add(prefix+".passed", fmt.Sprintf("%d/%d", f.OperationsPassed, f.Operations))
+		}
 	}
 	figures("vertrag.surface", s.Run)
 	for _, phase := range s.Phases {
@@ -227,6 +230,7 @@ func (s Surface) properties(existing *junitProperties) *junitProperties {
 	if s.Required > 0 {
 		add("vertrag.surface.required", Percent(s.Required))
 	}
+	add("vertrag.surface.count", s.Count)
 	add("vertrag.surface.excluded", fmt.Sprint(len(s.Excluded)))
 	return existing
 }
@@ -250,6 +254,11 @@ func (r JUnit) surfaceCase() (junitCase, bool) {
 	var body strings.Builder
 	for _, miss := range r.Surface.OperationMisses() {
 		fmt.Fprintf(&body, "%s: %s\n", miss.Operation, miss.Reason)
+	}
+	if r.Surface.CountsPassed() {
+		for _, miss := range r.Surface.NotPassed {
+			fmt.Fprintf(&body, "%s: did not pass: %s\n", miss.Operation, miss.Reason)
+		}
 	}
 	testCase.Failure = &junitFailure{
 		Message: r.Surface.Verdict(),

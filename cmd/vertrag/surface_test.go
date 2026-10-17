@@ -42,7 +42,7 @@ func TestAFilterNarrowsTheRunAndNotTheYardstick(t *testing.T) {
 	ledger.phase(config.PhaseExamples)
 	reach(ledger, widgets[0], "200")
 
-	surface := ledger.summary(0, false)
+	surface := ledger.summary(config.SurfaceSettings{}, false)
 	if surface.Run.Operations != 2 || surface.Run.OperationsReached != 1 {
 		t.Fatalf("run = %+v, want 1 of 2 operations", surface.Run)
 	}
@@ -64,7 +64,7 @@ func TestAnyAnswerReachesAnOperation(t *testing.T) {
 	ledger.outcome(transactions[0], runner.Result{Status: runner.StatusFail, Actual: validate.Message{StatusCode: "500"}})
 	ledger.outcome(transactions[1], runner.Result{Status: runner.StatusFail, Actual: validate.Message{StatusCode: "500"}})
 
-	surface := ledger.summary(0, false)
+	surface := ledger.summary(config.SurfaceSettings{}, false)
 	if surface.Run.OperationsReached != 1 {
 		t.Errorf("an operation that answered was not counted as reached: %+v", surface.Run)
 	}
@@ -92,7 +92,7 @@ func TestEachPhaseHasItsOwnFiguresAndTheRunHasTheirUnion(t *testing.T) {
 	ledger.phase(config.PhaseCoverage)
 	reach(ledger, transactions[0], "400")
 
-	surface := ledger.summary(0, false)
+	surface := ledger.summary(config.SurfaceSettings{}, false)
 	if len(surface.Phases) != 2 {
 		t.Fatalf("phases = %+v, want examples and coverage", surface.Phases)
 	}
@@ -118,7 +118,7 @@ func TestARangeIsReachedByAStatusInItsBand(t *testing.T) {
 	ledger.phase(config.PhaseExamples)
 	reach(ledger, transactions[0], "201")
 
-	surface := ledger.summary(0, false)
+	surface := ledger.summary(config.SurfaceSettings{}, false)
 	if surface.Run.StatusesReached != 1 {
 		t.Errorf("a 201 should reach `2XX` and nothing else: %+v", surface.Run)
 	}
@@ -133,7 +133,7 @@ func TestARangeIsReachedByAStatusInItsBand(t *testing.T) {
 func TestAStatusDocumentedTwiceIsOneStatusToReach(t *testing.T) {
 	transactions := documents("GET", "/widgets", "200", "200")
 	ledger, _ := newSurfaceLedger(transactions, nil)
-	if surface := ledger.summary(0, false); surface.Run.Statuses != 1 {
+	if surface := ledger.summary(config.SurfaceSettings{}, false); surface.Run.Statuses != 1 {
 		t.Errorf("statuses = %d, want 1", surface.Run.Statuses)
 	}
 }
@@ -161,7 +161,7 @@ func TestAnExclusionIsListedApartAndNotCounted(t *testing.T) {
 	reach(ledger, charge[0], "200")
 	reach(ledger, widgets[0], "200")
 
-	surface := ledger.summary(100, false)
+	surface := ledger.summary(config.SurfaceSettings{Require: 100}, false)
 	if surface.Run.Operations != 1 || surface.Run.OperationsReached != 1 || !surface.Met() {
 		t.Errorf("excluded operations were counted: %+v", surface.Run)
 	}
@@ -176,7 +176,7 @@ func TestAnExclusionIsListedApartAndNotCounted(t *testing.T) {
 	// The configuration wins over the description, because the file is what
 	// this project decided and a description may be shared.
 	both, _ := newSurfaceLedger(charge, []config.SurfaceExclusion{{Operation: "POST /billing/charge", Reason: "ours"}})
-	if got := both.summary(0, false).Excluded; len(got) != 1 || got[0].Source != "surface.exclude" {
+	if got := both.summary(config.SurfaceSettings{}, false).Excluded; len(got) != 1 || got[0].Source != "surface.exclude" {
 		t.Errorf("the configuration's exclusion should win: %+v", got)
 	}
 }
@@ -219,7 +219,7 @@ func TestADryRunCountsWhatItWouldSend(t *testing.T) {
 	ledger.plan(widgets[0])
 	ledger.leftOut(doomed[0], skipReasonText("destroys shared state"))
 
-	surface := ledger.summary(100, true)
+	surface := ledger.summary(config.SurfaceSettings{Require: 100}, true)
 	if surface.Met() || surface.Run.OperationsReached != 1 || len(surface.Phases) != 0 {
 		t.Errorf("dry run = %+v", surface)
 	}
@@ -265,7 +265,7 @@ func TestTheSummaryDoesNotDependOnTheOrderAnswersArrived(t *testing.T) {
 				Status: runner.StatusFail, Actual: validate.Message{StatusCode: "200"},
 			})
 		}
-		return ledger.summary(0, false)
+		return ledger.summary(config.SurfaceSettings{}, false)
 	}
 
 	first := summarise(1)
@@ -351,7 +351,7 @@ paths:
 	}
 
 	ledger, _ := newSurfaceLedger(stripAPIName(result.Transactions), nil)
-	surface := ledger.summary(0, false)
+	surface := ledger.summary(config.SurfaceSettings{}, false)
 	if len(surface.Excluded) != 1 || surface.Excluded[0].Operation != "POST /charge" || surface.Run.Operations != 1 {
 		t.Errorf("surface = %+v", surface)
 	}
