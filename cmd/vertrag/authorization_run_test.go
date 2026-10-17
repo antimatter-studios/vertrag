@@ -401,3 +401,28 @@ func TestAuthorizationExecutorStopsWhenCancelled(t *testing.T) {
 		t.Errorf("unsent reason: %q", outcomes[1].Unsent)
 	}
 }
+
+func TestAuthorizationReplayRedactsEveryCarrier(t *testing.T) {
+	reporter.SetSanitize(false)
+	t.Cleanup(func() { reporter.SetSanitize(true) })
+
+	replay := authorizationReplay(runner.Request{
+		Method: "DELETE", URL: "http://api.test/admin/users/7",
+		Headers: map[string]string{
+			"X-Tenant-Key": "tenant-secret",
+			"Cookie":       "sid=session-secret; theme=dark",
+			"Accept":       "application/json",
+		},
+	}, runner.Carriers{Headers: []string{"x-tenant-key"}, Cookies: []string{"sid"}})
+	for _, secret := range []string{"tenant-secret", "session-secret"} {
+		if strings.Contains(replay, secret) {
+			t.Errorf("%s leaked into %s", secret, replay)
+		}
+	}
+	for _, kept := range []string{"X-Tenant-Key: " + reporter.Redacted, "sid=" + reporter.Redacted, "theme=dark",
+		"Accept: application/json", "http://api.test/admin/users/7"} {
+		if !strings.Contains(replay, kept) {
+			t.Errorf("%q missing from %s", kept, replay)
+		}
+	}
+}

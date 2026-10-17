@@ -239,7 +239,7 @@ func authorizationReplay(request runner.Request, carriers runner.Carriers) strin
 	headers := make(map[string]string, len(request.Headers))
 	for name, value := range request.Headers {
 		switch {
-		case slicesContainsFold(carriers.Headers, name):
+		case slices.ContainsFunc(carriers.Headers, func(carrier string) bool { return strings.EqualFold(carrier, name) }):
 			value = reporter.Redacted
 		case strings.EqualFold(name, "Cookie"):
 			value = redactCarriedCookies(value, carriers.Cookies)
@@ -263,13 +263,4 @@ func redactCarriedCookies(line string, carried []string) string {
 		pairs[i] = strings.TrimSpace(pairs[i])
 	}
 	return strings.Join(pairs, "; ")
-}
-
-func slicesContainsFold(names []string, name string) bool {
-	for _, candidate := range names {
-		if strings.EqualFold(candidate, name) {
-			return true
-		}
-	}
-	return false
 }
