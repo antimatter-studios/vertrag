@@ -176,6 +176,14 @@ type Transaction struct {
 	// what it asked for.
 	GraphQL *GraphQL `json:"-"`
 
+	// Exclude is the reason the description gives, in an operation's
+	// `x-vertrag-exclude`, for leaving the operation out of a run's surface
+	// figures. Empty when it gives none. It changes nothing that is sent: an
+	// excluded operation runs like any other, and is listed apart rather than
+	// counted against the run. Absent from the JSON for the same reason
+	// OperationID is.
+	Exclude string `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//

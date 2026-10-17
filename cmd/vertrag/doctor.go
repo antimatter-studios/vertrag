@@ -104,6 +104,20 @@ var selectors = []selector{
 		consequence: "nothing is held and generation will send whatever the schema permits",
 	},
 	{
+		key: "surface.exclude",
+		values: func(c config.Config) []string {
+			names := make([]string, 0, len(c.Surface.Exclude))
+			for _, exclusion := range c.Surface.Exclude {
+				names = append(names, exclusion.Operation)
+			}
+			return names
+		},
+		matches: func(_ config.Config, value string, transactions []compile.Transaction) int {
+			return exclusionReach(value, transactions)
+		},
+		consequence: "nothing is excluded, and the operation it meant still counts against the run's surface",
+	},
+	{
 		key:    "header (conditional)",
 		values: func(c config.Config) []string { return conditionalHeaderNames(c) },
 		matches: func(c config.Config, value string, transactions []compile.Transaction) int {

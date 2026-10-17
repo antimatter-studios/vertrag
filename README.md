@@ -110,6 +110,7 @@ vertrag run --reporter junit --output report.xml
 vertrag run --reporter dot                          # one character per transaction
 vertrag run --reporter html --output report.html    # a page to publish
 vertrag run --reporter markdown --output report.md  # a table and every failure
+vertrag run --reporter json --output report.json    # every verdict, for a script to read
 
 # The traffic itself, rather than a verdict about it.
 vertrag run --reporter har --output run.har         # open it in devtools
@@ -352,6 +353,134 @@ every run. Choose the phases with `--phases` or the `phases:` key.
 Findings from a probing phase exit 2 rather than 1, so a pipeline can gate on
 the documented contract and still read what probing found.
 
+### How much of the description a run reached
+
+A report lists what ran. It cannot list what did not, and what did not run is
+where a suite stops testing without anybody deciding it should: a filter
+written for one afternoon and never removed, a skip whose reason went stale, a
+hook that returns early, a link that stopped resolving when a field was
+renamed. Each leaves a run that is green and smaller, and every line in it is
+still true.
+
+So every run ends by saying how much of the description it reached, phase by
+phase:
+
+```
+API surface reached
+
+            operations      documented statuses
+  examples  3 of 5  60.0%   4 of 9  44.4%
+  coverage  2 of 5  40.0%   3 of 9  33.3%
+  the run   3 of 5  60.0%   5 of 9  55.5%
+
+  Operations no phase reached:
+    DELETE /widgets/{id}  skipped by configuration: destroys shared state
+    POST /admin/reindex   left out by exclude-tag admin
+
+  Documented statuses of reached operations that no phase reached:
+    GET /widgets/{id}  404, 409  answered 200
+    POST /widgets      422       a hook skipped it
+
+  Excluded, and not counted:
+    GET /reports  needs a reporting backend (surface.exclude)
+
+  The run reached 3 of 5 operation(s), 60.0%, below the 100.0% it requires.
+```
+
+An operation is reached when a request to it was answered, whatever the answer:
+a 500 is a failure, reported as one, and still an operation exercised. A
+documented status is reached when the operation answered with it, judged by the
+rule that decides pass and fail, so `2XX` is reached by a 201. The run's line is
+what any phase reached, because a documented 422 is usually provoked only by
+the coverage phase, and a run that provoked it has reached it.
+
+The yardstick is the whole description, not the part a run selected. `--tag
+orders` narrows what is sent; the operations it leaves out are listed as *not
+selected by tag* rather than disappearing from the total. Measured against its
+own selection, every run would reach a hundred percent of whatever it chose to
+test.
+
+Every miss carries its reason: the filter that dropped it, the skip and the
+reason written beside it, a hook that skipped it, a link whose value could not
+be resolved, the run stopping at `--max-failures`, no answer at all — or, for a
+status, what the operation answered instead. The reasons come from the examples
+phase, which is the one that sends every selected transaction as the
+description wrote it. A share is rounded down, so 1999 of 2000 operations reads
+99.9% and never a 100% that a gate of 100 then fails.
+
+**A gate.** `--require-surface 100`, or `surface: {require: 100}`, fails a run
+that reaches less of the description's operations than that, and names what it
+missed. It exits 1, the status of a contract failure, never 2. Exit 2 says the
+documented contract held and probing found something to file; a run that left
+part of the contract untested has not shown that it held. A filter that selects
+nothing does not slip past it either: `--tag ordres` used to leave saying only
+that there was nothing to run.
+
+`--dry-run` answers the same question without a server. What the filters drop
+and what `skip` takes out are decided before anything is sent, so a dry run
+prints the most a run could reach, and fails a gate it could never meet:
+
+```
+API surface a run would reach (dry run: nothing was sent)
+
+              operations
+  would send  4 of 5  80.0%
+
+  Operations a run would send nothing to:
+    DELETE /widgets/{id}  skipped by configuration: destroys shared state
+
+  A run would send a request to 4 of 5 operation(s), 80.0%, so it cannot reach the 100.0% it requires.
+```
+
+**Exclusions.** Some operations are not worth reaching, and a gate of 100
+should not have to be lowered to make room for them:
+
+```yaml
+surface:
+  require: 100
+  exclude:
+    - operation: POST /admin/reindex   # as the report names it, or an operationId
+      reason: an operator task, not part of the public contract
+```
+
+Or on the operation itself, where the reason travels with the description:
+
+```yaml
+paths:
+  /billing/charge:
+    post:
+      x-vertrag-exclude: "charges a real card"
+```
+
+An excluded operation is taken out of the figures — out of the total, with the
+statuses it documents, rather than counted as reached — and listed apart with
+its reason and where the reason was written. The configuration's entry wins
+when both name one operation. The reason is required: an exclusion is a claim
+that an operation does not need reaching, and the claim is worth exactly what
+its reason says, so an entry without one is refused and an
+`x-vertrag-exclude: true` is a warning about the description. An exclusion
+naming no operation is reported, by the run and by `vertrag doctor`, because
+one that excludes nothing reads exactly like one that works.
+
+**An exclusion decides what counts, not what is sent.** An excluded operation
+runs like any other; `skip` is what keeps a request back. They are kept apart
+because they are different decisions, and a suite that only wanted to stop
+being held to an operation should not stop testing it as well. When an excluded
+operation is reached anyway the report says so, for whoever wrote "charges a
+real card" believing it had stopped the charge.
+
+The written reports carry the same figures: a section of the Markdown and HTML
+documents, the `surface` object of `--reporter json`, and properties of the
+JUnit suite — `vertrag.surface.operations` is `3/5` — where a gate also becomes
+a test case of its own, so a job that is red shows its reason in the CI
+interface rather than a list of green cases.
+
+Two things are outside the surface, and each is said elsewhere. Webhooks and
+withheld GraphQL mutations are not sent at all, and are named in warnings of
+their own. An operation whose required parameter has no example cannot be
+compiled into a request, and the description error that says so stops the run
+before anything is sent.
+
 ### Statuses the description never mentions
 
 The commonest real defect in the APIs vertrag is pointed at is not a broken
@@ -540,6 +669,12 @@ checks:
   ignored-auth: false              # off by default; it doubles the requests
   link-resolution: true            # on by default; it costs no request
   max-response-time: 750ms         # unset by default; nothing is timed
+
+surface:
+  require: 100                     # percent of operations a run must reach
+  exclude:                         # not counted, each with its reason
+    - operation: POST /admin/reindex
+      reason: an operator task, not part of the public contract
 ```
 
 Coming from Dredd, every key a `dredd.yml` understands means the same thing
@@ -893,7 +1028,7 @@ vertrag keeps that shape:
 | `generate` | Values drawn from a JSON Schema | Done |
 | `fuzz` | The `fuzz` phase: generated requests, shrunk findings | Done |
 | `link` | Ordering a run by its links, and checking them | Done |
-| `reporter` | cli, dot, markdown, html, JUnit, HAR and VCR output | Done |
+| `reporter` | cli, dot, markdown, html, JUnit, JSON, HAR and VCR output | Done |
 | `shape` | Body outlines, and where one status answered with two | Done |
 
 GraphQL is the one format that does not pass through API Elements, and that is

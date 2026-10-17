@@ -28,13 +28,23 @@ type HTML struct {
 	// Details includes the exchange of passing transactions too, matching the
 	// CLI reporter's flag.
 	Details bool
+	// Surface is how much of the description the run reached, shown after the
+	// table as the Markdown report shows it; nil leaves it out.
+	Surface *Surface
 }
 
 // Report writes the page and returns true when the run passed.
 func (r HTML) Report(results []runner.Result) bool {
 	doc := newDocument(r.title(), results, r.Details)
-	htmlTemplate.Execute(r.Out, doc)
-	return doc.Summary.Passed()
+	htmlTemplate.Execute(r.Out, htmlPage{document: doc, Surface: r.Surface})
+	return doc.Summary.Passed() && (r.Surface == nil || r.Surface.Met())
+}
+
+// htmlPage is what the template renders: the document both written reports
+// share, and the surface beside it.
+type htmlPage struct {
+	document
+	Surface *Surface
 }
 
 func (r HTML) title() string {
@@ -92,6 +102,40 @@ pre.message { background: none; border: none; border-left: 3px solid #b42318; bo
 {{range .Cases}}<tr><td><span class="badge {{.Status}}">{{.Status}}</span></td><td>{{.Method}}</td><td>{{.Name}}</td><td class="duration">{{.Duration}}</td></tr>
 {{end}}</tbody>
 </table>
+{{end}}
+{{with .Surface}}
+<section>
+<h2>API surface</h2>
+{{if .DryRun}}<p>A dry run: nothing was sent, so this is what a run would send a request to.</p>{{end}}
+<table>
+<thead><tr><th>Phase</th><th>Operations</th>{{if not .DryRun}}<th>Documented statuses</th>{{end}}</tr></thead>
+<tbody>
+{{range .Rows}}<tr><td>{{.Label}}</td><td>{{.Operations}}</td>{{if .Statuses}}<td>{{.Statuses}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table>
+{{with .OperationMisses}}<h3>Operations not reached</h3>
+<table>
+<thead><tr><th>Operation</th><th>Why</th></tr></thead>
+<tbody>
+{{range .}}<tr><td>{{.Operation}}</td><td>{{.Reason}}</td></tr>
+{{end}}</tbody>
+</table>
+{{end}}{{with .StatusMisses}}<h3>Documented statuses not reached</h3>
+<table>
+<thead><tr><th>Operation</th><th>Statuses</th><th>Why</th></tr></thead>
+<tbody>
+{{range .}}<tr><td>{{.Operation}}</td><td>{{.StatusList}}</td><td>{{.Reason}}</td></tr>
+{{end}}</tbody>
+</table>
+{{end}}{{with .Excluded}}<h3>Excluded, and not counted</h3>
+<table>
+<thead><tr><th>Operation</th><th>Reason</th><th>Written in</th></tr></thead>
+<tbody>
+{{range .}}<tr><td>{{.Operation}}</td><td>{{.Reason}}{{with .Note}}; {{.}}{{end}}</td><td>{{.Source}}</td></tr>
+{{end}}</tbody>
+</table>
+{{end}}{{with .Verdict}}<p class="summary {{if $.Surface.Met}}pass{{else}}fail{{end}}">{{.}}</p>{{end}}
+</section>
 {{end}}
 {{range .Cases}}{{if .Detailed}}
 <section>

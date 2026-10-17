@@ -53,6 +53,10 @@ func TestExampleConfigLoads(t *testing.T) {
 	if len(settings.Header) == 0 {
 		t.Error("the example's plain header entry was not read")
 	}
+	if settings.Surface.Require != 100 || len(settings.Surface.Exclude) == 0 ||
+		settings.Surface.Exclude[0].Reason == "" {
+		t.Errorf("the example's surface section was not read: %+v", settings.Surface)
+	}
 	// The response-time bound is the only `checks` entry with a value rather
 	// than a switch, so it is the only one the example can demonstrate wrongly:
 	// a renamed key or a unit misread leaves the file looking right.

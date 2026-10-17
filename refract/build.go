@@ -41,6 +41,13 @@ const StyleAttribute = "vertragStyle"
 // like the schema and the style, it travels for vertrag's own use.
 const CookiesAttribute = "vertragCookies"
 
+// ExcludeAttribute carries the reason an operation's own `x-vertrag-exclude`
+// extension gives for leaving it out of a run's surface figures, on the
+// transition. It names no request and changes nothing that is sent: what it
+// decides is whether an operation a run did not reach counts against the run.
+// Dredd has no such attribute.
+const ExcludeAttribute = "vertragExclude"
+
 // New returns an empty element with the given name.
 func New(name string) *Element {
 	return &Element{Name: name, Kind: ContentNone}

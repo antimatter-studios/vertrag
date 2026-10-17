@@ -5,7 +5,7 @@ import "github.com/antimatter-studios/vertrag/runner"
 // Reporter renders a run's results and says whether the run passed.
 //
 // It is the contract every format in this package satisfies — CLI, Dot,
-// Markdown, HTML, JUnit, HAR, VCR — and it lives here, beside them, so the
+// Markdown, HTML, JUnit, JSON, HAR, VCR — and it lives here, beside them, so the
 // package states what a reporter is rather than leaving each caller to declare
 // it.
 type Reporter interface {
@@ -39,5 +39,6 @@ var (
 	_ Reporter = JUnit{}
 	_ Reporter = HAR{}
 	_ Reporter = VCR{}
+	_ Reporter = JSON{}
 	_ Reporter = Multi{}
 )

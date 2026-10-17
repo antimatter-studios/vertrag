@@ -20,6 +20,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -133,6 +134,10 @@ type Config struct {
 	// them, how deep to ask, and whether mutations are sent at all.
 	GraphQL GraphQLSettings
 
+	// Surface is how much of the description a run must reach, and which
+	// operations are left out of that reckoning on purpose.
+	Surface SurfaceSettings
+
 	// Skip takes transactions out of the run.
 	Skip []SkipRule
 
@@ -198,6 +203,40 @@ type GraphQLSettings struct {
 	// them, so nothing but this can. The same argument as fuzz's pins, in the
 	// same repository, for the same reason.
 	Mutations bool
+}
+
+// SurfaceSettings decide how a run's reach is judged: the share of the
+// description's operations it must reach, and the operations that do not count.
+//
+// They have no Dredd equivalent. Dredd reports the transactions it ran and has
+// nothing to say about the ones a filter, a skip or a hook kept it from, so a
+// run that tested half an API and a run that tested all of it read the same.
+type SurfaceSettings struct {
+	// Require is the percentage of the description's operations the run must
+	// reach, in any phase, for it to pass. Zero, the default, gates nothing:
+	// the figures are still printed.
+	Require float64
+
+	// Exclude takes operations out of the figures, each with the reason.
+	Exclude []SurfaceExclusion
+}
+
+// SurfaceExclusion leaves one operation out of a run's surface figures.
+//
+// It decides what COUNTS, not what is sent: an excluded operation runs like
+// any other, and one that must not be sent is a `skip`. The two are kept apart
+// because they are different decisions, and folding one into the other would
+// make a suite that only wanted to stop being nagged about an operation stop
+// testing it as well.
+type SurfaceExclusion struct {
+	// Operation is the operation as the surface report names it — the method
+	// and path template, `GET /widgets/{id}`, or a GraphQL field's
+	// transaction name — or its operationId.
+	Operation string
+
+	// Reason is required. An exclusion is a claim that an operation does not
+	// need reaching, and the claim is worth exactly as much as its reason.
+	Reason string
 }
 
 // Checks selects the checks beyond Dredd's.
@@ -426,6 +465,9 @@ type file struct {
 	Auth   *authFile   `yaml:"auth"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
+	// Surface is vertrag's own: the share of the description a run must
+	// reach, and what is excluded from it.
+	Surface *surfaceFile `yaml:"surface"`
 	// Skip is `any` because an entry may be written either way — see toSkipRules.
 	Skip []any `yaml:"skip"`
 	// Tag narrows the run to operations carrying one of these tags.
@@ -467,6 +509,20 @@ type graphqlFile struct {
 	Path      *string `yaml:"path"`
 	MaxDepth  *int    `yaml:"max-depth"`
 	Mutations *bool   `yaml:"mutations"`
+}
+
+// surfaceFile is the `surface` section as written.
+type surfaceFile struct {
+	Require *float64             `yaml:"require"`
+	Exclude []surfaceExcludeFile `yaml:"exclude"`
+}
+
+// surfaceExcludeFile is one `surface.exclude` entry. Only the mapping form is
+// read, unlike `skip`'s bare names: the reason is the point of an exclusion,
+// and a form without one would be the form everybody wrote.
+type surfaceExcludeFile struct {
+	Operation string `yaml:"operation"`
+	Reason    string `yaml:"reason"`
 }
 
 // fuzzFile is the `fuzz` section as written.
@@ -683,6 +739,11 @@ func Load(path string) (Config, error) {
 			config.GraphQL.MaxDepth = *parsed.GraphQL.MaxDepth
 		}
 	}
+	if parsed.Surface != nil {
+		if err := applySurface(&config.Surface, *parsed.Surface); err != nil {
+			return config, fmt.Errorf("%s: surface: %w", path, err)
+		}
+	}
 	if parsed.Workers != nil {
 		if *parsed.Workers < 1 {
 			return config, fmt.Errorf("%s: workers must be at least 1, got %d", path, *parsed.Workers)
@@ -716,6 +777,46 @@ func Load(path string) (Config, error) {
 
 	config.Source = path
 	return config, nil
+}
+
+// applySurface reads the `surface` section, refusing what would make the gate
+// or an exclusion mean something other than what it says.
+//
+// Refused at load rather than at the end of the run, because the end of the
+// run is after every request has gone out: a gate written as `require: 1000`
+// cannot be met and a gate written as `-5` cannot fail, and finding either out
+// from an exit code at the end of a long suite would be finding it out late.
+func applySurface(surface *SurfaceSettings, parsed surfaceFile) error {
+	if parsed.Require != nil {
+		if err := CheckRequire(*parsed.Require); err != nil {
+			return err
+		}
+		surface.Require = *parsed.Require
+	}
+	for i, entry := range parsed.Exclude {
+		operation := strings.TrimSpace(entry.Operation)
+		reason := strings.TrimSpace(entry.Reason)
+		switch {
+		case operation == "":
+			return fmt.Errorf("exclude entry %d names no operation; write `operation: GET /path` or an operationId", i+1)
+		case reason == "":
+			// An exclusion with no reason is the one that will never be
+			// revisited, because nothing says what would have to change for
+			// the operation to be worth reaching again.
+			return fmt.Errorf("exclude %q gives no reason; an exclusion is only worth what its reason says", operation)
+		}
+		surface.Exclude = append(surface.Exclude, SurfaceExclusion{Operation: operation, Reason: reason})
+	}
+	return nil
+}
+
+// CheckRequire refuses a surface gate that cannot mean what it says: below
+// zero it cannot fail, and above a hundred it cannot pass.
+func CheckRequire(percent float64) error {
+	if math.IsNaN(percent) || percent < 0 || percent > 100 {
+		return fmt.Errorf("require is a percentage of the description's operations, from 0 to 100; got %g", percent)
+	}
+	return nil
 }
 
 // toHeaderRules reads the conditional entries out of the `header` list,
