@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -106,6 +107,11 @@ type Config struct {
 
 	// Auth logs the run in once and carries the result on every request.
 	Auth Auth
+
+	// Principals are the callers the authorization phase sends every
+	// operation as, each with its own credential and the roles it holds.
+	// Empty unless the phase is wanted; the phase refuses to run without them.
+	Principals []Principal
 
 	// Transport is how requests reach the server: timeout, retries, pacing,
 	// TLS trust and proxy. Zero values are vertrag's defaults.
@@ -321,6 +327,27 @@ type Auth struct {
 	Except []string
 }
 
+// Principal is one caller the authorization phase sends every operation as.
+//
+// Its credential is obtained exactly as the run's own is — the same `auth`
+// block, logged in or fixed or granted — because a second way of saying how
+// to authenticate would be a second thing to get subtly wrong. What it adds
+// is Roles: the role names, or OAuth2 scopes, the credential carries. They
+// are matched against the arrays in the description's security requirements,
+// which is where OpenAPI 3.1 says who an operation is for.
+type Principal struct {
+	// Name is how the report's matrix and its findings refer to the caller.
+	Name string
+
+	// Auth is how its credential is obtained. A principal whose Auth is not
+	// Configured holds no credential at all, which is a caller worth having:
+	// it is the one every protected operation must answer with 401.
+	Auth Auth
+
+	// Roles are what the credential is entitled to.
+	Roles []string
+}
+
 // OAuth2 is the client credentials grant: a service asking for a token in its
 // own name. The interactive grants need a browser and a human, so no headless
 // suite performs them and none is offered here.
@@ -463,6 +490,8 @@ type file struct {
 	// vertrag's own.
 	Checks *checksFile `yaml:"checks"`
 	Auth   *authFile   `yaml:"auth"`
+	// Principals are vertrag's own: who the authorization phase calls as.
+	Principals []principalFile `yaml:"principals"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
 	// Surface is vertrag's own: the share of the description a run must
@@ -578,6 +607,13 @@ type authFile struct {
 	Except []string    `yaml:"except"`
 }
 
+// principalFile is one entry of `principals` as written.
+type principalFile struct {
+	Name  *string   `yaml:"name"`
+	Auth  *authFile `yaml:"auth"`
+	Roles []string  `yaml:"roles"`
+}
+
 // oauth2File is the `auth.oauth2` section as written.
 type oauth2File struct {
 	TokenURL        *string  `yaml:"token-url"`
@@ -682,6 +718,9 @@ func Load(path string) (Config, error) {
 	}
 	if parsed.Auth != nil {
 		applyAuth(&config.Auth, *parsed.Auth)
+	}
+	if err := applyPrincipals(&config.Principals, parsed.Principals); err != nil {
+		return config, fmt.Errorf("%s: principals: %w", path, err)
 	}
 	if parsed.Transport != nil {
 		if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
@@ -894,6 +933,8 @@ const (
 	PhaseFuzz     = "fuzz"
 	// PhaseStateful runs the chains the description's links describe.
 	PhaseStateful = "stateful"
+	// PhaseAuthorization sends every operation as every principal.
+	PhaseAuthorization = "authorization"
 )
 
 // normalisePhases validates and orders a phase list. Order is fixed —
@@ -906,10 +947,11 @@ func normalisePhases(names []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, name := range names {
 		switch strings.ToLower(strings.TrimSpace(name)) {
-		case PhaseExamples, PhaseCoverage, PhaseFuzz, PhaseStateful:
+		case PhaseExamples, PhaseCoverage, PhaseFuzz, PhaseAuthorization, PhaseStateful:
 			seen[strings.ToLower(strings.TrimSpace(name))] = true
 		default:
-			return nil, fmt.Errorf("unknown phase %q; phases are examples, coverage, fuzz and stateful", name)
+			return nil, fmt.Errorf(
+				"unknown phase %q; phases are examples, coverage, fuzz, authorization and stateful", name)
 		}
 	}
 	out := []string{PhaseExamples}
@@ -918,6 +960,12 @@ func normalisePhases(names []string) ([]string, error) {
 	}
 	if seen[PhaseFuzz] {
 		out = append(out, PhaseFuzz)
+	}
+	// Authorization sends the documented examples again, as each principal,
+	// so it judges the same state the examples did — which is why it comes
+	// before stateful and not after.
+	if seen[PhaseAuthorization] {
+		out = append(out, PhaseAuthorization)
 	}
 	// Stateful last: it runs whole lifecycles and leaves the server holding
 	// less than it started with, so anything judging the documented state
@@ -968,6 +1016,36 @@ func applyTransport(t *Transport, parsed transportFile) error {
 	}
 	if parsed.CertKey != nil {
 		t.ClientCertKey = *parsed.CertKey
+	}
+	return nil
+}
+
+// applyPrincipals reads `principals`, refusing one without a name or a name
+// used twice: the name is the column of the matrix, and two columns with one
+// heading would be a report nobody could read correctly.
+func applyPrincipals(principals *[]Principal, parsed []principalFile) error {
+	seen := map[string]bool{}
+	for _, principal := range *principals {
+		seen[principal.Name] = true
+	}
+	for i, entry := range parsed {
+		name := ""
+		if entry.Name != nil {
+			name = strings.TrimSpace(*entry.Name)
+		}
+		if name == "" {
+			return fmt.Errorf("entry %d has no name", i+1)
+		}
+		if seen[name] {
+			return fmt.Errorf("%q is named twice", name)
+		}
+		seen[name] = true
+
+		principal := Principal{Name: name, Roles: append([]string(nil), entry.Roles...)}
+		if entry.Auth != nil {
+			applyAuth(&principal.Auth, *entry.Auth)
+		}
+		*principals = append(*principals, principal)
 	}
 	return nil
 }
@@ -1195,6 +1273,10 @@ func (c Config) Validate() error {
 	}
 	if !strings.Contains(c.Endpoint, "://") {
 		return fmt.Errorf("endpoint %q needs a scheme, such as http://", c.Endpoint)
+	}
+	if slices.Contains(c.Phases, PhaseAuthorization) && len(c.Principals) == 0 {
+		return fmt.Errorf("the authorization phase needs `principals`: " +
+			"it sends every operation as each of them, and with none it would send nothing")
 	}
 	return nil
 }

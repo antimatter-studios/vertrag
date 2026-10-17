@@ -31,20 +31,41 @@ type HTML struct {
 	// Surface is how much of the description the run reached, shown after the
 	// table as the Markdown report shows it; nil leaves it out.
 	Surface *Surface
+	// Authorization is the authorization phase's matrix, shown after the
+	// surface; nil leaves it out.
+	Authorization *Authorization
 }
 
 // Report writes the page and returns true when the run passed.
 func (r HTML) Report(results []runner.Result) bool {
 	doc := newDocument(r.title(), results, r.Details)
-	htmlTemplate.Execute(r.Out, htmlPage{document: doc, Surface: r.Surface})
-	return doc.Summary.Passed() && (r.Surface == nil || r.Surface.Met())
+	page := htmlPage{document: doc, Surface: r.Surface}
+	if r.Authorization != nil {
+		page.Authorization = &htmlAuthorization{Authorization: r.Authorization.Normal(),
+			Grid: r.Authorization.Grid(), Findings: r.Authorization.Findings(),
+			Verdict: r.Authorization.Verdict(), Met: r.Authorization.Met()}
+	}
+	htmlTemplate.Execute(r.Out, page)
+	return doc.Summary.Passed() && (r.Surface == nil || r.Surface.Met()) &&
+		(r.Authorization == nil || r.Authorization.Met())
 }
 
 // htmlPage is what the template renders: the document both written reports
 // share, and the surface beside it.
 type htmlPage struct {
 	document
-	Surface *Surface
+	Surface       *Surface
+	Authorization *htmlAuthorization
+}
+
+// htmlAuthorization is the matrix worked out for the template, which can only
+// read what it is given.
+type htmlAuthorization struct {
+	Authorization
+	Grid     [][]AuthorizationCell
+	Findings []AuthorizationCell
+	Verdict  string
+	Met      bool
 }
 
 func (r HTML) title() string {
@@ -84,7 +105,7 @@ td.duration { text-align: right; white-space: nowrap; color: var(--quiet); }
          font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; background: var(--quiet); }
 .badge.pass { background: #0a7d3f; }
 .badge.fail, .badge.error { background: #b42318; }
-.badge.skip { background: #b45309; }
+.badge.skip, .badge.unsent { background: #b45309; }
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.83rem; }
 pre { background: var(--panel); border: 1px solid var(--line); border-radius: 0.35rem;
       padding: 0.7rem 0.85rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
@@ -136,6 +157,25 @@ pre.message { background: none; border: none; border-left: 3px solid #b42318; bo
 </table>
 {{end}}{{with .Verdict}}<p class="summary {{if $.Surface.Met}}pass{{else}}fail{{end}}">{{.}}</p>{{end}}
 </section>
+{{end}}
+{{with .Authorization}}
+<section>
+<h2>Authorization matrix</h2>
+<table>
+<thead><tr><th>Operation</th>{{range .Principals}}<th>{{.}}</th>{{end}}</tr></thead>
+<tbody>
+{{range $i, $row := .Grid}}<tr><td>{{index $.Authorization.Operations $i}}</td>{{range $row}}<td><span class="badge {{.Verdict}}">{{.Label}}</span></td>{{end}}</tr>
+{{end}}</tbody>
+</table>
+<p class="summary {{if .Met}}pass{{else}}fail{{end}}">{{.Verdict}}</p>
+{{with .Findings}}<h3>Cells that did not pass</h3>
+<table>
+<thead><tr><th>Operation</th><th>Principal</th><th>Verdict</th><th>Why</th></tr></thead>
+<tbody>
+{{range .}}<tr><td>{{.Operation}}</td><td>{{.Principal}}</td><td>{{.Verdict}}</td><td>{{.Reason}}{{with .Replay}}<pre><code>{{.}}</code></pre>{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+{{end}}</section>
 {{end}}
 {{range .Cases}}{{if .Detailed}}
 <section>

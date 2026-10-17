@@ -93,6 +93,9 @@ var registeredSelectorFields = map[string]string{
 	// Surface.Require is a value; Surface.Exclude names operations, and is
 	// what the selector covers.
 	"Surface": "surface.exclude",
+	// Principal names and roles describe callers; their auth exclusions and
+	// login paths select operations, like the run's own auth settings.
+	"Principals": "principals.auth.except",
 }
 
 // TestEveryConfigFieldIsClassified is the mechanism, and everything else in
@@ -139,6 +142,27 @@ func TestEveryConfigFieldIsClassified(t *testing.T) {
 				"reason. Every silent-matcher bug this tool has had was a setting nobody asked "+
 				"this question about", name)
 		}
+	}
+}
+
+func TestDoctorChecksEachPrincipalsAuthSelectors(t *testing.T) {
+	settings := config.Config{Principals: []config.Principal{
+		{Name: "reader", Auth: config.Auth{
+			Except: []string{"known", "misspelled"},
+			Login:  config.Login{Path: "/login"},
+		}},
+		{Name: "operator", Auth: config.Auth{Login: config.Login{Path: "/wrong-login"}}},
+	}}
+	dead := inertSelectors(settings, []compile.Transaction{
+		{Name: "known", Request: compile.Request{URI: "/known"}},
+		{Name: "login", Request: compile.Request{URI: "/login?client=test"}},
+	})
+	if len(dead) != 2 {
+		t.Fatalf("unmatched principal settings = %+v", dead)
+	}
+	if dead[0].key != "principals.auth.except" || dead[0].value != "reader: misspelled" ||
+		dead[1].key != "principals.auth.login.path" || dead[1].value != "operator: /wrong-login" {
+		t.Errorf("unmatched principal settings = %+v", dead)
 	}
 }
 

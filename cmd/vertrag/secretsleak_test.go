@@ -94,23 +94,39 @@ output: [cassette.yml]
 // Registering after auth.Obtain would leave the login exchange itself — the one
 // exchange carrying the credential in its body both ways — unprotected.
 func TestTheCredentialIsRegisteredBeforeTheLoginRequestIsMade(t *testing.T) {
-	source, err := os.ReadFile("rules.go")
-	if err != nil {
-		t.Fatal(err)
+	read := func(name string) string {
+		t.Helper()
+		source, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(source)
 	}
-	text := string(source)
-	register := strings.Index(text, "reporter.RegisterSecretsIn(settings.Auth.Login.Body)")
-	obtain := strings.Index(text, "auth.Obtain(")
-	if register < 0 || obtain < 0 {
-		t.Fatal("the registration or the login call has moved; this guard needs updating")
+	rules := read("rules.go")
+	if !strings.Contains(rules, "reporter.RegisterSecretsIn(a.Login.Body)") {
+		t.Error("registerAuthSecrets no longer registers the login body")
 	}
-	if register > obtain {
-		t.Error("the credential is registered after the login request is made, so the login exchange itself is unprotected")
-	}
-	// And the returned credential is registered too. Matched on the argument
-	// rather than the function name, so renaming the registrar does not break
-	// a guard that is about ordering.
-	if !strings.Contains(text, "(credential)") {
-		t.Error("the credential returned by the login exchange is not registered")
+
+	// The run's own auth and every authorization principal's: the secrets
+	// before the exchange, and what came back after it.
+	for file, calls := range map[string][3]string{
+		"rules.go":             {"registerAuthSecrets(settings.Auth)", "auth.Obtain(", "(credential)"},
+		"authorization_run.go": {"registerAuthSecrets(configuredAuth)", "auth.Obtain(", "RegisterCredential(obtained)"},
+	} {
+		text := read(file)
+		register := strings.Index(text, calls[0])
+		obtain := strings.Index(text, calls[1])
+		if register < 0 || obtain < 0 {
+			t.Fatalf("%s: the registration or the login call has moved; this guard needs updating", file)
+		}
+		if register > obtain {
+			t.Errorf("%s: the credential is registered after the login request is made, so the login exchange itself is unprotected", file)
+		}
+		// And the returned credential is registered too. Matched on the
+		// argument rather than the function name where it can be, so
+		// renaming the registrar does not break a guard about ordering.
+		if !strings.Contains(text[obtain:], calls[2]) {
+			t.Errorf("%s: the credential returned by the login exchange is not registered", file)
+		}
 	}
 }
