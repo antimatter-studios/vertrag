@@ -362,3 +362,78 @@ func TestTheAuthorizationDryRunSendsNothing(t *testing.T) {
 	}
 	expectNoCredential(t, "stdout", stdout)
 }
+
+// The pin holds in every cell, as it does in every other phase: an example
+// that says dry_run: false is sent with dry_run: true, by every principal.
+func TestTheAuthorizationPhaseHoldsThePin(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, r.Header.Get("X-Tenant-Key")+" "+strings.Join(strings.Fields(string(body)), ""))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("X-Tenant-Key") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+		fmt.Fprint(w, `{}`)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "openapi.yaml")
+	if err := os.WriteFile(spec, []byte(`openapi: 3.1.0
+info: {title: Send, version: "1"}
+components:
+  securitySchemes:
+    tenantKey: {type: apiKey, in: header, name: X-Tenant-Key}
+security: [{tenantKey: []}]
+paths:
+  /send:
+    post:
+      operationId: send
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {dry_run: {type: boolean}}
+            example: {dry_run: false}
+      responses:
+        "200":
+          description: sent
+          content:
+            application/json:
+              schema: {type: object}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dir, "vertrag.yml")
+	if err := os.WriteFile(config, []byte(fmt.Sprintf(`spec: %s
+endpoint: %s
+phases: [authorization]
+auth: {header: "X-Tenant-Key: %s"}
+fuzz:
+  pin: {dry_run: true}
+principals:
+  - name: anonymous
+  - name: keyholder
+    auth: {header: "X-Tenant-Key: %s"}
+`, spec, server.URL, cliRunKey, cliTenantKey)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := runAuthzCLI(t, "--config", config)
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, stdout)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		cliRunKey + ` {"dry_run":true}`,
+		` {"dry_run":true}`,
+		cliTenantKey + ` {"dry_run":true}`,
+	}
+	if !slices.Equal(bodies, want) {
+		t.Errorf("bodies =\n%s\nwant\n%s", strings.Join(bodies, "\n"), strings.Join(want, "\n"))
+	}
+}
