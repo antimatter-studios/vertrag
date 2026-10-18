@@ -323,31 +323,43 @@ func TestStopIsSafeToCallTwice(t *testing.T) {
 // while the server is still coming up, and what has been started so far still
 // has to go.
 func TestAnInterruptedWaitStopsTheServer(t *testing.T) {
-	address, endpoint := freeAddress(t)
+	// The port is reserved and released before Start dials it, and another
+	// package's tests run alongside this one, so a stranger can take it in
+	// between. Start then succeeds on the stranger's socket, saying so, which
+	// is the behaviour TestAPortThatWasAlreadyOpenIsReported pins and not the
+	// one under test here: that attempt is thrown away and another port tried.
+	for attempt := 1; ; attempt++ {
+		address, endpoint := freeAddress(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(200 * time.Millisecond)
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			cancel()
+		}()
+
+		process, err := Start(ctx, Options{
+			// Listens far too late to be waited for, and would hold the port
+			// for a minute if nothing stopped it.
+			Command:  "sleep 60; " + listener(t, address),
+			Endpoint: endpoint,
+			Wait:     60 * time.Second,
+		})
 		cancel()
-	}()
 
-	_, err := Start(ctx, Options{
-		// Listens far too late to be waited for, and would hold the port for
-		// a minute if nothing stopped it.
-		Command:  "sleep 60; " + listener(t, address),
-		Endpoint: endpoint,
-		Wait:     60 * time.Second,
-	})
-	defer cancel()
-
-	if err == nil {
-		t.Fatal("Start returned successfully after the run was cancelled")
-	}
-	if !strings.Contains(err.Error(), "context canceled") {
-		t.Errorf("the error does not say the wait was interrupted: %v", err)
-	}
-	if !free(t, address) {
-		t.Errorf("%s is still held after an interrupted start", address)
+		if err == nil {
+			note := process.Stop()
+			if strings.Contains(note, "already listening") && attempt < 5 {
+				continue
+			}
+			t.Fatalf("Start returned successfully after the run was cancelled: %s", note)
+		}
+		if !strings.Contains(err.Error(), "context canceled") {
+			t.Errorf("the error does not say the wait was interrupted: %v", err)
+		}
+		if !free(t, address) {
+			t.Errorf("%s is still held after an interrupted start", address)
+		}
+		return
 	}
 }
 
