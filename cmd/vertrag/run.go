@@ -312,7 +312,7 @@ func runRun(args []string) error {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
 
-	result, withheld, err := transactionsFor(source, settings.Spec, settings)
+	result, withheld, err := namedTransactionsFor(source, settings.Spec, settings)
 	if err != nil {
 		return err
 	}
@@ -338,7 +338,7 @@ func runRun(args []string) error {
 	// a run limited to one tag must not conclude that the responses it left out
 	// were never written down — and a link naming an operation the run filtered
 	// away is not a link naming an operation the description lacks.
-	compiled := stripAPIName(result.Transactions)
+	compiled := result.Transactions
 
 	statuses := newStatusLedger(compiled)
 
@@ -1042,6 +1042,22 @@ func noteOverride(settings *config.Config, what, argument, configured string) {
 	settings.Notes = append(settings.Notes, fmt.Sprintf(
 		"using %s %s from the command line; %s says %s",
 		what, argument, settings.Source, configured))
+}
+
+// namedTransactionsFor compiles a description and names its transactions the
+// way a run addresses them: without the API title, see stripAPIName.
+//
+// Every command that matches a configured name against a transaction — `run`
+// sending it, `doctor` asking whether the name reaches anything — compiles
+// through here. When they compiled separately, doctor kept the title, and every
+// `auth.except` entry that a run applied was reported as matching nothing (#79).
+func namedTransactionsFor(source []byte, filename string, settings config.Config) (compile.Result, []string, error) {
+	result, withheld, err := transactionsFor(source, filename, settings)
+	if err != nil {
+		return result, withheld, err
+	}
+	result.Transactions = stripAPIName(result.Transactions)
+	return result, withheld, nil
 }
 
 // stripAPIName removes the API title from the front of each transaction name.

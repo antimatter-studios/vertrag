@@ -64,7 +64,7 @@ var selectors = []selector{
 	{
 		key:         "auth.except",
 		values:      func(c config.Config) []string { return c.Auth.Except },
-		matches:     byTransactionName,
+		matches:     byExceptName,
 		consequence: "the transaction it names will be sent authenticated",
 	},
 	{
@@ -118,7 +118,7 @@ var selectors = []selector{
 			for _, principal := range c.Principals {
 				for _, name := range principal.Auth.Except {
 					if value == principal.Name+": "+name {
-						return byTransactionName(c, name, transactions)
+						return byExceptName(c, name, transactions)
 					}
 				}
 			}
@@ -238,6 +238,14 @@ func byTransactionName(_ config.Config, value string, transactions []compile.Tra
 		}
 	}
 	return matched
+}
+
+// byExceptName matches an `auth.except` entry with exceptedTransactions, the
+// function a run withholds the credential by, so doctor cannot call an entry
+// dead that the run applies, or the other way round.
+func byExceptName(_ config.Config, value string, transactions []compile.Transaction) int {
+	except, _ := exceptedTransactions([]string{value}, transactions)
+	return len(except)
 }
 
 func pathOf(uri string) string {
@@ -374,7 +382,7 @@ func runDoctor(args []string) error {
 	if err != nil {
 		return err
 	}
-	result, _, err := transactionsFor(source, settings.Spec, settings)
+	result, _, err := namedTransactionsFor(source, settings.Spec, settings)
 	if err != nil {
 		return err
 	}

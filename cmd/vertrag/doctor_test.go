@@ -323,3 +323,58 @@ fuzz:
 		t.Errorf("doctor did not say the configuration was sound:\n%s", output)
 	}
 }
+
+// TestDoctorMatchesAuthExceptAsARunDoes guards #79: doctor reported every
+// `auth.except` entry as matching nothing while a run applied each of them.
+//
+// A run names transactions without the description's title, as Dredd's runner
+// does and as hook files and `except` entries address them. Doctor named them
+// with it, so against any description carrying a title — which is every one an
+// OpenAPI document can be — a correct entry read as dead and a pipeline running
+// doctor failed on a configuration that worked.
+func TestDoctorMatchesAuthExceptAsARunDoes(t *testing.T) {
+	binary := build(t)
+
+	dir := t.TempDir()
+	description := `openapi: 3.0.3
+info: {title: Shop, version: "1.0"}
+security: [{bearer: []}]
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer}
+paths:
+  /orders:
+    get:
+      summary: List orders
+      responses: {"200": {description: ok}}
+  /health:
+    get:
+      summary: Check health
+      security: []
+      responses: {"204": {description: alive}}
+`
+	config := `spec: ./api.yml
+endpoint: http://127.0.0.1:1
+auth:
+  header: "Authorization: Bearer x"
+  except:
+    - "/health > Check health > 204"
+    - "/nowhere > Not an operation > 200"
+`
+	for name, content := range map[string]string{"api.yml": description, "vertrag.yml": config} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output, code := runIn(t, dir, binary, "doctor")
+	if strings.Contains(output, "/health > Check health > 204") {
+		t.Errorf("an auth.except entry naming a transaction was reported as reaching nothing:\n%s", output)
+	}
+	if !strings.Contains(output, `auth.except: "/nowhere > Not an operation > 200" matches no transaction`) {
+		t.Errorf("an auth.except entry naming nothing was not reported:\n%s", output)
+	}
+	if code == 0 {
+		t.Errorf("a configuration with a dead auth.except entry exited 0:\n%s", output)
+	}
+}
