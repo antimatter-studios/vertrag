@@ -84,6 +84,12 @@ func (r Markdown) surface(s Surface) {
 			fmt.Fprintf(r.Out, "| %s | %s | %s |\n", cell(miss.Operation), cell(miss.StatusList()), cell(miss.Reason))
 		}
 	}
+	if failed := s.NotPassed; s.CountsPassed() && len(failed) > 0 {
+		fmt.Fprintf(r.Out, "\n### Operations reached that did not pass\n\n| Operation | Why |\n| --- | --- |\n")
+		for _, miss := range failed {
+			fmt.Fprintf(r.Out, "| %s | %s |\n", cell(miss.Operation), cell(miss.Reason))
+		}
+	}
 	if len(s.Excluded) > 0 {
 		fmt.Fprintf(r.Out, "\n### Excluded, and not counted\n\n| Operation | Reason | Written in |\n| --- | --- | --- |\n")
 		for _, excluded := range s.Excluded {
@@ -91,7 +97,7 @@ func (r Markdown) surface(s Surface) {
 			if note := excluded.Note(); note != "" {
 				reason += "; " + note
 			}
-			fmt.Fprintf(r.Out, "| %s | %s | %s |\n", cell(excluded.Operation), cell(reason), cell(excluded.Source))
+			fmt.Fprintf(r.Out, "| %s | %s | %s |\n", cell(excluded.Name()), cell(reason), cell(excluded.Source))
 		}
 	}
 	if verdict := s.Verdict(); verdict != "" {

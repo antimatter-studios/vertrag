@@ -129,8 +129,8 @@ func TestTheSurfaceGateFailsARunThatMissesAnOperationAndNamesIt(t *testing.T) {
 	dir := surfaceProject(t, lenient(t), "")
 
 	output, code := runIn(t, dir, binary, "run", "--no-color", "--require-surface", "100")
-	if code != 1 {
-		t.Errorf("exit = %d, want 1 for a run short of its surface\n%s", code, output)
+	if code != 3 {
+		t.Errorf("exit = %d, want 3 for a run short of its surface\n%s", code, output)
 	}
 	section := surfaceSection(output)
 	requireAll(t, section,
@@ -163,7 +163,7 @@ func TestTheSurfaceGateFailsARunThatMissesAnOperationAndNamesIt(t *testing.T) {
 // TestASurfaceShortfallIsNotReadAsProbingFindings pins the exit codes against
 // each other. Exit 2 says the documented contract held and probing found
 // something to file; a run that left part of the contract untested has not
-// shown it held, so it exits 1 however much probing found.
+// shown it held, so it exits 3 however much probing found.
 func TestASurfaceShortfallIsNotReadAsProbingFindings(t *testing.T) {
 	binary := build(t)
 	dir := surfaceProject(t, lenient(t), "")
@@ -175,8 +175,8 @@ func TestASurfaceShortfallIsNotReadAsProbingFindings(t *testing.T) {
 	requireAll(t, surfaceSection(output), "coverage", "the run")
 
 	output, code = runIn(t, dir, binary, "run", "--no-color", "--phases", "coverage", "--require-surface", "100")
-	if code != 1 {
-		t.Errorf("exit = %d with the gate missed and probing findings, want 1\n%s", code, output)
+	if code != 3 {
+		t.Errorf("exit = %d with the gate missed and probing findings, want 3\n%s", code, output)
 	}
 }
 
@@ -218,8 +218,8 @@ func TestADryRunSaysWhatARunCouldReachAndSendsNothing(t *testing.T) {
 	dir := surfaceProject(t, "http://127.0.0.1:1", "")
 
 	output, code := runIn(t, dir, binary, "run", "--no-color", "--dry-run", "--require-surface", "100")
-	if code != 1 {
-		t.Errorf("exit = %d for a dry run that cannot meet its gate, want 1\n%s", code, output)
+	if code != 3 {
+		t.Errorf("exit = %d for a dry run that cannot meet its gate, want 3\n%s", code, output)
 	}
 	requireAll(t, surfaceSection(output),
 		"dry run: nothing was sent",
@@ -244,8 +244,8 @@ func TestAFilterThatSelectsNothingDoesNotPassTheGate(t *testing.T) {
 	dir := surfaceProject(t, lenient(t), "")
 
 	output, code := runIn(t, dir, binary, "run", "--no-color", "--tag", "ordres", "--require-surface", "100")
-	if code != 1 {
-		t.Errorf("exit = %d for a run that selected nothing under a gate, want 1\n%s", code, output)
+	if code != 3 {
+		t.Errorf("exit = %d for a run that selected nothing under a gate, want 3\n%s", code, output)
 	}
 	requireAll(t, output, "No transactions to run.", "not selected by tag", "0 of 5")
 
@@ -281,8 +281,8 @@ surface:
   require: 100
 `)
 	output, code := runIn(t, dir, binary, "run", "--no-color")
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1\n%s", code, output)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3\n%s", code, output)
 	}
 	read := func(name string) string {
 		data, err := os.ReadFile(filepath.Join(dir, name))

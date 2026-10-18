@@ -39,6 +39,16 @@ type Surface struct {
 	// means nothing was required.
 	Required float64 `json:"required,omitempty"`
 
+	// Count is what the gate counts an operation for: "reached", any answer
+	// at all, or "passed", every documented transaction of it that is not
+	// excluded sent in the examples phase and passed.
+	Count string `json:"count"`
+
+	// NotPassed is every counted operation the run reached that did not
+	// pass, with what kept it from passing. Filled whatever the count, and
+	// shown when the gate counts passed operations.
+	NotPassed []SurfaceMiss `json:"notPassed"`
+
 	// DryRun is set when nothing was sent. Run then counts the operations the
 	// run WOULD have sent a request to, which is the most it could reach, and
 	// no status can be counted at all.
@@ -57,10 +67,20 @@ type SurfaceFigures struct {
 	OperationsReached int    `json:"operationsReached"`
 	Statuses          int    `json:"statuses"`
 	StatusesReached   int    `json:"statusesReached"`
+
+	// OperationsPassed are the operations whose every documented transaction
+	// that is not excluded was sent and passed, with an answer below 500.
+	// Judged on the examples phase, which sends the documented contract as
+	// written; a probing phase's row leaves it at zero, because probing
+	// reports findings, not passes.
+	OperationsPassed int `json:"operationsPassed"`
 }
 
 // OperationShare is the percentage of operations reached.
 func (f SurfaceFigures) OperationShare() float64 { return share(f.OperationsReached, f.Operations) }
+
+// PassedShare is the percentage of operations passed.
+func (f SurfaceFigures) PassedShare() float64 { return share(f.OperationsPassed, f.Operations) }
 
 // StatusShare is the percentage of documented statuses reached.
 func (f SurfaceFigures) StatusShare() float64 { return share(f.StatusesReached, f.Statuses) }
@@ -100,7 +120,12 @@ type SurfaceMiss struct {
 // SurfaceExclusion is an operation left out of the figures.
 type SurfaceExclusion struct {
 	Operation string `json:"operation"`
-	Reason    string `json:"reason"`
+
+	// Status is the documented status excluded. Empty when the exclusion is
+	// the whole operation.
+	Status string `json:"status,omitempty"`
+
+	Reason string `json:"reason"`
 
 	// Source is where the exclusion was written: the configuration file's
 	// `surface.exclude`, or the operation's own `x-vertrag-exclude`.
@@ -109,6 +134,14 @@ type SurfaceExclusion struct {
 	// Reached is set when the run reached the operation anyway. An exclusion
 	// only decides what counts, so nothing stops that — see Note.
 	Reached bool `json:"reached,omitempty"`
+}
+
+// Name is the operation, and the status when only that is excluded.
+func (e SurfaceExclusion) Name() string {
+	if e.Status == "" {
+		return e.Operation
+	}
+	return e.Operation + " " + e.Status
 }
 
 // Note is what a report adds after an exclusion the run reached anyway.
@@ -126,9 +159,35 @@ func (e SurfaceExclusion) Note() string {
 	return "reached anyway: an exclusion decides what counts, not what is sent, and `skip` is what keeps a request back"
 }
 
-// Met reports whether the run reached what it was required to.
+// CountsPassed reports whether the gate counts passed operations rather than
+// reached ones.
+func (s Surface) CountsPassed() bool { return s.Count == "passed" }
+
+// Counted is the figure the gate reads, and its share. For a dry run that
+// counts passed operations it is those a run would send every counted
+// transaction of, the most that could pass.
+func (s Surface) Counted() (int, float64) {
+	if s.CountsPassed() {
+		return s.Run.OperationsPassed, s.Run.PassedShare()
+	}
+	return s.Run.OperationsReached, s.Run.OperationShare()
+}
+
+// Met reports whether the run reached, or passed, what it was required to.
+//
+// A passed gate with nothing left to count once the exclusions apply is not
+// met: no operation passed, and a gate that read a hundred percent of nothing
+// as a pass would let a configuration that excluded everything through. A
+// reached gate keeps reading it as all of it reached, as it always has.
 func (s Surface) Met() bool {
-	return s.Required == 0 || s.Run.OperationShare() >= s.Required
+	if s.Required == 0 {
+		return true
+	}
+	if s.CountsPassed() && s.Run.Operations == 0 {
+		return false
+	}
+	_, counted := s.Counted()
+	return counted >= s.Required
 }
 
 // Verdict is the sentence that ends every rendering of the surface: what the
@@ -139,18 +198,32 @@ func (s Surface) Verdict() string {
 	if s.Required == 0 {
 		return ""
 	}
-	reached := fmt.Sprintf("%d of %d operation(s), %s", s.Run.OperationsReached, s.Run.Operations,
-		Percent(s.Run.OperationShare()))
 	required := Percent(s.Required)
+	verb := "reached"
+	if s.CountsPassed() {
+		verb = "passed"
+	}
+	if s.CountsPassed() && s.Run.Operations == 0 {
+		return fmt.Sprintf("No operation is left to count once the exclusions apply, so none %s and the %s it requires is not met.",
+			verb, required)
+	}
+	number, counted := s.Counted()
+	reached := fmt.Sprintf("%d of %d operation(s), %s", number, s.Run.Operations, Percent(counted))
 	switch {
+	case s.DryRun && s.CountsPassed() && s.Met():
+		return fmt.Sprintf("A run would send every counted transaction of %s, so the %s it requires to pass is within reach.",
+			reached, required)
+	case s.DryRun && s.CountsPassed():
+		return fmt.Sprintf("A run would send every counted transaction of %s, so it cannot pass the %s it requires.",
+			reached, required)
 	case s.DryRun && s.Met():
 		return fmt.Sprintf("A run would send a request to %s, so the %s it requires is within reach.", reached, required)
 	case s.DryRun:
 		return fmt.Sprintf("A run would send a request to %s, so it cannot reach the %s it requires.", reached, required)
 	case s.Met():
-		return fmt.Sprintf("The run reached %s, which meets the %s it requires.", reached, required)
+		return fmt.Sprintf("The run %s %s, which meets the %s it requires.", verb, reached, required)
 	default:
-		return fmt.Sprintf("The run reached %s, below the %s it requires.", reached, required)
+		return fmt.Sprintf("The run %s %s, below the %s it requires.", verb, reached, required)
 	}
 }
 
@@ -223,6 +296,13 @@ func (s Surface) row(label string, figures SurfaceFigures) SurfaceRow {
 	if !s.DryRun {
 		row.Statuses = fmt.Sprintf("%d of %d  %s", figures.StatusesReached, figures.Statuses,
 			Percent(figures.StatusShare()))
+		// Passed is judged on the examples phase alone, so only its row and
+		// the run's carry it; a probing row showing 0 passed would read as
+		// every operation failing there.
+		if s.CountsPassed() && (figures.Phase == "examples" || figures.Phase == "run") {
+			row.Passed = fmt.Sprintf("%d of %d  %s", figures.OperationsPassed, figures.Operations,
+				Percent(figures.PassedShare()))
+		}
 	}
 	return row
 }
@@ -233,6 +313,9 @@ type SurfaceRow struct {
 	Operations string
 	// Statuses is empty for a dry run, which received no status to count.
 	Statuses string
+	// Passed is the operations passed, shown only when the gate counts them,
+	// and only on the rows it is judged for.
+	Passed string
 }
 
 // WithSurface hands the surface figures to every reporter with somewhere to put
@@ -285,17 +368,43 @@ func WriteSurface(w io.Writer, s Surface, color bool) {
 		label = max(label, len(row.Label))
 		operations = max(operations, len(row.Operations))
 	}
-	if s.DryRun {
+	passed := s.CountsPassed() && !s.DryRun
+	statuses := len("documented statuses")
+	for _, row := range rows {
+		statuses = max(statuses, len(row.Statuses))
+	}
+	switch {
+	case s.DryRun:
 		fmt.Fprintf(w, "  %-*s  %s\n", label, "", "operations")
-	} else {
+	case passed:
+		fmt.Fprintf(w, "  %-*s  %-*s   %-*s   %s\n", label, "", operations, "operations", statuses, "documented statuses",
+			"operations passed")
+	default:
 		fmt.Fprintf(w, "  %-*s  %-*s   %s\n", label, "", operations, "operations", "documented statuses")
 	}
 	for _, row := range rows {
-		if s.DryRun {
+		switch {
+		case s.DryRun:
 			fmt.Fprintf(w, "  %-*s  %s\n", label, row.Label, row.Operations)
-			continue
+		case passed:
+			fmt.Fprintf(w, "  %-*s  %-*s   %-*s   %s\n", label, row.Label, operations, row.Operations, statuses,
+				row.Statuses, row.Passed)
+		default:
+			fmt.Fprintf(w, "  %-*s  %-*s   %s\n", label, row.Label, operations, row.Operations, row.Statuses)
 		}
-		fmt.Fprintf(w, "  %-*s  %-*s   %s\n", label, row.Label, operations, row.Operations, row.Statuses)
+	}
+
+	if passed {
+		if failed := s.NotPassed; len(failed) > 0 {
+			fmt.Fprint(w, "\n  Operations reached that did not pass:\n")
+			width := 0
+			for _, miss := range failed {
+				width = max(width, len(miss.Operation))
+			}
+			for _, miss := range failed {
+				fmt.Fprintf(w, "    %-*s  %s\n", width, miss.Operation, miss.Reason)
+			}
+		}
 	}
 
 	if missed := s.OperationMisses(); len(missed) > 0 {
@@ -329,10 +438,10 @@ func WriteSurface(w io.Writer, s Surface, color bool) {
 		fmt.Fprint(w, "\n  Excluded, and not counted:\n")
 		width := 0
 		for _, excluded := range s.Excluded {
-			width = max(width, len(excluded.Operation))
+			width = max(width, len(excluded.Name()))
 		}
 		for _, excluded := range s.Excluded {
-			fmt.Fprintf(w, "    %-*s  %s (%s)\n", width, excluded.Operation, excluded.Reason, excluded.Source)
+			fmt.Fprintf(w, "    %-*s  %s (%s)\n", width, excluded.Name(), excluded.Reason, excluded.Source)
 			if note := excluded.Note(); note != "" {
 				fmt.Fprintf(w, "    %-*s  %s\n", width, "", note)
 			}
