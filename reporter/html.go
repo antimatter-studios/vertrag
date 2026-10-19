@@ -148,11 +148,18 @@ pre.message { background: none; border: none; border-left: 3px solid #b42318; bo
 {{range .}}<tr><td>{{.Operation}}</td><td>{{.StatusList}}</td><td>{{.Reason}}</td></tr>
 {{end}}</tbody>
 </table>
-{{end}}{{with .Excluded}}<h3>Excluded, and not counted</h3>
+{{end}}{{if .CountsPassed}}{{with .NotPassed}}<h3>Operations reached that did not pass</h3>
+<table>
+<thead><tr><th>Operation</th><th>Why</th></tr></thead>
+<tbody>
+{{range .}}<tr><td>{{.Operation}}</td><td>{{.Reason}}</td></tr>
+{{end}}</tbody>
+</table>
+{{end}}{{end}}{{with .Excluded}}<h3>Excluded, and not counted</h3>
 <table>
 <thead><tr><th>Operation</th><th>Reason</th><th>Written in</th></tr></thead>
 <tbody>
-{{range .}}<tr><td>{{.Operation}}</td><td>{{.Reason}}{{with .Note}}; {{.}}{{end}}</td><td>{{.Source}}</td></tr>
+{{range .}}<tr><td>{{.Name}}</td><td>{{.Reason}}{{with .Note}}; {{.}}{{end}}</td><td>{{.Source}}</td></tr>
 {{end}}</tbody>
 </table>
 {{end}}{{with .Verdict}}<p class="summary {{if $.Surface.Met}}pass{{else}}fail{{end}}">{{.}}</p>{{end}}

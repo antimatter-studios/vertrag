@@ -70,6 +70,10 @@ type runFlags struct {
 	// must reach; zero leaves the file's setting alone.
 	requireSurface float64
 
+	// surfaceCount is what the gate counts an operation for, reached or
+	// passed; empty leaves the file's setting alone.
+	surfaceCount string
+
 	// The probing settings, which were `vertrag fuzz`'s and `vertrag
 	// coverage`'s own flags until those commands became phases.
 	cases        int
@@ -123,6 +127,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.StringVar(&f.mode, "mode", "", "probing: which values to send — valid, invalid, or both (the default)")
 	fs.BoolVar(&f.wholeRequest, "whole-request", false, "fuzz: also draw every parameter and the body together per case, to reach bugs in their interaction")
 	fs.Float64Var(&f.requireSurface, "require-surface", 0, "fail unless the run reaches this percentage of the description's operations, in any phase; excluded operations do not count (0 = no gate)")
+	fs.StringVar(&f.surfaceCount, "surface-count", "", "what --require-surface counts an operation for: reached (any answer, the default) or passed (every documented transaction of it sent and passed)")
 	addTransportFlags(fs, &f.transport)
 	addGraphQLFlags(fs, &f.graphql)
 
@@ -234,6 +239,12 @@ func settingsFor(f runFlags) (config.Config, error) {
 		}
 		settings.Surface.Require = f.requireSurface
 	}
+	if f.surfaceCount != "" {
+		if err := config.CheckCount(f.surfaceCount); err != nil {
+			return settings, fmt.Errorf("--surface-count: %w", err)
+		}
+		settings.Surface.Count = f.surfaceCount
+	}
 	f.transport.apply(&settings.Transport)
 	f.graphql.apply(&settings.GraphQL)
 	reporter.SetSanitize(!f.noSanitize)
@@ -301,7 +312,7 @@ func runRun(args []string) error {
 		return fmt.Errorf("reading the API description: %w", err)
 	}
 
-	result, withheld, err := transactionsFor(source, settings.Spec, settings)
+	result, withheld, err := namedTransactionsFor(source, settings.Spec, settings)
 	if err != nil {
 		return err
 	}
@@ -327,7 +338,7 @@ func runRun(args []string) error {
 	// a run limited to one tag must not conclude that the responses it left out
 	// were never written down — and a link naming an operation the run filtered
 	// away is not a link naming an operation the description lacks.
-	compiled := stripAPIName(result.Transactions)
+	compiled := result.Transactions
 
 	statuses := newStatusLedger(compiled)
 
@@ -356,10 +367,10 @@ func runRun(args []string) error {
 		// selects nothing — a tag misspelled, an operationId renamed — is
 		// the run that most needs the gate, and leaving here quietly would
 		// let it through.
-		reached := surface.summary(settings.Surface.Require, false)
+		reached := surface.summary(settings.Surface, false)
 		reporter.WriteSurface(os.Stdout, reached, settings.Color)
 		if !reached.Met() {
-			return errFailed
+			return errShortfall
 		}
 		return nil
 	}
@@ -422,10 +433,10 @@ func runRun(args []string) error {
 			}
 			reporter.WriteAuthorization(os.Stdout, *dryRunAuthorization(plan), settings.Color)
 		}
-		ceiling := surface.summary(settings.Surface.Require, true)
+		ceiling := surface.summary(settings.Surface, true)
 		reporter.WriteSurface(os.Stdout, ceiling, settings.Color)
 		if !ceiling.Met() {
-			return errFailed
+			return errShortfall
 		}
 		return nil
 	}
@@ -724,7 +735,7 @@ func runRun(args []string) error {
 		}
 	}
 
-	reached := surface.summary(settings.Surface.Require, false)
+	reached := surface.summary(settings.Surface, false)
 	report = reporter.WithSurface(report, &reached)
 	report = reporter.WithAuthorization(report, authorization)
 	report.Report(results)
@@ -746,15 +757,16 @@ func runRun(args []string) error {
 	reporter.WriteSurface(os.Stdout, reached, settings.Color)
 	noteIgnoredAuthIsOff(settings, engine, transactions)
 
-	// A run short of the surface it requires exits 1, the status of a run
-	// whose contract failed, and not 2. Exit 2 means "the documented contract
-	// held and probing found something to file"; a run that left part of the
-	// contract untested has not established that it held, so it must not be
-	// readable as that — however much the probing phases found as well.
+	// The exit codes, most serious first, and the first that applies wins:
+	// 1 a documented transaction or an authorization cell failed (or the run
+	// could not be carried out), 3 the run fell short of the surface it requires, 2 probing or a
+	// link found something to file. A shortfall is not 1, because "a response
+	// broke the contract" and "the run did not cover enough of it" are fixed
+	// in different places; and it outranks 2, because exit 2 says the
+	// documented contract held, which a run that left part of it untested
+	// has not shown — however much the probing phases found as well.
 	switch {
 	case !examplesPassed:
-		return errFailed
-	case !reached.Met():
 		return errFailed
 	// A cell that failed — a bypass, a wrong refusal, a 5xx, a success whose
 	// body breaks its schema — is the description's own security broken, so it
@@ -762,6 +774,8 @@ func runRun(args []string) error {
 	// by itself: it is counted and shown, and never as a pass.
 	case authorization != nil && !authorization.Met():
 		return errFailed
+	case !reached.Met():
+		return errShortfall
 	case probeFindings || linkFindings:
 		return errFindings
 	}
@@ -962,6 +976,12 @@ var errFailed = fmt.Errorf("some transactions failed")
 // learns to ignore both.
 var errFindings = fmt.Errorf("the probing phases found something")
 
+// errShortfall reports a run that reached, or passed, less of the description
+// than its surface gate requires, and nothing worse. Its own exit status, 3,
+// so that a pipeline can tell "we did not cover enough" from "a response broke
+// the contract".
+var errShortfall = fmt.Errorf("the run fell short of the surface it requires")
+
 // resolveConfig loads the configuration file, whether it was named or found.
 func resolveConfig(path string, positional []string) (config.Config, error) {
 	settings := config.Default()
@@ -1022,6 +1042,22 @@ func noteOverride(settings *config.Config, what, argument, configured string) {
 	settings.Notes = append(settings.Notes, fmt.Sprintf(
 		"using %s %s from the command line; %s says %s",
 		what, argument, settings.Source, configured))
+}
+
+// namedTransactionsFor compiles a description and names its transactions the
+// way a run addresses them: without the API title, see stripAPIName.
+//
+// Every command that matches a configured name against a transaction — `run`
+// sending it, `doctor` asking whether the name reaches anything — compiles
+// through here. When they compiled separately, doctor kept the title, and every
+// `auth.except` entry that a run applied was reported as matching nothing (#79).
+func namedTransactionsFor(source []byte, filename string, settings config.Config) (compile.Result, []string, error) {
+	result, withheld, err := transactionsFor(source, filename, settings)
+	if err != nil {
+		return result, withheld, err
+	}
+	result.Transactions = stripAPIName(result.Transactions)
+	return result, withheld, nil
 }
 
 // stripAPIName removes the API title from the front of each transaction name.

@@ -410,11 +410,45 @@ description wrote it. A share is rounded down, so 1999 of 2000 operations reads
 
 **A gate.** `--require-surface 100`, or `surface: {require: 100}`, fails a run
 that reaches less of the description's operations than that, and names what it
-missed. It exits 1, the status of a contract failure, never 2. Exit 2 says the
-documented contract held and probing found something to file; a run that left
-part of the contract untested has not shown that it held. A filter that selects
-nothing does not slip past it either: `--tag ordres` used to leave saying only
-that there was nothing to run.
+missed. It exits 3: not 1, because "a response broke the contract" and "the run
+did not cover enough of it" are fixed in different places, and never 2, because
+exit 2 says the documented contract held and probing found something to file,
+and a run that left part of the contract untested has not shown that it held. A
+filter that selects nothing does not slip past it either: `--tag ordres` used
+to leave saying only that there was nothing to run.
+
+**Reached, or passed.** Reached is any answer, a 500 included, which says the
+operation was exercised and nothing about whether it held. `--surface-count
+passed`, or `surface: {count: passed}`, counts an operation only when every
+documented transaction of it that counts was sent in the examples phase and
+passed — none failed, none skipped by configuration, a hook or a link that
+could not resolve, none left without an answer. An answer of 500 or above never
+counts as passed, even where a documented `5XX` matched it; exclude that status
+if it is not meant to count. `reached` is the default and reads exactly as it
+did. The table gains an `operations passed` column, and every reached operation
+that did not pass is listed with what kept it from passing:
+
+```
+              operations       documented statuses   operations passed
+  examples    4 of 4  100.0%   4 of 5  80.0%         3 of 4  75.0%
+
+  Operations reached that did not pass:
+    GET /half  404 skipped by configuration: the example always exists
+
+  The run passed 3 of 4 operation(s), 75.0%, below the 100.0% it requires.
+```
+
+**Exit codes.** The first that applies wins:
+
+| Code | Means |
+| --- | --- |
+| 0 | Every documented transaction passed, nothing was found, and the surface gate, if any, was met. |
+| 1 | A documented transaction failed, or the run could not be carried out: a configuration refused, a description that does not compile, a server that could not be reached. |
+| 3 | Nothing failed, and the run reached — or, counting passed, passed — less of the description than its surface gate requires. |
+| 2 | The documented contract held and the gate was met, and a probing phase or a declared link found something to file. |
+
+So a run with a failed transaction exits 1 whatever its surface, and a run short
+of its surface exits 3 however much probing found.
 
 `--dry-run` answers the same question without a server. What the filters drop
 and what `skip` takes out are decided before anything is sent, so a dry run
@@ -452,6 +486,34 @@ paths:
       x-vertrag-exclude: "charges a real card"
 ```
 
+An exclusion can name a documented status instead of a whole operation, for a
+response a run cannot provoke yet — a 403 until an authorization phase exists:
+
+```yaml
+surface:
+  count: passed
+  require: 100
+  exclude:
+    - status: 4XX                      # every operation's documented 4xx
+      reason: error responses, unreachable until the authorization phase
+    - operation: GET /admin/*          # a `*` is any run of characters
+      status: "403"
+      reason: needs a second account
+```
+
+`status` is a documented status exactly (`403`, `4XX`, `default`), or a
+pattern in which `X` and `?` are one character and `*` any run of them, so
+`4XX` takes out a documented 403 as well as a documented 4XX, and `403` only
+403. Either key may be left out, not both. A status exclusion takes the status
+out of both sides of every figure — out of the statuses documented and out of
+those reached, and out of the transactions an operation must pass — and each
+operation and status it took out is listed with its reason. An operation whose
+every status is excluded has nothing left to count, and is left out of the
+figures rather than called passed; when that leaves nothing at all, a `passed`
+gate is not met, where a `reached` gate keeps reading nothing as all of it
+reached. A status that is not a status (`600`, `forbidden`) is refused at load,
+and one no operation documents is reported, by the run and by `vertrag doctor`.
+
 An excluded operation is taken out of the figures — out of the total, with the
 statuses it documents, rather than counted as reached — and listed apart with
 its reason and where the reason was written. The configuration's entry wins
@@ -471,7 +533,8 @@ real card" believing it had stopped the charge.
 
 The written reports carry the same figures: a section of the Markdown and HTML
 documents, the `surface` object of `--reporter json`, and properties of the
-JUnit suite — `vertrag.surface.operations` is `3/5` — where a gate also becomes
+JUnit suite — `vertrag.surface.operations` is `3/5`, `vertrag.surface.passed`
+the operations passed, `vertrag.surface.count` what the gate counts — where a gate also becomes
 a test case of its own, so a job that is red shows its reason in the CI
 interface rather than a list of green cases.
 

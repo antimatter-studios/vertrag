@@ -64,7 +64,7 @@ var selectors = []selector{
 	{
 		key:         "auth.except",
 		values:      func(c config.Config) []string { return c.Auth.Except },
-		matches:     byTransactionName,
+		matches:     byExceptName,
 		consequence: "the transaction it names will be sent authenticated",
 	},
 	{
@@ -118,7 +118,7 @@ var selectors = []selector{
 			for _, principal := range c.Principals {
 				for _, name := range principal.Auth.Except {
 					if value == principal.Name+": "+name {
-						return byTransactionName(c, name, transactions)
+						return byExceptName(c, name, transactions)
 					}
 				}
 			}
@@ -159,12 +159,17 @@ var selectors = []selector{
 		values: func(c config.Config) []string {
 			names := make([]string, 0, len(c.Surface.Exclude))
 			for _, exclusion := range c.Surface.Exclude {
-				names = append(names, exclusion.Operation)
+				names = append(names, exclusionKey(exclusion))
 			}
 			return names
 		},
-		matches: func(_ config.Config, value string, transactions []compile.Transaction) int {
-			return exclusionReach(value, transactions)
+		matches: func(c config.Config, value string, transactions []compile.Transaction) int {
+			for _, exclusion := range c.Surface.Exclude {
+				if exclusionKey(exclusion) == value {
+					return exclusionReach(exclusion, transactions)
+				}
+			}
+			return 0
 		},
 		consequence: "nothing is excluded, and the operation it meant still counts against the run's surface",
 	},
@@ -233,6 +238,14 @@ func byTransactionName(_ config.Config, value string, transactions []compile.Tra
 		}
 	}
 	return matched
+}
+
+// byExceptName matches an `auth.except` entry with exceptedTransactions, the
+// function a run withholds the credential by, so doctor cannot call an entry
+// dead that the run applies, or the other way round.
+func byExceptName(_ config.Config, value string, transactions []compile.Transaction) int {
+	except, _ := exceptedTransactions([]string{value}, transactions)
+	return len(except)
 }
 
 func pathOf(uri string) string {
@@ -369,7 +382,7 @@ func runDoctor(args []string) error {
 	if err != nil {
 		return err
 	}
-	result, _, err := transactionsFor(source, settings.Spec, settings)
+	result, _, err := namedTransactionsFor(source, settings.Spec, settings)
 	if err != nil {
 		return err
 	}
@@ -384,4 +397,13 @@ func runDoctor(args []string) error {
 		return errFailed
 	}
 	return nil
+}
+
+// exclusionKey names a `surface.exclude` entry the way doctor lists it: the
+// operation, and the status when the entry has one.
+func exclusionKey(exclusion config.SurfaceExclusion) string {
+	if exclusion.Status == "" {
+		return exclusion.Operation
+	}
+	return strings.TrimSpace(exclusion.Operation + " status " + exclusion.Status)
 }
