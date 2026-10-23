@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -755,6 +756,11 @@ func Load(path string) (Config, error) {
 	}
 	if parsed.Auth != nil {
 		applyAuth(&config.Auth, *parsed.Auth)
+		header, err := expandEnv(config.Auth.Header)
+		if err != nil {
+			return config, fmt.Errorf("%s: auth.header: %w", path, err)
+		}
+		config.Auth.Header = header
 	}
 	if err := applyPrincipals(&config.Principals, parsed.Principals); err != nil {
 		return config, fmt.Errorf("%s: principals: %w", path, err)
@@ -1121,10 +1127,39 @@ func applyPrincipals(principals *[]Principal, parsed []principalFile) error {
 		principal := Principal{Name: name, Roles: append([]string(nil), entry.Roles...)}
 		if entry.Auth != nil {
 			applyAuth(&principal.Auth, *entry.Auth)
+			header, err := expandEnv(principal.Auth.Header)
+			if err != nil {
+				return fmt.Errorf("%q: auth.header: %w", name, err)
+			}
+			principal.Auth.Header = header
 		}
 		*principals = append(*principals, principal)
 	}
 	return nil
+}
+
+// envReference is ${NAME} in a credential header (#78).
+var envReference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// expandEnv replaces each ${NAME} in a credential header with that environment variable,
+// so a token issued for one run need not be written into a config kept in version control.
+// A variable that is not set is refused: a header sent with its token missing would fail
+// every request in a way that points nowhere near the cause. Only the braced form is read,
+// so a lone $ in a credential is sent as written.
+func expandEnv(value string) (string, error) {
+	var missing []string
+	expanded := envReference.ReplaceAllStringFunc(value, func(reference string) string {
+		name := envReference.FindStringSubmatch(reference)[1]
+		set, ok := os.LookupEnv(name)
+		if !ok {
+			missing = append(missing, name)
+		}
+		return set
+	})
+	if len(missing) > 0 {
+		return "", fmt.Errorf("names ${%s}, which is not set", strings.Join(missing, "}, ${"))
+	}
+	return expanded, nil
 }
 
 func applyAuth(auth *Auth, parsed authFile) {

@@ -59,3 +59,47 @@ func TestPrincipalsRejectAmbiguousNames(t *testing.T) {
 		}
 	}
 }
+
+// ${NAME} in a credential header is read from the environment when the config loads, for the
+// run's own auth and for every principal; one that is not set is refused, naming it (#78).
+func TestCredentialHeadersReadTheEnvironment(t *testing.T) {
+	t.Setenv("VERTRAG_TEST_READER", "rd-123")
+	t.Setenv("VERTRAG_TEST_RUN", "run-456")
+	path := writeConfig(t, "vertrag.yml", `spec: ./api.yaml
+endpoint: http://localhost:4210
+phases: [authorization]
+auth:
+  header: 'Authorization: Bearer ${VERTRAG_TEST_RUN}'
+principals:
+  - name: reader
+    roles: [read]
+    auth:
+      header: 'Authorization: Bearer ${VERTRAG_TEST_READER}'
+  - name: literal
+    auth:
+      header: 'X-Key: a$b $NOT_EXPANDED'
+`)
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Auth.Header != "Authorization: Bearer run-456" {
+		t.Errorf("the run's header: %q", settings.Auth.Header)
+	}
+	if got := settings.Principals[0].Auth.Header; got != "Authorization: Bearer rd-123" {
+		t.Errorf("the reader's header: %q", got)
+	}
+	if got := settings.Principals[1].Auth.Header; got != "X-Key: a$b $NOT_EXPANDED" {
+		t.Errorf("only ${NAME} is read: %q", got)
+	}
+
+	for _, c := range []struct{ name, body, want string }{
+		{"principal", "principals:\n  - name: reader\n    auth: {header: 'Authorization: Bearer ${VERTRAG_TEST_UNSET}'}\n", `"reader": auth.header: names ${VERTRAG_TEST_UNSET}, which is not set`},
+		{"run", "auth: {header: 'Authorization: Bearer ${VERTRAG_TEST_UNSET}'}\n", "auth.header: names ${VERTRAG_TEST_UNSET}, which is not set"},
+	} {
+		path := writeConfig(t, "vertrag.yml", "spec: ./api.yaml\nendpoint: http://localhost:4210\n"+c.body)
+		if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: an unset variable is refused: %v", c.name, err)
+		}
+	}
+}
