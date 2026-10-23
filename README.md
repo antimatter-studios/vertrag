@@ -558,7 +558,7 @@ phases: [authorization]
 principals:
   - name: anonymous                 # no credential
   - name: reader
-    auth: {header: "Authorization: Bearer ${READER_TOKEN}"}
+    auth: {header: "Authorization: Bearer ${READER_TOKEN}"}   # read from the environment
     roles: [mail:read]
   - name: admin                     # any `auth` setup: header, cookie, login, oauth2
     auth: {oauth2: {token-url: https://id.example/token, client-id: ci, client-secret-env: ADMIN_SECRET}}
@@ -975,6 +975,11 @@ skip:
 A credential can equally come from the response body — `header: 'Authorization:
 Bearer {$response.body#/token}'` — because the value is a **runtime expression**,
 the same language OpenAPI links use. A static API key needs no `login` at all.
+
+A credential that must not be written into the config comes from the environment:
+`${NAME}` in `auth.header`, or in a principal's, is replaced with that variable when the
+config loads, and one that is not set stops the run before anything is sent. Only the
+braced form is read, so a `$` elsewhere in a header is sent as written.
 
 `except` exists because a login endpoint that documents its own 401 cannot
 produce one while holding a valid credential.
