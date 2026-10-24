@@ -18,6 +18,12 @@ type parameter struct {
 	hasValue bool
 	value    any
 
+	// named are the values the Parameter Object's `examples` map gives, by
+	// example name, in document order (names). A request of the same name is
+	// sent with that value (#85).
+	named map[string]any
+	names []string
+
 	// converted is the parameter's schema as JSON Schema, which is what a
 	// consumer can act on. The node it came from is kept too, because value
 	// generation reads the enum from it and does not want to parse the JSON
@@ -60,6 +66,17 @@ func (d *document) parseParameters(n node) *parameters {
 			p.value = value
 			p.example = example
 			p.hasValue = true
+		}
+
+		for _, member := range resolved.Get("examples").Entries() {
+			if inner := exampleValue(d.Resolve(member.Value)); inner.Valid() {
+				if p.named == nil {
+					p.named = map[string]any{}
+				}
+				name := member.Key.Str()
+				p.named[name] = scalarValue(inner)
+				p.names = append(p.names, name)
+			}
 		}
 
 		// The schema is converted here rather than where it is used, because
@@ -267,6 +284,73 @@ func cookieLine(cookies []header) (string, bool) {
 		return "", false
 	}
 	return strings.Join(pairs, "; "), true
+}
+
+// exampleNames are the names the parameters' `examples` maps give values under,
+// each once, in declaration order.
+func (p *parameters) exampleNames() []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, param := range p.ordered {
+		for _, name := range param.names {
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
+// named is what a request of the example name sends instead of each
+// parameter's default value: the path and query parameters whose `examples`
+// map gives a value under that name, as the request's own hrefVariables, and
+// the header parameters as headers. Each is marked as the request's named
+// example, so a link leaves it as it is (#85). An optional query or header
+// parameter whose examples are all other names' is left out: its values
+// belong to those exchanges, as an X-Tenant naming another tenant belongs to
+// the 403 (omitted lists the headers). A path parameter keeps its default,
+// since the request has no URI without it. The values are marked as the
+// request's own only when mark is set.
+func (p *parameters) named(name string, mark bool) (hrefVariables *refract.Element, headers []header, omitted []string) {
+	for _, in := range []string{"path", "query", "header"} {
+		for _, param := range p.in(in) {
+			value, ok := param.named[name]
+			if !ok && len(param.named) > 0 && !param.required && in != "path" {
+				if in == "header" {
+					omitted = append(omitted, param.name)
+					continue
+				}
+				param.value, param.hasValue = nil, false
+				if hrefVariables == nil {
+					hrefVariables = refract.Named("hrefVariables")
+				}
+				hrefVariables.Append(param.member())
+				continue
+			}
+			if !ok {
+				continue
+			}
+			param.value, param.hasValue = value, true
+			example := ""
+			if mark {
+				example = name
+			}
+			if in == "header" {
+				headers = append(headers, header{name: param.name, value: stringifyScalar(value), schema: param.converted, example: example})
+				continue
+			}
+			if hrefVariables == nil {
+				hrefVariables = refract.Named("hrefVariables")
+			}
+			member := param.member()
+			if mark {
+				member.Value.SetAttr(refract.ExampleAttribute, refract.String(example))
+			}
+			hrefVariables.Append(member)
+		}
+	}
+	return hrefVariables, headers, omitted
 }
 
 // hrefVariables renders the path and query parameters as the element the

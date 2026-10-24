@@ -48,6 +48,15 @@ const CookiesAttribute = "vertragCookies"
 // Dredd has no such attribute.
 const ExcludeAttribute = "vertragExclude"
 
+// ExampleAttribute marks a parameter value carried on an httpRequest itself, in
+// its own hrefVariables or headers, as the value a Parameter Object's
+// `examples` map gives under the request's example name. The request is the
+// exchange that name stands for, so the value is part of what it tests: a link
+// fills a parameter from an earlier response, but not one the request names
+// this way, or a "missing" id would be replaced by the one just created. Its
+// content is the example's name. Dredd has no such attribute.
+const ExampleAttribute = "vertragExample"
+
 // New returns an empty element with the given name.
 func New(name string) *Element {
 	return &Element{Name: name, Kind: ContentNone}

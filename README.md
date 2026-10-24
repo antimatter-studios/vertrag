@@ -284,6 +284,32 @@ There is no `vertrag replay` yet. Recording is the half that pays for itself
 immediately; replaying needs a decision about how a recorded response is matched
 to a request, which is the whole of what makes a replay library opinionated.
 
+### Named examples are exchanges
+
+An example name says which request produces which response. A request body named `rejected` is sent with the `400` named `rejected`, not with the `200`. A response or request without a name pairs with everything on the other side.
+
+Parameters can name their values in the same way. When a Parameter Object's `examples` map uses a name that a response also carries, that name is a request of its own, sent with that name's values:
+
+```yaml
+parameters:
+  - name: id
+    in: path
+    examples:
+      found:   {value: 1}
+      missing: {value: 2147483647}
+responses:
+  "200": {description: OK}
+  "404":
+    content:
+      application/json:
+        examples:
+          missing: {value: {error: {code: not_found}}}
+```
+
+This is two tests: `found` against the `200`, and `missing`, with id 2147483647, against the `404` and nothing else. A name that a response carries makes the value the exchange's own, so a [link](#sequences) does not overwrite it. Without that, the id a create just returned would replace the missing one. Such a request also does not wait for the link's source. A name that no response carries only illustrates, and a link fills it as usual. An optional query or header parameter whose examples all belong to other names is left out of a named request: an `X-Tenant` that names another tenant belongs to the `403`.
+
+Parameter examples that no response is named after change nothing: the first one stands in, as it always has.
+
 ### Sequences
 
 A description lists operations in whatever order reads well, which is frequently

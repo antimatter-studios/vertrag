@@ -192,7 +192,9 @@ func (d *document) parseOperation(path, method string, operation node, pathParam
 	requests := d.parseRequestBody(operation.Get("requestBody"))
 	responses := d.parseResponses(operation.Get("responses"))
 
-	for _, transaction := range buildTransactions(method, requests, responses, params.headers(), params.cookies()) {
+	requests = namedByParameters(requests, responses, params.exampleNames())
+
+	for _, transaction := range buildTransactions(method, requests, responses, params.headers(), params.cookies(), params.named) {
 		transition.Append(transaction)
 	}
 
@@ -229,6 +231,10 @@ type message struct {
 	// which response: see pairs.
 	example string
 
+	// byParameters marks a request whose name comes from its parameters'
+	// `examples` maps rather than from a body (#85): see pairsByParameters.
+	byParameters bool
+
 	// links are the operations this response declares it leads to. Only a
 	// response has them; a request cannot lead anywhere.
 	links *refract.Element
@@ -249,6 +255,63 @@ type header struct {
 	// from. A request header's value is otherwise vertrag's own doing, so there
 	// would be nothing to check it against.
 	schema string
+
+	// example is the name of the request example the value is given under,
+	// empty for a parameter's default value (#85).
+	example string
+}
+
+// namedByParameters makes a request for each name the parameters' `examples`
+// maps give values under, when the body names none and a response carries one
+// of those names (#85): the document is then saying that the parameters'
+// values are what tell its exchanges apart, as a "missing" id tells the 404
+// from the 200. A body with named examples already says which exchanges there
+// are, and the parameters' values of the same names go with them. Parameter
+// examples no response is named after only illustrate, and the first stands
+// in, as before.
+func namedByParameters(requests, responses []message, names []string) []message {
+	if len(names) == 0 {
+		return requests
+	}
+	for _, request := range requests {
+		if request.example != "" {
+			return requests
+		}
+	}
+	paired := false
+	for _, response := range responses {
+		for _, name := range names {
+			paired = paired || response.example == name
+		}
+	}
+	if !paired {
+		return requests
+	}
+	if len(requests) == 0 {
+		requests = []message{{}}
+	}
+	var out []message
+	for _, name := range names {
+		for _, request := range requests {
+			request.example, request.byParameters = name, true
+			out = append(out, request)
+		}
+	}
+	return out
+}
+
+// pairsByParameters is pairs for a request named by its parameters: it goes
+// with the response of its name when there is one, and with the unnamed
+// responses only when there is not. The parameters' names have no Dredd
+// counterpart to stay faithful to, and a "missing" request paired with an
+// unnamed 200 would be a test that the missing resource is found.
+func pairsByParameters(request message, responses []message) func(message) bool {
+	for _, response := range responses {
+		if response.example == request.example {
+			return func(r message) bool { return r.example == request.example }
+		}
+	}
+	return func(r message) bool { return r.example == "" }
 }
 
 // buildTransactions pairs each request with the responses it belongs with.
@@ -256,7 +319,7 @@ type header struct {
 // The product is deliberate: a document offering two request content types and
 // three responses describes six exchanges, and each is a separate test. Named
 // examples narrow it — see pairs.
-func buildTransactions(method string, requests, responses []message, headerParams, cookieParams []header) []*refract.Element {
+func buildTransactions(method string, requests, responses []message, headerParams, cookieParams []header, named func(string, bool) (*refract.Element, []header, []string)) []*refract.Element {
 	if len(requests) == 0 {
 		requests = []message{{}}
 	}
@@ -266,15 +329,36 @@ func buildTransactions(method string, requests, responses []message, headerParam
 
 	var transactions []*refract.Element
 	for _, request := range requests {
+		paired := func(response message) bool { return pairs(request, response) }
+		if request.byParameters {
+			paired = pairsByParameters(request, responses)
+		}
+		var namedVariables *refract.Element
+		var namedHeaders []header
+		var omitted []string
+		// The values are the exchange's own, which a link leaves alone, only
+		// when a response is named after the request: "missing" is the 404's.
+		// A name no response carries ("found") only illustrates, and a link
+		// fills it with what the run created.
+		mark := namesAResponse(request.example, responses)
+		if request.byParameters {
+			namedVariables, namedHeaders, omitted = named(request.example, mark)
+		} else if request.example != "" && named != nil {
+			namedVariables, namedHeaders, _ = named(request.example, mark)
+			namedVariables = withValuesOnly(namedVariables)
+		}
 		for _, response := range responses {
-			if !pairs(request, response) {
+			if !paired(response) {
 				continue
 			}
 
 			httpRequest := refract.Named("httpRequest")
 			httpRequest.SetAttr("method", refract.String(method))
+			if namedVariables != nil {
+				httpRequest.SetAttr("hrefVariables", namedVariables)
+			}
 
-			headers := make([]header, 0, len(request.headers)+len(headerParams)+1)
+			headers := make([]header, 0, len(request.headers)+len(namedHeaders)+len(headerParams)+1)
 			// Accept advertises what the response promises, so the server is
 			// asked for the representation the document is being tested against.
 			if response.contentType != "" {
@@ -283,10 +367,13 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			if request.contentType != "" {
 				headers = append(headers, header{name: "Content-Type", value: request.contentType})
 			}
+			// A header the request's example names wins over the parameter's
+			// default value, as its path and query values do.
+			headers = append(headers, namedHeaders...)
 			// A parameter must not displace a header the message already
 			// carries; the message's own is the more specific statement.
 			for _, param := range headerParams {
-				if !containsHeader(headers, param.name) {
+				if !containsHeader(headers, param.name) && !containsName(omitted, param.name) {
 					headers = append(headers, param)
 				}
 			}
@@ -360,6 +447,44 @@ func pairs(request, response message) bool {
 	return request.example == response.example
 }
 
+// namesAResponse reports whether a response carries the example name.
+func namesAResponse(name string, responses []message) bool {
+	for _, response := range responses {
+		if name != "" && response.example == name {
+			return true
+		}
+	}
+	return false
+}
+
+// withValuesOnly keeps the members of a request's own hrefVariables that carry
+// a value: a request named by its body changes only the parameters its name
+// gives values for, and leaves the rest as the document shows them.
+func withValuesOnly(hrefVariables *refract.Element) *refract.Element {
+	if hrefVariables == nil {
+		return nil
+	}
+	kept := refract.Named("hrefVariables")
+	for _, member := range hrefVariables.ContentChildren() {
+		if member.Value != nil && member.Value.ToValue() != nil {
+			kept.Append(member)
+		}
+	}
+	if len(kept.ContentChildren()) == 0 {
+		return nil
+	}
+	return kept
+}
+
+func containsName(names []string, name string) bool {
+	for _, n := range names {
+		if strings.EqualFold(n, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func containsHeader(headers []header, name string) bool {
 	for _, h := range headers {
 		if strings.EqualFold(h.name, name) {
@@ -399,6 +524,9 @@ func setHeaders(element *refract.Element, headers []header) {
 		value := refract.String(h.value)
 		if h.schema != "" {
 			value.SetAttr(refract.SchemaAttribute, refract.String(h.schema))
+		}
+		if h.example != "" {
+			value.SetAttr(refract.ExampleAttribute, refract.String(h.example))
 		}
 		httpHeaders.Append(refract.Member(h.name, value))
 	}

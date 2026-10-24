@@ -275,6 +275,7 @@ func headerParameters(element *refract.Element) []Parameter {
 			Schema:   schema,
 			Value:    value,
 			HasValue: value != "",
+			Named:    member.Value.Attr(refract.ExampleAttribute).String() != "",
 		})
 	}
 	return out
