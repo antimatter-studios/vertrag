@@ -28,6 +28,8 @@ type param struct {
 	schema string
 	// style is the non-default serialisation style, if any — see Parameter.Style.
 	style string
+	// named marks the request's own named example — see Parameter.Named.
+	named bool
 }
 
 // paramSet preserves declaration order.
@@ -86,6 +88,7 @@ func compileParams(hrefVariables *refract.Element) *paramSet {
 		if value != nil {
 			p.schema = value.Attr(refract.SchemaAttribute).String()
 			p.style = value.Attr(refract.StyleAttribute).String()
+			p.named = value.Attr(refract.ExampleAttribute).String() != ""
 			if def := value.Attr("default"); def != nil {
 				p.defaultVal = def.ToValue()
 				p.hasDefault = p.defaultVal != nil
@@ -309,6 +312,7 @@ func uriParameters(template string, params *paramSet, values map[string]any) []P
 				Style:    declared.style,
 				Value:    value,
 				HasValue: hasValue,
+				Named:    declared.named,
 			})
 		}
 	}

@@ -111,6 +111,12 @@ type Parameter struct {
 	// missing from the URI entirely, the second is present and blank.
 	Value    any
 	HasValue bool
+
+	// Named reports that Value is the request's own named example: the value
+	// the description's `examples` map gives the parameter under the name of
+	// the exchange this request is. A link from an earlier response does not
+	// replace it (#85).
+	Named bool
 }
 
 // Response is the response the API description promises.

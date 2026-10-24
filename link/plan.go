@@ -98,6 +98,10 @@ func Build(transactions []compile.Transaction) Plan {
 					// An operation linking to itself would depend on its own
 					// response. There is no order that satisfies that.
 					continue
+				case namesAll(l, transactions[target]):
+					// Everything the link would fill, the target's own named
+					// example gives already (#85): it has nothing to wait for.
+					continue
 				case after[target] != -1:
 					// Already claimed. The first link in document order wins,
 					// so the plan does not depend on map iteration and two runs
@@ -120,6 +124,27 @@ func Build(transactions []compile.Transaction) Plan {
 
 	plan.Steps = order(plan.Steps)
 	return plan
+}
+
+// namesAll reports whether a link fills only parameters the target request
+// names itself, its own example's values, which a link does not replace (#85).
+func namesAll(l compile.Link, target compile.Transaction) bool {
+	if len(l.Parameters) == 0 || l.RequestBody != "" {
+		return false
+	}
+	for key := range l.Parameters {
+		named := false
+		for _, p := range target.Request.Parameters {
+			if p.Named && Match(key, p.In, p.Name) {
+				named = true
+				break
+			}
+		}
+		if !named {
+			return false
+		}
+	}
+	return true
 }
 
 // targetIndex indexes the transactions the two spellings of a link target name

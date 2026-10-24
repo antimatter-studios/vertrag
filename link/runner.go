@@ -134,6 +134,11 @@ func apply(target *runner.Transaction, source compile.Transaction, values map[st
 	request := source.Request
 
 	for _, parameter := range source.Request.Parameters {
+		if parameter.Named {
+			// The request's own named example, the value the exchange it
+			// stands for is about: a "missing" id stays missing (#85).
+			continue
+		}
 		for key, value := range values {
 			if !Match(key, parameter.In, parameter.Name) {
 				continue
