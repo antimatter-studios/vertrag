@@ -268,10 +268,17 @@ is.
 
 **Bodies are not redacted by guesswork** — there is no way to know which field of
 a payload is a secret, and guessing would hide the payload a failure exists to
-show. But the credentials vertrag is itself holding are not a guess: the password
+show. But the credentials vertrag is itself holding are not a guess: every value
 in `auth.login.body`, the `auth.header` value, the OAuth2 client secret and the
 token the login returns are all known exactly, and those **values** are replaced
 wherever they appear in a reported body.
+
+Every value of the login body means all of it, not only the password: the
+account's address and a field such as `client: native` are replaced too, in every
+answer they appear in. Which field holds the credential is the judgement vertrag
+declines to make, so it takes the whole body. A report then shows `<redacted>`
+where the fixture account's address was, and a short value redacts that word
+wherever it occurs.
 
 That closes the one exchange header redaction could never reach. In the login
 itself the password goes out in the body and the token comes back in the body,
