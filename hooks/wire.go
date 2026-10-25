@@ -101,6 +101,9 @@ func applyWire(t *runner.Transaction, w wireTransaction) {
 		Headers:    copyHeaders(w.Expected.Headers),
 		Body:       keptBody(t.Expected.Body, w.Expected.Body),
 		BodySchema: w.Expected.BodySchema,
+		// The hook wire always contains body: "", even when no body was
+		// specified. Retain intent locally rather than infer it from the wire.
+		BodyPresent: t.Expected.BodyPresent || t.Expected.Body != "" || w.Expected.Body != "",
 	}
 
 	// Only fullPath redirects the request. A hook that edited request.uri has

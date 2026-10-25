@@ -121,15 +121,19 @@ type Parameter struct {
 
 // Response is the response the API description promises.
 //
-// Body and Schema are omitted when empty, matching the reference, which only
-// assigns them when truthy. The distinction is meaningful downstream: an absent
-// schema means "do not validate the body against a schema", which is not the
-// same as validating against an empty one.
+// The reference-compatible JSON omits empty Body and Schema strings. Runtime
+// body presence is tracked separately so an explicitly empty body remains an
+// expectation. An absent schema means no schema validation, rather than
+// validation against an empty schema.
 type Response struct {
 	Status  string   `json:"status"`
 	Headers []Header `json:"headers"`
 	Body    string   `json:"body,omitempty"`
 	Schema  string   `json:"schema,omitempty"`
+
+	// BodyPresent preserves an empty messageBody asset as a real expectation.
+	// It is runtime metadata, outside the reference-compatible compiled JSON.
+	BodyPresent bool `json:"-"`
 
 	// HeaderSchemas are the JSON Schemas the description gave individual
 	// response headers, keyed by header name.

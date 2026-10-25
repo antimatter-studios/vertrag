@@ -108,9 +108,7 @@ func TestExplicitXMLExamplesReachTheRunnerAsLiteralBytes(t *testing.T) {
 					}
 					for i, result := range results {
 						want := runner.StatusPass
-						// The runner's existing empty-body convention has no body
-						// expectation. Nonempty XML must compare byte for byte.
-						if wrong && transactions[i].Response.Body != "" {
+						if wrong {
 							want = runner.StatusFail
 						}
 						if result.Status != want {
