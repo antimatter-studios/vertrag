@@ -148,9 +148,11 @@ type message struct {
 	contentType string
 	body        string
 	hasBody     bool
-	schema      string
-	statusCode  string
-	headers     []header
+	// declared is a body the description wrote out, as an example.
+	declared   bool
+	schema     string
+	statusCode string
+	headers    []header
 }
 
 type header struct {
@@ -298,7 +300,7 @@ func (d *document) parseResponses(n node, produces []string) []message {
 
 			if variant.example.Valid() {
 				if body, ok := renderBody(scalarValue(variant.example)); ok {
-					msg.body, msg.hasBody = body, true
+					msg.body, msg.hasBody, msg.declared = body, true, true
 				}
 			} else if schema.Valid() && isJSONMediaType(variant.contentType) {
 				// Without a JSON media type there is nothing to render the
@@ -457,7 +459,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			setHeaders(httpRequest, headers)
 			if request.hasBody {
-				httpRequest.Append(bodyAsset(request.body, request.contentType))
+				httpRequest.Append(bodyAsset(request.body, request.contentType, request.declared))
 			}
 
 			httpResponse := refract.Named("httpResponse")
@@ -471,7 +473,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			responseHeaders = append(responseHeaders, response.headers...)
 			setHeaders(httpResponse, responseHeaders)
 			if response.hasBody {
-				httpResponse.Append(bodyAsset(response.body, response.contentType))
+				httpResponse.Append(bodyAsset(response.body, response.contentType, response.declared))
 			}
 			if response.schema != "" {
 				httpResponse.Append(schemaAsset(response.schema))
@@ -511,9 +513,12 @@ func setHeaders(element *refract.Element, headers []header) {
 	element.SetAttr("headers", httpHeaders)
 }
 
-func bodyAsset(body, contentType string) *refract.Element {
+func bodyAsset(body, contentType string, declared bool) *refract.Element {
 	asset := refract.Text("asset", body)
 	asset.AddClass("messageBody")
+	if declared {
+		asset.SetAttr(refract.DeclaredAttribute, refract.Bool(true))
+	}
 	if contentType != "" {
 		asset.SetAttr("contentType", refract.String(contentType))
 	}

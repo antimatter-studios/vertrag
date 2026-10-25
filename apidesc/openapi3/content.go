@@ -180,6 +180,7 @@ func (d *document) parseContentFor(content node, withSchema bool, dir direction)
 				example:     example.name,
 				body:        example.body,
 				hasBody:     example.hasBody,
+				declared:    example.hasBody,
 			}
 
 			// A multipart body is assembled from the schema's properties rather

@@ -317,10 +317,11 @@ func compileResponse(element *refract.Element) Response {
 	headers := compileHeaders(element.Attr("headers"))
 	body := element.ChildWithClass("asset", "messageBody")
 	response := Response{
-		Status:      status,
-		Headers:     headers,
-		Body:        compileBody(body, hasMultipartBody(headers)),
-		BodyPresent: body != nil,
+		Status:  status,
+		Headers: headers,
+		Body:    compileBody(body, hasMultipartBody(headers)),
+		// Only a declared body is an expectation when empty (DeclaredAttribute).
+		BodyPresent: body != nil && body.Attr(refract.DeclaredAttribute) != nil,
 	}
 	if schema := element.ChildWithClass("asset", "messageBodySchema"); schema != nil {
 		response.Schema = schema.String()
