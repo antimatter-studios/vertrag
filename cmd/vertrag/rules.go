@@ -237,11 +237,12 @@ func transactionNames(transactions []compile.Transaction) map[string]bool {
 }
 
 // registerAuthSecrets registers every secret an auth configuration holds —
-// the login body, a static header's value, an OAuth2 client secret in either
-// spelling — before any exchange can carry one into a report. The run's own
-// auth and each authorization principal's go through here alike.
+// the login body's secret fields, a static header's value, an OAuth2 client
+// secret in either spelling — before any exchange can carry one into a
+// report. The run's own auth and each authorization principal's go through
+// here alike.
 func registerAuthSecrets(a config.Auth) {
-	reporter.RegisterSecretsIn(a.Login.Body)
+	reporter.RegisterLoginSecrets(a.Login.Body, a.Login.Secrets)
 	if a.Header != "" {
 		// Written as "Name: value"; only the value is the secret, and
 		// registering the name would redact a header name out of every

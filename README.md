@@ -268,17 +268,18 @@ is.
 
 **Bodies are not redacted by guesswork** — there is no way to know which field of
 a payload is a secret, and guessing would hide the payload a failure exists to
-show. But the credentials vertrag is itself holding are not a guess: every value
-in `auth.login.body`, the `auth.header` value, the OAuth2 client secret and the
-token the login returns are all known exactly, and those **values** are replaced
-wherever they appear in a reported body.
+show. But the credentials vertrag is itself holding are not a guess: the fields
+of `auth.login.body` named in `auth.login.secrets`, the `auth.header` value, the
+OAuth2 client secret and the token the login returns are all known exactly, and
+those **values** are replaced wherever they appear in a reported body.
 
-Every value of the login body means all of it, not only the password: the
-account's address and a field such as `client: native` are replaced too, in every
-answer they appear in. Which field holds the credential is the judgement vertrag
-declines to make, so it takes the whole body. A report then shows `<redacted>`
-where the fixture account's address was, and a short value redacts that word
-wherever it occurs.
+Which login field holds the credential is not guessed either: the configuration
+says. Every field of `auth.login.body` is listed once, in `secrets` (redacted in
+every report) or in `public` (shown as written, so a report can still say which
+account signed in). A field in neither, a field in both, or a listed name that
+is not in the body stops the run before anything is sent, and the message names
+the field. So a field added to the login body later can't go out unredacted
+without somebody deciding it should. The same holds for each principal's login.
 
 That closes the one exchange header redaction could never reach. In the login
 itself the password goes out in the body and the token comes back in the body,
@@ -990,6 +991,8 @@ auth:
   login:
     path: /api/v1/auth/login       # method defaults to POST
     body: {username: admin, password: secret}
+    secrets: [password]            # redacted in every report
+    public: [username]             # shown as written; every field is one or the other
   cookie: jwt_token                # keep this one out of Set-Cookie
   except:                          # must go out unauthenticated
     - '/api/v1/auth/login > Login > 401 > application/json'

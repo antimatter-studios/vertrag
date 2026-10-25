@@ -434,10 +434,63 @@ type SkipRule struct {
 }
 
 // Login is the request that obtains a credential.
+//
+// Secrets and Public classify the body's fields, and between them they name
+// every one (CheckLogin): a field in Secrets is a credential, redacted wherever
+// its value appears in a report; a field in Public is shown as written, so a
+// report can still say which account signed in. Nothing is left to a default,
+// because a default is exactly how a field added later would go out unredacted
+// without anybody deciding it should (#87).
 type Login struct {
-	Method string
-	Path   string
-	Body   map[string]any
+	Method  string
+	Path    string
+	Body    map[string]any
+	Secrets []string
+	Public  []string
+}
+
+// CheckLogin reports a login whose body fields are not each classified exactly
+// once, as a secret or as public. It names the field, so the fix is one line.
+func CheckLogin(l Login) error {
+	secret := map[string]bool{}
+	public := map[string]bool{}
+	for _, name := range l.Secrets {
+		if secret[name] {
+			return fmt.Errorf("login.secrets names %q twice", name)
+		}
+		secret[name] = true
+	}
+	for _, name := range l.Public {
+		if public[name] {
+			return fmt.Errorf("login.public names %q twice", name)
+		}
+		if secret[name] {
+			return fmt.Errorf("login: %q is in both secrets and public; it can only be one", name)
+		}
+		public[name] = true
+	}
+	names := make([]string, 0, len(l.Body))
+	for name := range l.Body {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if !secret[name] && !public[name] {
+			return fmt.Errorf("login.body field %q is in neither login.secrets nor login.public; "+
+				"list it in secrets to redact its value, or in public to show it", name)
+		}
+	}
+	for _, list := range []struct {
+		key   string
+		names []string
+	}{{"secrets", l.Secrets}, {"public", l.Public}} {
+		for _, name := range list.names {
+			if _, ok := l.Body[name]; !ok {
+				return fmt.Errorf("login.%s names %q, which is not a field of login.body", list.key, name)
+			}
+		}
+	}
+	return nil
 }
 
 // Configured reports whether any authentication was asked for.
@@ -663,9 +716,11 @@ type oauth2File struct {
 
 // loginFile is the request that obtains the credential.
 type loginFile struct {
-	Method *string        `yaml:"method"`
-	Path   *string        `yaml:"path"`
-	Body   map[string]any `yaml:"body"`
+	Method  *string        `yaml:"method"`
+	Path    *string        `yaml:"path"`
+	Body    map[string]any `yaml:"body"`
+	Secrets []string       `yaml:"secrets"`
+	Public  []string       `yaml:"public"`
 }
 
 // checksFile is the `checks` section, which Dredd has no equivalent of.
@@ -756,6 +811,9 @@ func Load(path string) (Config, error) {
 	}
 	if parsed.Auth != nil {
 		applyAuth(&config.Auth, *parsed.Auth)
+		if err := CheckLogin(config.Auth.Login); err != nil {
+			return config, fmt.Errorf("%s: auth.%w", path, err)
+		}
 		header, err := expandEnv(config.Auth.Header)
 		if err != nil {
 			return config, fmt.Errorf("%s: auth.header: %w", path, err)
@@ -1127,6 +1185,9 @@ func applyPrincipals(principals *[]Principal, parsed []principalFile) error {
 		principal := Principal{Name: name, Roles: append([]string(nil), entry.Roles...)}
 		if entry.Auth != nil {
 			applyAuth(&principal.Auth, *entry.Auth)
+			if err := CheckLogin(principal.Auth.Login); err != nil {
+				return fmt.Errorf("%q: auth.%w", name, err)
+			}
 			header, err := expandEnv(principal.Auth.Header)
 			if err != nil {
 				return fmt.Errorf("%q: auth.header: %w", name, err)
@@ -1172,6 +1233,8 @@ func applyAuth(auth *Auth, parsed authFile) {
 		setString(&auth.Login.Method, parsed.Login.Method)
 		setString(&auth.Login.Path, parsed.Login.Path)
 		auth.Login.Body = parsed.Login.Body
+		auth.Login.Secrets = parsed.Login.Secrets
+		auth.Login.Public = parsed.Login.Public
 		// A login is a POST unless it says otherwise; nothing else is common
 		// enough to be worth making every config state it.
 		if auth.Login.Method == "" && auth.Login.Path != "" {

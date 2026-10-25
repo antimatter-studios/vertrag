@@ -26,6 +26,8 @@ auth:
   login:
     path: /auth/login
     body: {username: admin, password: secret}
+    secrets: [password]
+    public: [username]
   cookie: jwt_token
   except:
     - 'login > 401'
@@ -178,5 +180,37 @@ auth:
 	}
 	if settings.Auth.Login.Method != "" {
 		t.Errorf("a login method was invented for a static credential: %q", settings.Auth.Login.Method)
+	}
+}
+
+// Every login body field is classified exactly once, or the configuration
+// does not load: a field added later can't go out unredacted without somebody
+// deciding it should (#87).
+func TestLoginFieldsAreEachClassifiedOnce(t *testing.T) {
+	body := map[string]any{"email": "admin@example.test", "password": "hunter2-correct", "client": "native"}
+	for _, c := range []struct {
+		name            string
+		secrets, public []string
+		want            string
+	}{
+		{"every field classified", []string{"password"}, []string{"email", "client"}, ""},
+		{"a field in neither", []string{"password"}, []string{"email"}, `"client" is in neither`},
+		{"no lists at all", nil, nil, `"client" is in neither`},
+		{"a field in both", []string{"password", "email"}, []string{"email", "client"}, `"email" is in both`},
+		{"a name not in the body", []string{"password", "token"}, []string{"email", "client"}, `names "token", which is not a field`},
+		{"a secret named twice", []string{"password", "password"}, []string{"email", "client"}, `names "password" twice`},
+		{"a public field named twice", []string{"password"}, []string{"email", "client", "email"}, `names "email" twice`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := config.CheckLogin(config.Login{Path: "/login", Body: body, Secrets: c.secrets, Public: c.public})
+			switch {
+			case c.want == "" && err != nil:
+				t.Fatalf("refused a fully classified login: %v", err)
+			case c.want != "" && err == nil:
+				t.Fatalf("accepted it; want an error containing %q", c.want)
+			case c.want != "" && !strings.Contains(err.Error(), c.want):
+				t.Fatalf("error %q does not contain %q", err, c.want)
+			}
+		})
 	}
 }

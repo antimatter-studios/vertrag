@@ -20,7 +20,7 @@ principals:
   - name: reader
     roles: [read]
     auth:
-      login: {path: /login, body: {username: reader}}
+      login: {path: /login, body: {username: reader}, public: [username]}
       cookie: session
   - name: anonymous
 `)

@@ -22,6 +22,9 @@ func TestARecordedRunNeverCarriesTheCredentialItWasGiven(t *testing.T) {
 
 	const password = "hunter2-correct-horse-battery"
 	const token = "eyJhbGciOiJIUzI1NiJ9.the-session-token"
+	// Public, and long enough to be redacted if it were registered: a report
+	// must still be able to say which account signed in (#87).
+	const account = "admin@example.test"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -31,7 +34,7 @@ func TestARecordedRunNeverCarriesTheCredentialItWasGiven(t *testing.T) {
 			_, _ = fmt.Fprintf(w, `{"token":%q}`, token)
 			return
 		}
-		_, _ = w.Write([]byte(`{"id":1}`))
+		_, _ = fmt.Fprintf(w, `{"id":1,"owner":%q}`, account)
 	}))
 	defer server.Close()
 
@@ -58,11 +61,13 @@ endpoint: %s
 auth:
   login:
     path: /auth/login
-    body: {username: admin, password: %s}
+    body: {username: %s, password: %s}
+    secrets: [password]
+    public: [username]
   carry: bearer
 reporter: [vcr]
 output: [cassette.yml]
-`, server.URL, password)
+`, server.URL, account, password)
 	if err := os.WriteFile(filepath.Join(dir, "vertrag.yml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +89,11 @@ output: [cassette.yml]
 			t.Errorf("%s was written into the cassette", what)
 		}
 	}
+	// A public field is shown as written: the answer that names the account
+	// still names it. Registering the whole login body redacted it here (#87).
+	if !strings.Contains(string(recorded), `"owner":"`+account+`"`) {
+		t.Errorf("the public account address was redacted out of the answer:\n%s", recorded)
+	}
 	// It is still a usable recording, not a redacted blank.
 	if !strings.Contains(string(recorded), "http_interactions") {
 		t.Errorf("the cassette lost its shape:\n%s", recorded)
@@ -103,8 +113,8 @@ func TestTheCredentialIsRegisteredBeforeTheLoginRequestIsMade(t *testing.T) {
 		return string(source)
 	}
 	rules := read("rules.go")
-	if !strings.Contains(rules, "reporter.RegisterSecretsIn(a.Login.Body)") {
-		t.Error("registerAuthSecrets no longer registers the login body")
+	if !strings.Contains(rules, "reporter.RegisterLoginSecrets(a.Login.Body, a.Login.Secrets)") {
+		t.Error("registerAuthSecrets no longer registers the login body's secret fields")
 	}
 
 	// The run's own auth and every authorization principal's: the secrets
