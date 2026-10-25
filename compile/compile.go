@@ -315,10 +315,12 @@ func compileResponse(element *refract.Element) Response {
 	}
 
 	headers := compileHeaders(element.Attr("headers"))
+	body := element.ChildWithClass("asset", "messageBody")
 	response := Response{
-		Status:  status,
-		Headers: headers,
-		Body:    compileBody(element.ChildWithClass("asset", "messageBody"), hasMultipartBody(headers)),
+		Status:      status,
+		Headers:     headers,
+		Body:        compileBody(body, hasMultipartBody(headers)),
+		BodyPresent: body != nil,
 	}
 	if schema := element.ChildWithClass("asset", "messageBodySchema"); schema != nil {
 		response.Schema = schema.String()

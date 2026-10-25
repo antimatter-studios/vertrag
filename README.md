@@ -720,6 +720,16 @@ specification defaults to. A dialect it cannot honour is reported rather than
 passed through, because an unrecognised `$schema` is read as draft-04 and would
 quietly under-enforce every constraint in the file.
 
+### Explicit empty response examples
+
+An explicit text or XML response example of `""` promises zero body bytes.
+Unexpected bytes fail, just as a nonempty text or XML example fails when its
+bytes differ. Single `example` values and named `examples` values follow the
+same rule, including through hook round trips. A response with no body example
+or schema leaves the body unspecified. JSON responses with schemas continue to
+be validated against those schemas; example bytes do not replace the schema.
+HEAD, 204 and 304 responses retain their bodyless HTTP semantics.
+
 ## GraphQL
 
 A GraphQL schema is a description too, so vertrag tests one the same way:

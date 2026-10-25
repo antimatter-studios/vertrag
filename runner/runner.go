@@ -1075,6 +1075,7 @@ func newTransaction(source compile.Transaction, endpoint string, extraHeaders []
 			StatusCode:    source.Response.Status,
 			Headers:       expectedHeaders,
 			Body:          source.Response.Body,
+			BodyPresent:   source.Response.BodyPresent,
 			BodySchema:    schema,
 			HeaderSchemas: source.Response.HeaderSchemas,
 		},
@@ -1201,6 +1202,7 @@ func (t *Transaction) validated(checks Checks, elapsed, exchange time.Duration) 
 	// 204 and 304, which RFC 9110 forbids a body on.
 	if bodiless(t.Request.Method, t.Real.StatusCode) {
 		expected.Body = ""
+		expected.BodyPresent = false
 		expected.BodySchema = nil
 	}
 
