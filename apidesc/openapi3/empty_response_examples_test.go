@@ -101,3 +101,36 @@ func TestJSONResponseSchemasStillJudgeStructureInsteadOfExampleBytes(t *testing.
 		}
 	}
 }
+
+// A text response with a string schema and no example has a body generated
+// from the schema to fill the transaction, and that generated empty string is
+// not an expectation: an HTML page, a metrics exposition or an MTA-STS policy
+// answered there passes. Only a body the description writes out is enforced
+// when empty (#90).
+func TestAGeneratedEmptyBodyIsNotAnExpectation(t *testing.T) {
+	for _, media := range []string{"text/plain", "text/html"} {
+		t.Run(media, func(t *testing.T) {
+			txs := compileXMLExamples(t, media, nil, map[string]interface{}{
+				"schema": map[string]string{"type": "string"},
+			})
+			if len(txs) != 1 {
+				t.Fatalf("got %d transactions, want one", len(txs))
+			}
+			if txs[0].Response.BodyPresent {
+				t.Fatal("a body generated from the schema was taken as an explicit empty expectation")
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", media)
+				_, _ = io.WriteString(w, "<!DOCTYPE html><title>docs</title>\nversion: STSv1\n")
+			}))
+			defer server.Close()
+			results, err := runner.New(server.URL).Run(t.Context(), txs)
+			if err != nil || len(results) != 1 {
+				t.Fatalf("runner results %v, error %v", results, err)
+			}
+			if results[0].Status != runner.StatusPass {
+				t.Fatalf("status %s, want pass: %v", results[0].Status, results[0].Errors)
+			}
+		})
+	}
+}

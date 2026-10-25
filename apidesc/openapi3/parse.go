@@ -222,9 +222,12 @@ type message struct {
 	contentType string
 	body        string
 	hasBody     bool
-	schema      string
-	statusCode  string
-	headers     []header
+	// declared is a body the description wrote out, as an example; a body
+	// generated from the schema is a value to send, not an expectation.
+	declared   bool
+	schema     string
+	statusCode string
+	headers    []header
 
 	// example is the name the document gave this body in an Examples Object,
 	// empty for a body that was not named. It decides which request goes with
@@ -393,7 +396,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 				httpRequest.SetAttr(refract.CookiesAttribute, cookies)
 			}
 			if request.hasBody {
-				httpRequest.Append(bodyAsset(request.body, request.contentType))
+				httpRequest.Append(bodyAsset(request.body, request.contentType, request.declared))
 			}
 			if request.schema != "" {
 				httpRequest.Append(schemaAsset(request.schema))
@@ -410,7 +413,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			responseHeaders = append(responseHeaders, response.headers...)
 			setHeaders(httpResponse, responseHeaders)
 			if response.hasBody {
-				httpResponse.Append(bodyAsset(response.body, response.contentType))
+				httpResponse.Append(bodyAsset(response.body, response.contentType, response.declared))
 			}
 			if response.schema != "" {
 				httpResponse.Append(schemaAsset(response.schema))
@@ -533,9 +536,14 @@ func setHeaders(element *refract.Element, headers []header) {
 	element.SetAttr("headers", httpHeaders)
 }
 
-func bodyAsset(body, contentType string) *refract.Element {
+func bodyAsset(body, contentType string, declared bool) *refract.Element {
 	asset := refract.Text("asset", body)
 	asset.AddClass("messageBody")
+	if declared {
+		// Only a body the description wrote out can be an explicitly empty
+		// expectation; an empty value generated from a string schema is not one.
+		asset.SetAttr(refract.DeclaredAttribute, refract.Bool(true))
+	}
 	if contentType != "" {
 		asset.SetAttr("contentType", refract.String(contentType))
 	}

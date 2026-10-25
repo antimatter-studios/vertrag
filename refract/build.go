@@ -57,6 +57,14 @@ const ExcludeAttribute = "vertragExclude"
 // content is the example's name. Dredd has no such attribute.
 const ExampleAttribute = "vertragExample"
 
+// DeclaredAttribute marks a messageBody asset whose content the description
+// wrote out, as an example, rather than one generated from a schema. Only a
+// declared body can be an explicitly empty expectation (#90): an empty value
+// generated from a `type: string` schema is something to send, and expecting
+// it would fail every text response with no example. Dredd has no such
+// attribute.
+const DeclaredAttribute = "vertragDeclared"
+
 // New returns an empty element with the given name.
 func New(name string) *Element {
 	return &Element{Name: name, Kind: ContentNone}
