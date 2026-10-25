@@ -16,8 +16,8 @@ import (
 // a row being created.
 //
 // But vertrag does not have to inspect a body to know one thing about it: the
-// credential values it is itself holding. The password written in
-// `auth.login.body`, the static `auth.header` value, the OAuth2 client secret,
+// credential values it is itself holding. The fields of `auth.login.body`
+// named in `auth.login.secrets`, the static `auth.header` value, the OAuth2 client secret,
 // and the token or cookie the login exchange returned are all known exactly, by
 // value, before any report is written. Replacing those exact strings is not a
 // guess about what a field means — it is recognising a value we put there.
@@ -110,13 +110,25 @@ func RegisterCredential(value string) {
 	}
 }
 
-// RegisterSecretsIn records every string value in a login body, at any depth.
+// RegisterLoginSecrets records the values of a login body's secret fields, at
+// any depth.
 //
-// The whole body is taken rather than the field somebody named `password`,
-// because which field carries the credential is exactly the judgement this file
-// exists to avoid making. A login body is short, entirely made of values the
-// caller wrote into their configuration, and none of it is interesting in a
-// report — so treating all of it as secret costs nothing and guesses nothing.
+// Only those fields: the configuration names which fields are credentials
+// (login.secrets) and which are shown as written (login.public), and
+// config.CheckLogin refuses a body with a field in neither. Registering the whole body, as this once did, redacted the account's
+// address with its password, so a report could not say who signed in and a
+// reader could not tell the two apart (#87). The judgement about which field is
+// the credential is still not made here: it is written in the configuration,
+// and a field nobody classified stops the run rather than being guessed at.
+func RegisterLoginSecrets(body map[string]any, secrets []string) {
+	for _, name := range secrets {
+		if value, ok := body[name]; ok {
+			RegisterSecretsIn(map[string]any{name: value})
+		}
+	}
+}
+
+// RegisterSecretsIn records every string value in a body, at any depth.
 func RegisterSecretsIn(body map[string]any) {
 	for _, value := range body {
 		switch typed := value.(type) {

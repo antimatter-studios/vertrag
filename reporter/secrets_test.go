@@ -106,3 +106,31 @@ func TestNoSanitizeStillShowsTheCredential(t *testing.T) {
 		t.Errorf("--no-sanitize did not show the credential: %s", got)
 	}
 }
+
+// TestOnlyTheLoginBodysSecretFieldsAreRegistered: the account's address signs in
+// alongside the password, and a report must still be able to show it (#87).
+// Nested secret values are registered at any depth, as the whole body once was.
+func TestOnlyTheLoginBodysSecretFieldsAreRegistered(t *testing.T) {
+	t.Cleanup(ForgetSecrets)
+	ForgetSecrets()
+
+	body := map[string]any{
+		"email":    "admin@example.test",
+		"password": "hunter2-correct-horse",
+		"mfa":      map[string]any{"code": "991-224-117"},
+		"client":   "native-app-client",
+	}
+	RegisterLoginSecrets(body, []string{"password", "mfa"})
+
+	got := RedactSecrets(`{"from":"admin@example.test","password":"hunter2-correct-horse","code":"991-224-117","client":"native-app-client"}`)
+	for _, secret := range []string{"hunter2-correct-horse", "991-224-117"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("secret %q survived into the report: %s", secret, got)
+		}
+	}
+	for _, public := range []string{"admin@example.test", "native-app-client"} {
+		if !strings.Contains(got, public) {
+			t.Errorf("public value %q was redacted: %s", public, got)
+		}
+	}
+}

@@ -118,6 +118,10 @@ auth:
   login:
     path: /api/v1/auth/login    # method defaults to POST
     body: {username: admin, password: secret}
+    # Every body field is listed once: secrets are redacted in every report,
+    # public fields are shown as written. A field in neither stops the run.
+    secrets: [password]
+    public: [username]
 
   # How the credential comes back. Naming a cookie implies `carry: cookie`, and
   # names which one to keep when the server sets several.

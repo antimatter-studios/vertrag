@@ -321,7 +321,7 @@ func TestTheLoginOperationIsNotReportedAsALockedDoor(t *testing.T) {
 	os.WriteFile(description, []byte(loginAPI), 0o600)
 	cfg := filepath.Join(dir, "vertrag.yml")
 	os.WriteFile(cfg, []byte("spec: "+description+"\nendpoint: "+server.URL+
-		"\nauth:\n  login:\n    path: /auth/login\n    body: {username: admin, password: password}\n  carry: cookie\n"), 0o600)
+		"\nauth:\n  login:\n    path: /auth/login\n    body: {username: admin, password: password}\n    secrets: [password]\n    public: [username]\n  carry: cookie\n"), 0o600)
 
 	real := os.Stdout
 	read, write, _ := os.Pipe()
