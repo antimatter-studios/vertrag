@@ -32,6 +32,9 @@ type Message struct {
 	StatusCode string
 	Headers    map[string]string
 	Body       string
+	// BodyPresent distinguishes an explicitly empty body from no expectation.
+	// Nonempty bodies remain expectations even when callers omit this flag.
+	BodyPresent bool `json:"-"`
 	// BodySchema is the JSON Schema the description attached to the response,
 	// when it had one. It turns body checking from key presence into real
 	// validation.
@@ -72,10 +75,10 @@ func Validate(expected, real Message) Result {
 		result.add("headers", validateHeaders(expected.Headers, real.Headers))
 	}
 
-	// With nothing expected and no schema, there is nothing to say about the
+	// With no body expectation and no schema, there is nothing to say about the
 	// body, and the field is left out entirely rather than reported as trivially
 	// valid — which is what the reference does.
-	if expected.Body != "" || len(expected.BodySchema) > 0 {
+	if expected.BodyPresent || expected.Body != "" || len(expected.BodySchema) > 0 {
 		result.add("body", validateBody(expected, real))
 	}
 
