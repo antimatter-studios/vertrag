@@ -184,9 +184,9 @@ func overrideParams(base, overrides *paramSet) *paramSet {
 }
 
 // validateParams reports parameters that cannot produce a usable URI.
-func validateParams(params *paramSet) (errs []string, warnings []string) {
+func validateParams(params *paramSet, queryOnly map[string]bool) (errs []string, warnings []string) {
 	for _, p := range params.all() {
-		if p.required && !isUsable(p.example, p.hasExample) && !isUsable(p.defaultVal, p.hasDefault) {
+		if p.required && !isUsable(p.example, p.hasExample, queryOnly[p.name]) && !isUsable(p.defaultVal, p.hasDefault, queryOnly[p.name]) {
 			errs = append(errs, fmt.Sprintf(
 				"Required URI parameter '%s' has no example or default value.", p.name))
 		}
@@ -205,14 +205,38 @@ func validateParams(params *paramSet) (errs []string, warnings []string) {
 	return errs, warnings
 }
 
-// isUsable reports whether a value can stand in for a URI parameter: it must be
-// present and not the empty string.
-func isUsable(value any, present bool) bool {
+// A query value may be explicitly blank; it still expands as name=. Empty
+// path values remain unusable, and absent examples never become blank values.
+func isUsable(value any, present, allowEmpty bool) bool {
 	if !present || value == nil {
 		return false
 	}
 	s, ok := value.(string)
-	return !ok || s != ""
+	return !ok || s != "" || allowEmpty
+}
+
+// queryOnlyParameters identifies names used exclusively by query operators.
+// A name also used in a path must keep the path's nonempty requirement.
+func queryOnlyParameters(template string) map[string]bool {
+	parsed, err := uritemplate.Parse(template)
+	if err != nil {
+		return nil
+	}
+	query, other := map[string]bool{}, map[string]bool{}
+	for _, expression := range parsed.Expressions {
+		for _, parameter := range expression.Params {
+			name := decodeURIComponentish(parameter.Name)
+			if expression.Op == '?' || expression.Op == '&' {
+				query[name] = true
+			} else {
+				other[name] = true
+			}
+		}
+	}
+	for name := range other {
+		delete(query, name)
+	}
+	return query
 }
 
 func containsValue(values []any, target any) bool {
@@ -266,7 +290,7 @@ func compileURI(request *refract.Element) (compiledURI, []Annotation) {
 		params = overrideParams(params, compileParams(element.Attr("hrefVariables")))
 	}
 
-	errs, warnings := validateParams(params)
+	errs, warnings := validateParams(params, queryOnlyParameters(href))
 	annotations = appendAnnotations(annotations, "parametersValidation", errs, warnings)
 
 	uri, values, errs, warnings := expandURITemplate(href, params)
@@ -371,15 +395,16 @@ func expandURITemplate(template string, params *paramSet) (uri string, values ma
 	}
 
 	toExpand := map[string]any{}
+	queryOnly := queryOnlyParameters(template)
 	for _, name := range names {
 		p, ok := params.get(name)
 		if !ok {
 			continue
 		}
 		switch {
-		case isUsable(p.example, p.hasExample):
+		case isUsable(p.example, p.hasExample, queryOnly[name]):
 			toExpand[name] = styled(Parameter{Name: name, Style: p.style}, p.example)
-		case isUsable(p.defaultVal, p.hasDefault):
+		case isUsable(p.defaultVal, p.hasDefault, queryOnly[name]):
 			toExpand[name] = styled(Parameter{Name: name, Style: p.style}, p.defaultVal)
 		case p.required:
 			ambiguous = true
@@ -390,7 +415,7 @@ func expandURITemplate(template string, params *paramSet) (uri string, values ma
 
 		// A required parameter with a default is legal but meaningless: the
 		// description is asking for a value it also says may be omitted.
-		if p.required && isUsable(p.defaultVal, p.hasDefault) {
+		if p.required && isUsable(p.defaultVal, p.hasDefault, queryOnly[name]) {
 			warnings = append(warnings, fmt.Sprintf(
 				"Required URI parameter '%s' has a default value.\nDefault value for a required parameter doesn't make sense from API description perspective. Use example value instead.",
 				name))

@@ -384,6 +384,9 @@ func (p parameter) member() *refract.Element {
 	}
 
 	if p.schema.Valid() {
+		if fallback := p.schema.Get("default"); fallback.Valid() {
+			value.SetAttr("default", primitiveElement(scalarValue(fallback)))
+		}
 		if enum := p.schema.Get("enum"); enum.IsSequence() {
 			enumerations := refract.Array()
 			for _, item := range enum.Items() {
