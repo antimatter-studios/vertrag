@@ -697,6 +697,15 @@ the key for the same reason: content negotiation is one status answering with
 two shapes on purpose, and a check that reports the intended behaviour of
 ordinary APIs is one people learn to scroll past.
 
+### Empty query examples
+
+An explicitly empty query example is sent as `?address=`, including when the
+parameter is required. Named examples, a single example, schema examples and
+schema defaults preserve the value the description gives. This lets a contract
+exercise an API's blank-value refusal alongside ordinary requests. A required
+parameter without an example or default still produces a diagnostic. Required
+path parameters retain their nonempty-value requirement.
+
 ### Webhooks are read, checked, and not sent
 
 `webhooks` is OpenAPI 3.1's, and it points the other way: a path is a request

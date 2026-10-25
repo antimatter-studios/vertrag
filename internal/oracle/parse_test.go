@@ -187,6 +187,13 @@ var divergences = []divergence{
 	},
 	{
 		fixture: "parameters",
+		path:    "transactions[0].request.uri",
+		reason: "The query parameter's schema declares default 10. Carrying it " +
+			"through the parser now sends /search?limit=10, while the recorded " +
+			"reference sends /search with the default omitted (#95).",
+	},
+	{
+		fixture: "parameters",
 		path:    "annotations",
 		reason:  headerSchemasAreSupported,
 	},

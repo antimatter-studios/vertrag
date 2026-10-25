@@ -3,7 +3,7 @@
     {
       "request": {
         "method": "GET",
-        "uri": "/search",
+        "uri": "/search?limit=10",
         "headers": [],
         "body": ""
       },
