@@ -256,7 +256,7 @@ func (d *document) examplesOf(mediaTypeObject node, mediaType string) []namedBod
 	// A single `example` is what the author chose to demonstrate and takes
 	// precedence over anything else, including an Examples Object beside it.
 	if example := mediaTypeObject.Get("example"); example.Valid() {
-		if body, ok := renderBody(scalarValue(example), mediaType); ok {
+		if body, ok := renderExampleBody(scalarValue(example), mediaType); ok {
 			return []namedBody{{body: body, hasBody: true}}
 		}
 		return []namedBody{{}}
@@ -275,7 +275,7 @@ func (d *document) examplesOf(mediaTypeObject node, mediaType string) []namedBod
 			out = append(out, namedBody{name: name})
 			continue
 		}
-		if body, ok := renderBody(scalarValue(value), mediaType); ok {
+		if body, ok := renderExampleBody(scalarValue(value), mediaType); ok {
 			out = append(out, namedBody{name: name, body: body, hasBody: true})
 			continue
 		}
@@ -286,6 +286,17 @@ func (d *document) examplesOf(mediaTypeObject node, mediaType string) []namedBod
 		return []namedBody{{}}
 	}
 	return out
+}
+
+// An explicit XML string is already serialized. Preserve its bytes, including
+// malformed or empty input, without attempting to generate XML from a schema.
+func renderExampleBody(value any, mediaType string) (string, bool) {
+	base := baseMediaType(mediaType)
+	if base == "application/xml" || base == "text/xml" || strings.HasSuffix(base, "+xml") {
+		body, ok := value.(string)
+		return body, ok
+	}
+	return renderBody(value, mediaType)
 }
 
 // multipartBoundary separates the parts of a generated multipart body.
