@@ -343,18 +343,25 @@ func buildTransactions(method string, requests, responses []message, headerParam
 
 	var transactions []*refract.Element
 	for _, request := range requests {
-		paired := func(response message) bool { return pairs(request, response) }
-		if request.byParameters {
-			paired = pairsByParameters(request, responses)
-		}
-		var namedVariables *refract.Element
-		var namedHeaders []header
-		var omitted []string
 		// The values are the exchange's own, which a link leaves alone, only
 		// when a response is named after the request: "missing" is the 404's.
 		// A name no response carries ("found") only illustrates, and a link
 		// fills it with what the run created.
 		mark := namesAResponse(request.example, responses)
+		paired := func(response message) bool { return pairs(request, response) }
+		switch {
+		case request.byParameters:
+			paired = pairsByParameters(request, responses)
+		case mark:
+			// A request a response is named after belongs to that response, and
+			// not also to the unnamed ones: a bodyless 204 carries no name, and
+			// the malformed body named for the 400 would otherwise be sent
+			// expecting the 204.
+			paired = func(response message) bool { return response.example == request.example }
+		}
+		var namedVariables *refract.Element
+		var namedHeaders []header
+		var omitted []string
 		if request.byParameters {
 			namedVariables, namedHeaders, omitted = named(request.example, mark)
 		} else if request.example != "" && named != nil {
@@ -475,9 +482,10 @@ func buildTransactions(method string, requests, responses []message, headerParam
 // instead would generate a test asserting that the invalid request succeeds,
 // which is guaranteed to fail and tells nobody anything.
 //
-// A name on only one side constrains nothing, so those still pair with
+// A name on only one side constrains nothing here, so those still pair with
 // everything — that is the case of a document that names its request examples
-// but describes its responses by schema alone.
+// but describes its responses by schema alone. buildTransactions narrows a
+// request a response is named after to that response.
 func pairs(request, response message) bool {
 	if request.example == "" || response.example == "" {
 		return true

@@ -129,3 +129,40 @@ paths:
 		t.Fatalf("got %d transactions, want 1", len(transactions))
 	}
 }
+
+// TestARequestNamedForItsResponseLeavesTheUnnamedOnesAlone pins that a request
+// whose name a response carries belongs to that response only. A 204 cannot
+// carry a name (it has no Example Object), so it pairs with the requests no
+// response is named after; the malformed body named for the 400 is not also
+// sent expecting the 204, a test that the malformed body succeeds.
+func TestARequestNamedForItsResponseLeavesTheUnnamedOnesAlone(t *testing.T) {
+	transactions := transactionsOf(t, `
+openapi: 3.0.0
+info: {title: T, version: "1.0"}
+paths:
+  /logout:
+    post:
+      requestBody:
+        content:
+          application/json:
+            examples:
+              signed_out: {value: {token: t}}
+              body_array: {value: []}
+      responses:
+        "204": {description: signed out}
+        "400":
+          description: bad body
+          content:
+            application/json:
+              examples:
+                body_array: {value: {error: bad_request}}
+`)
+	if len(transactions) != 2 {
+		t.Fatalf("got %d transactions, want 2:\n%s", len(transactions), strings.Join(transactions, "\n---\n"))
+	}
+	for _, transaction := range transactions {
+		if strings.Contains(transaction, "body=[]") && strings.Contains(transaction, "status=204") {
+			t.Errorf("the malformed body is sent expecting 204:\n%s", strings.Join(transactions, "\n---\n"))
+		}
+	}
+}
