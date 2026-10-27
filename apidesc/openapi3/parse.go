@@ -363,6 +363,13 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			// the malformed body named for the 400 would otherwise be sent
 			// expecting the 204.
 			paired = func(response message) bool { return response.example == request.example }
+		case request.example == "":
+			// And the other way round: a response a request is named after belongs
+			// to that request. An unnamed request, such as one in a media type the
+			// examples were not written in, is not also sent expecting it.
+			paired = func(response message) bool {
+				return response.example == "" || !namesARequest(response.example, requests)
+			}
 		}
 		var namedVariables *refract.Element
 		var namedHeaders []header
@@ -496,6 +503,16 @@ func pairs(request, response message) bool {
 		return true
 	}
 	return request.example == response.example
+}
+
+// namesARequest reports whether a request carries the example name.
+func namesARequest(name string, requests []message) bool {
+	for _, request := range requests {
+		if name != "" && request.example == name {
+			return true
+		}
+	}
+	return false
 }
 
 // namesAResponse reports whether a response carries the example name.
