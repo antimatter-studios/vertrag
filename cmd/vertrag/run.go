@@ -307,7 +307,7 @@ func runRun(args []string) error {
 		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
 	}
 
-	source, err := os.ReadFile(settings.Spec)
+	source, err := readDescription(settings.Spec)
 	if err != nil {
 		return fmt.Errorf("reading the API description: %w", err)
 	}

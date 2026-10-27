@@ -103,6 +103,11 @@ vertrag run openapi.yml http://localhost:4000
 vertrag run --dry-run openapi.yml   # what would be sent, without sending it
 vertrag compile openapi.yml         # the transactions, as JSON
 
+# A generated description can be read directly from its endpoint, too.
+vertrag run https://api.example.test/openapi.json https://api.example.test
+vertrag compile https://api.example.test/openapi.json
+vertrag doctor https://api.example.test/openapi.json https://api.example.test
+
 # JUnit XML for CI — Jenkins, GitLab, GitHub Actions. The suite's <properties>
 # say which vertrag, description, endpoint and config file produced the report.
 vertrag run --reporter junit --output report.xml
@@ -116,6 +121,14 @@ vertrag run --reporter json --output report.json    # every verdict, for a scrip
 vertrag run --reporter har --output run.har         # open it in devtools
 vertrag run --reporter vcr --output cassette.yml    # replay it from a suite
 ```
+
+HTTP and HTTPS description URLs also work in `spec:`. Remote descriptions use
+a separate HTTP client with a 30-second timeout and a 32 MiB response limit;
+the tested API's configured credentials and request headers are not forwarded
+to the description host. Fetch errors fail the command before any API request.
+The fetched bytes go through the same parser and compiler as a saved file.
+Reports still record which source was used. `doctor` fetches a URL description
+but sends no requests to the API under test.
 
 ### Narrowing a run
 

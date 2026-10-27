@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
@@ -153,14 +152,14 @@ func runCompile(args []string) error {
 	}
 
 	path := positional[0]
-	data, err := os.ReadFile(path)
+	data, err := readDescription(path)
 	if err != nil {
 		return err
 	}
 
 	origin := *filename
 	if origin == "" {
-		origin = filepath.Base(path)
+		origin = descriptionFilename(path)
 	}
 
 	encoder := json.NewEncoder(os.Stdout)
