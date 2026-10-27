@@ -1542,10 +1542,13 @@ func describeScheme(security compile.SecurityScheme) string {
 }
 
 // applyNamedValues applies `named-values`. With "illustrate", a parameter value
-// the description names after its exchange stops being the exchange's own, so
-// a sequenced run's links fill it as they fill any other: the server under test
-// has its own rows, not the fixtures the description's examples were written
-// against. The pairing the names made is unchanged.
+// the description names after an exchange that expects a success stops being
+// the exchange's own, so a sequenced run's links fill it as they fill any
+// other: the server under test has its own rows, not the fixtures the
+// description's examples were written against. A refusal's named value stays
+// its own: it is the refusal's cause, and the missing id filled with the one
+// the run created would ask for a 404 and get the 200. The pairing the names
+// made is unchanged.
 func applyNamedValues(transactions []compile.Transaction, mode string) error {
 	switch mode {
 	case "", "own":
@@ -1555,6 +1558,9 @@ func applyNamedValues(transactions []compile.Transaction, mode string) error {
 		return fmt.Errorf(`named-values: %q is neither "own" nor "illustrate"`, mode)
 	}
 	for i := range transactions {
+		if !strings.HasPrefix(transactions[i].Response.Status, "2") {
+			continue
+		}
 		parameters := append([]compile.Parameter(nil), transactions[i].Request.Parameters...)
 		for j := range parameters {
 			parameters[j].Named = false

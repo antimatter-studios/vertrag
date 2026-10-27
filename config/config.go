@@ -87,9 +87,10 @@ type Config struct {
 
 	// NamedValues says what a parameter value named after its exchange is
 	// (#85): "own", the default, keeps it as the exchange's own, which a link
-	// does not replace; "illustrate" lets a link fill it like any other value,
-	// for a description whose named values come from fixtures the server under
-	// test does not have.
+	// does not replace; "illustrate" lets a link fill it like any other value
+	// on an exchange that expects a success, for a description whose named
+	// values come from fixtures the server under test does not have. A
+	// refusal's named value stays its own.
 	NamedValues string
 
 	// Provides is what this run can set up for an exchange that needs it, by

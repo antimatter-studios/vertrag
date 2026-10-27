@@ -562,6 +562,88 @@ func TestNamedValuesIllustrateLetsALinkFillTheId(t *testing.T) {
 	}
 }
 
+// linkedNamedRefusals adds, to linkedNamedExamples, a "missing" id the 404
+// is named after: the value is what makes the exchange a 404.
+const linkedNamedRefusals = `openapi: 3.0.0
+info: {title: Linked, version: "1.0"}
+paths:
+  /things:
+    post:
+      summary: Create a thing
+      operationId: createThing
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {id: {type: integer}}
+          links:
+            read:
+              operationId: getThing
+              parameters: {id: $response.body#/id}
+  /things/{id}:
+    get:
+      summary: Fetch a thing
+      operationId: getThing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            found: {value: 1}
+            missing: {value: 999}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {id: {type: integer}}
+              examples:
+                found: {value: {id: 7}}
+        "404":
+          description: not found
+          content:
+            application/json:
+              schema: {type: object}
+              examples:
+                missing: {value: {}}
+`
+
+// TestNamedValuesIllustrateKeepsARefusalsOwnValue pins that "illustrate" lets a
+// link fill only an exchange that expects a success. A refusal's named value is
+// its cause: the missing id filled with the one the run created would ask for a
+// 404 and get the 200.
+func TestNamedValuesIllustrateKeepsARefusalsOwnValue(t *testing.T) {
+	binary := build(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/things":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":7}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/things/7":
+			_, _ = w.Write([]byte(`{"id":7}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(server.Close)
+	description := filepath.Join(t.TempDir(), "openapi.yaml")
+	if err := os.WriteFile(description, []byte(linkedNamedRefusals), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCommand(t, binary, "run", "--endpoint", server.URL, "--no-color", "--sequence", "--named-values", "illustrate", description)
+	if code != 0 {
+		t.Errorf("the 404 should send its own id and the 200 the linked one (exit %d):\n%s", code, out)
+	}
+}
+
 // requiringExamples has an exchange needing nothing, one whose response example
 // requires a fault, and a bodyless delete whose parameter example requires a
 // principal: the requirement must be read from either side of the pair.
