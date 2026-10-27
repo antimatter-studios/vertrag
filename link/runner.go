@@ -2,6 +2,7 @@ package link
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -78,6 +79,13 @@ func (s *Sequencer) Fresh() *Sequencer {
 	fresh.exchanges = map[int]Exchange{}
 	fresh.substituted = map[int]map[string]string{}
 	return &fresh
+}
+
+// Filled is what Prepare put into a step's request, keyed by location and
+// name — `path.id` — for a caller that must know which ids a request
+// addressed: the ownership phase looks for them in another tenant's lists.
+func (s *Sequencer) Filled(index int) map[string]string {
+	return maps.Clone(s.substituted[index])
 }
 
 // Ancestors are the steps a step takes its values from, the furthest first:

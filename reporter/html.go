@@ -32,30 +32,35 @@ type HTML struct {
 	// table as the Markdown report shows it; nil leaves it out.
 	Surface *Surface
 	// Authorization is the authorization phase's matrix, shown after the
-	// surface; nil leaves it out.
+	// surface; nil leaves it out. Ownership is the ownership phase's, after it.
 	Authorization *Authorization
+	Ownership     *Authorization
 }
 
 // Report writes the page and returns true when the run passed.
 func (r HTML) Report(results []runner.Result) bool {
 	doc := newDocument(r.title(), results, r.Details)
 	page := htmlPage{document: doc, Surface: r.Surface}
-	if r.Authorization != nil {
-		page.Authorization = &htmlAuthorization{Authorization: r.Authorization.Normal(),
-			Grid: r.Authorization.Grid(), Findings: r.Authorization.Findings(),
-			Verdict: r.Authorization.Verdict(), Met: r.Authorization.Met()}
+	for _, matrix := range []*Authorization{r.Authorization, r.Ownership} {
+		if matrix != nil {
+			page.Matrices = append(page.Matrices, htmlAuthorization{Authorization: matrix.Normal(),
+				Grid: matrix.Grid(), Findings: matrix.Findings(),
+				Verdict: matrix.Verdict(), Met: matrix.Met()})
+		}
 	}
 	htmlTemplate.Execute(r.Out, page)
 	return doc.Summary.Passed() && (r.Surface == nil || r.Surface.Met()) &&
-		(r.Authorization == nil || r.Authorization.Met())
+		metOrAbsent(r.Authorization) && metOrAbsent(r.Ownership)
 }
 
 // htmlPage is what the template renders: the document both written reports
 // share, and the surface beside it.
 type htmlPage struct {
 	document
-	Surface       *Surface
-	Authorization *htmlAuthorization
+	Surface *Surface
+	// Matrices are the authorization matrix, then the ownership one, each
+	// present only when its phase ran.
+	Matrices []htmlAuthorization
 }
 
 // htmlAuthorization is the matrix worked out for the template, which can only
@@ -165,13 +170,13 @@ pre.message { background: none; border: none; border-left: 3px solid #b42318; bo
 {{end}}{{with .Verdict}}<p class="summary {{if $.Surface.Met}}pass{{else}}fail{{end}}">{{.}}</p>{{end}}
 </section>
 {{end}}
-{{with .Authorization}}
+{{range .Matrices}}
 <section>
-<h2>Authorization matrix</h2>
+<h2>{{.Title}}</h2>
 <table>
 <thead><tr><th>Operation</th>{{range .Principals}}<th>{{.}}</th>{{end}}</tr></thead>
 <tbody>
-{{range $i, $row := .Grid}}<tr><td>{{index $.Authorization.Operations $i}}</td>{{range $row}}<td><span class="badge {{.Verdict}}">{{.Label}}</span></td>{{end}}</tr>
+{{$operations := .Operations}}{{range $i, $row := .Grid}}<tr><td>{{index $operations $i}}</td>{{range $row}}<td><span class="badge {{.Verdict}}">{{.Label}}</span></td>{{end}}</tr>
 {{end}}</tbody>
 </table>
 <p class="summary {{if .Met}}pass{{else}}fail{{end}}">{{.Verdict}}</p>

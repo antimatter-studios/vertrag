@@ -28,6 +28,8 @@ type JSON struct {
 	// Authorization is the authorization phase's matrix. Nil leaves the key
 	// out, as it does for a run without the phase.
 	Authorization *Authorization
+	// Ownership is the ownership phase's matrix, under `ownership`.
+	Ownership *Authorization
 }
 
 type jsonDocument struct {
@@ -37,6 +39,7 @@ type jsonDocument struct {
 	Surface *Surface        `json:"surface,omitempty"`
 
 	Authorization *jsonAuthorization `json:"authorization,omitempty"`
+	Ownership     *jsonAuthorization `json:"ownership,omitempty"`
 }
 
 // jsonAuthorization is the matrix as the document carries it: normalised, so
@@ -105,6 +108,12 @@ func (r JSON) Report(results []runner.Result) bool {
 	if r.Authorization != nil {
 		doc.Authorization = &jsonAuthorization{Summary: r.Authorization.Counts(), Authorization: r.Authorization.Normal()}
 		if !r.Authorization.Met() {
+			doc.Summary.Passed = false
+		}
+	}
+	if r.Ownership != nil {
+		doc.Ownership = &jsonAuthorization{Summary: r.Ownership.Counts(), Authorization: r.Ownership.Normal()}
+		if !r.Ownership.Met() {
 			doc.Summary.Passed = false
 		}
 	}
