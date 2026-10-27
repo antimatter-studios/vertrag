@@ -24,6 +24,12 @@ type parameter struct {
 	named map[string]any
 	names []string
 
+	// namedRequires is each named example's `x-requires` (#105), and
+	// standInRequires that of the example standing in for a request no name
+	// chose: the first of the `examples` map, when that is where value came from.
+	namedRequires   map[string]map[string]string
+	standInRequires map[string]string
+
 	// converted is the parameter's schema as JSON Schema, which is what a
 	// consumer can act on. The node it came from is kept too, because value
 	// generation reads the enum from it and does not want to parse the JSON
@@ -66,6 +72,14 @@ func (d *document) parseParameters(n node) *parameters {
 			p.value = value
 			p.example = example
 			p.hasValue = true
+			if !resolved.Get("example").Valid() {
+				for _, member := range resolved.Get("examples").Entries() {
+					if exampleValue(d.Resolve(member.Value)).Valid() {
+						p.standInRequires = requiresOf(d.Resolve(member.Value))
+						break
+					}
+				}
+			}
 		}
 
 		for _, member := range resolved.Get("examples").Entries() {
@@ -76,6 +90,12 @@ func (d *document) parseParameters(n node) *parameters {
 				name := member.Key.Str()
 				p.named[name] = scalarValue(inner)
 				p.names = append(p.names, name)
+				if requires := requiresOf(d.Resolve(member.Value)); requires != nil {
+					if p.namedRequires == nil {
+						p.namedRequires = map[string]map[string]string{}
+					}
+					p.namedRequires[name] = requires
+				}
 			}
 		}
 
@@ -291,6 +311,32 @@ func cookieLine(cookies []header) (string, bool) {
 		return "", false
 	}
 	return strings.Join(pairs, "; "), true
+}
+
+// requiresFor is what the values an exchange of a name sends need, merged across
+// the parameters (#105): a parameter's example of that name, or, where it has
+// none, the example standing in for it.
+func (p *parameters) requiresFor(name string) map[string]string {
+	var out map[string]string
+	for _, param := range p.ordered {
+		if _, named := param.named[name]; named && name != "" {
+			out = mergeRequires(out, param.namedRequires[name])
+			continue
+		}
+		out = mergeRequires(out, param.standInRequires)
+	}
+	return out
+}
+
+// mergeRequires adds what adds says is needed to what out already holds.
+func mergeRequires(out, adds map[string]string) map[string]string {
+	for kind, value := range adds {
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[kind] = value
+	}
+	return out
 }
 
 // exampleNames are the names the parameters' `examples` maps give values under,

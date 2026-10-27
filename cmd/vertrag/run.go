@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -350,14 +351,26 @@ func runRun(args []string) error {
 
 	statuses := newStatusLedger(compiled)
 
+	// What this run can prove. An exchange needing something the run does not
+	// provide is another run's to prove: it is listed apart, and the surface is
+	// measured on what this run can reach. Unlike a filter, this is not a choice
+	// about what to send but a statement of what the run is able to set up.
+	provable, unproven, unprovided := splitByRequirements(compiled, settings.Provides)
+	for _, note := range unprovided {
+		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
+	}
+	if err := reportUnproven(unproven, settings.Unproven); err != nil {
+		return err
+	}
+
 	// Built from the same whole description, for the same reason: a filter
 	// narrows what the run sends, never what it is measured against.
-	surface, unmatchedExclusions := newSurfaceLedger(compiled, settings.Surface.Exclude)
+	surface, unmatchedExclusions := newSurfaceLedger(provable, settings.Surface.Exclude)
 	for _, note := range unmatchedExclusions {
 		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
 	}
 
-	selected, dropped, unmatched, err := narrowTransactions(compiled, settings)
+	selected, dropped, unmatched, err := narrowTransactions(provable, settings)
 	if err != nil {
 		return err
 	}
@@ -1526,6 +1539,80 @@ func applyNamedValues(transactions []compile.Transaction, mode string) error {
 			parameters[j].Named = false
 		}
 		transactions[i].Request.Parameters = parameters
+	}
+	return nil
+}
+
+// unprovenExchange is one exchange a run did not provide for, as the unproven
+// report lists it.
+type unprovenExchange struct {
+	Name     string            `json:"name"`
+	Example  string            `json:"example,omitempty"`
+	Requires map[string]string `json:"requires"`
+	Missing  map[string]string `json:"missing"`
+}
+
+// splitByRequirements separates the exchanges a run provides every requirement of
+// from those it does not (#105), and reports each provided value no exchange
+// requires: a typo there leaves exchanges unproven that the run meant to prove.
+func splitByRequirements(transactions []compile.Transaction, provides map[string][]string) ([]compile.Transaction, []unprovenExchange, []string) {
+	var provable []compile.Transaction
+	var unproven []unprovenExchange
+	required := map[string]bool{}
+	for _, transaction := range transactions {
+		var missing map[string]string
+		for kind, value := range transaction.Requires {
+			required[kind+"="+value] = true
+			if !slices.Contains(provides[kind], value) {
+				if missing == nil {
+					missing = map[string]string{}
+				}
+				missing[kind] = value
+			}
+		}
+		if missing == nil {
+			provable = append(provable, transaction)
+			continue
+		}
+		unproven = append(unproven, unprovenExchange{
+			Name: transaction.Name, Example: transaction.Example, Requires: transaction.Requires, Missing: missing,
+		})
+	}
+
+	var notes []string
+	kinds := make([]string, 0, len(provides))
+	for kind := range provides {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		for _, value := range provides[kind] {
+			if !required[kind+"="+value] {
+				notes = append(notes, fmt.Sprintf("provides %s %q, which no exchange requires; it proves nothing more", kind, value))
+			}
+		}
+	}
+	if len(unproven) > 0 {
+		notes = append(notes, fmt.Sprintf("%d exchange(s) need something this run does not provide, so they are unproven here and not counted", len(unproven)))
+	}
+	return provable, unproven, notes
+}
+
+// reportUnproven writes the unproven exchanges as JSON to path, so the runs that
+// share a description can show together that each exchange was proven by one.
+func reportUnproven(unproven []unprovenExchange, path string) error {
+	if path == "" {
+		return nil
+	}
+	if unproven == nil {
+		unproven = []unprovenExchange{}
+	}
+	encoded, err := json.MarshalIndent(unproven, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
+		return fmt.Errorf("unproven: %w", err)
 	}
 	return nil
 }

@@ -74,6 +74,11 @@ exclude-example: []                # by the example name an exchange was paired 
 # written against fixtures the server under test does not have).
 named-values: own
 
+# What this run can set up for an exchange whose examples say, in x-requires,
+# that proving it needs something; and where the exchanges it cannot are listed.
+provides: {}
+unproven: ""
+
 # An exclude wins over every include, because the two are meant to be written
 # together and the exclude is the more specific half of the pair. A pattern that
 # does not compile stops the run and names itself, rather than becoming a filter

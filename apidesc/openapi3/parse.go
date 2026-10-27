@@ -194,7 +194,7 @@ func (d *document) parseOperation(path, method string, operation node, pathParam
 
 	requests = namedByParameters(requests, responses, params.exampleNames())
 
-	for _, transaction := range buildTransactions(method, requests, responses, params.headers(), params.cookies(), params.named) {
+	for _, transaction := range buildTransactions(method, requests, responses, params.headers(), params.cookies(), params.named, params.requiresFor) {
 		transition.Append(transaction)
 	}
 
@@ -233,6 +233,9 @@ type message struct {
 	// empty for a body that was not named. It decides which request goes with
 	// which response: see pairs.
 	example string
+
+	// requires is the example's `x-requires`, what proving the exchange needs.
+	requires map[string]string
 
 	// byParameters marks a request whose name comes from its parameters'
 	// `examples` maps rather than from a body (#85): see pairsByParameters.
@@ -326,7 +329,7 @@ func pairsByParameters(request message, responses []message) func(message) bool 
 // The product is deliberate: a document offering two request content types and
 // three responses describes six exchanges, and each is a separate test. Named
 // examples narrow it — see pairs.
-func buildTransactions(method string, requests, responses []message, headerParams, cookieParams []header, named func(string, bool) (*refract.Element, []header, []string)) []*refract.Element {
+func buildTransactions(method string, requests, responses []message, headerParams, cookieParams []header, named func(string, bool) (*refract.Element, []header, []string), requiresFor func(string) map[string]string) []*refract.Element {
 	if len(requests) == 0 {
 		requests = []message{{}}
 	}
@@ -440,6 +443,16 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			}
 			if pair != "" {
 				transaction.SetAttr(refract.PairAttribute, refract.String(pair))
+			}
+			// What proving the exchange needs, wherever its examples said so:
+			// a bodyless response has no Example Object to carry it.
+			requires := mergeRequires(mergeRequires(nil, request.requires), response.requires)
+			if requiresFor != nil {
+				requires = mergeRequires(requires, requiresFor(pair))
+			}
+			if len(requires) > 0 {
+				encoded, _ := json.Marshal(requires)
+				transaction.SetAttr(refract.RequiresAttribute, refract.String(string(encoded)))
 			}
 			transactions = append(transactions, transaction)
 		}

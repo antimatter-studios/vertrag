@@ -69,6 +69,12 @@ const ExampleAttribute = "vertragExample"
 // attribute.
 const PairAttribute = "vertragPair"
 
+// RequiresAttribute carries, on an httpTransaction, what proving the exchange needs:
+// the `x-requires` its Example Objects give, merged across the request and the
+// response, as a JSON object of kind to value (#105). Absent for an exchange that
+// needs nothing. Dredd has no such attribute.
+const RequiresAttribute = "vertragRequires"
+
 // DeclaredAttribute marks a messageBody asset whose content the description
 // wrote out, as an example, rather than one generated from a schema. Only a
 // declared body can be an explicitly empty expectation (#90): an empty value

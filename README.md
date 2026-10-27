@@ -340,6 +340,18 @@ Parameter examples that no response is named after change nothing: the first one
 
 A description whose named values were written against fixtures the server under test does not have can say so with `named-values: illustrate` (or `--named-values illustrate`). The names still pair each request with its response, but a link fills their values as it fills any other, so a sequenced run reads the row it just created rather than fixture id 1. The default, `own`, keeps the behaviour above.
 
+### What an example requires
+
+An Example Object can say what proving its exchange needs, with `x-requires`: `{fault: database}`, `{principal: app_password}`. A run declares what it can set up:
+
+```yaml
+provides:
+  fault: [database]
+unproven: .cache/unproven.json
+```
+
+An exchange is sent only when the run provides every one of its requirements, and one with no `x-requires` always is. The rest are **unproven here**: not sent, not counted in the surface figures, and written to `unproven` as JSON (name, example, requires, missing). Several runs that share a description, a live one and a fault-injecting one, say, can then show together that each exchange was proven by one of them. A requirement is read from whichever side of the pair carries it, a parameter's example included, since a bodyless response has no Example Object to put it on. A `provides` value no exchange requires is reported.
+
 ### Sequences
 
 A description lists operations in whatever order reads well, which is frequently

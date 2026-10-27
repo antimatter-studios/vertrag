@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -558,5 +559,111 @@ func TestNamedValuesIllustrateLetsALinkFillTheId(t *testing.T) {
 	}
 	if out, code := run("--named-values", "sometimes"); code == 0 || !strings.Contains(out, `named-values: "sometimes"`) {
 		t.Errorf("an unknown named-values mode should stop the run (exit %d):\n%s", code, out)
+	}
+}
+
+// requiringExamples has an exchange needing nothing, one whose response example
+// requires a fault, and a bodyless delete whose parameter example requires a
+// principal: the requirement must be read from either side of the pair.
+const requiringExamples = `openapi: 3.0.0
+info: {title: Requiring, version: "1.0"}
+paths:
+  /things/{id}:
+    get:
+      summary: Fetch a thing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            found: {value: 1}
+            storageDown: {value: 1, x-requires: {fault: database}}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              examples:
+                found: {value: {id: 1}}
+        "500":
+          description: storage down
+          content:
+            application/json:
+              examples:
+                storageDown: {value: {error: internal}, x-requires: {fault: database}}
+    delete:
+      summary: Delete a thing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            asAppPassword: {value: 1, x-requires: {principal: app_password}}
+      responses:
+        "204": {description: gone}
+`
+
+// TestProvidesSendsOnlyWhatTheRunCanSetUp pins `provides` and `unproven`: an
+// exchange is sent only when the run provides all it requires, the rest are
+// written to the unproven report, and a provided value nothing needs is said.
+func TestProvidesSendsOnlyWhatTheRunCanSetUp(t *testing.T) {
+	binary := build(t)
+	endpoint, _ := serve(t, "widgets")
+	dir := t.TempDir()
+	description := filepath.Join(dir, "openapi.yaml")
+	if err := os.WriteFile(description, []byte(requiringExamples), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(dir, "unproven.json")
+
+	listed := func(config string) (int, string, []unprovenExchange) {
+		t.Helper()
+		path := filepath.Join(dir, "vertrag.yml")
+		if err := os.WriteFile(path, []byte(config+"unproven: "+report+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := runCommand(t, binary, "run", "--endpoint", endpoint, "--no-color", "--dry-run", "--config", path, description)
+		if code != 0 {
+			t.Fatalf("exit = %d\n%s", code, out)
+		}
+		var unproven []unprovenExchange
+		written, err := os.ReadFile(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(written, &unproven); err != nil {
+			t.Fatalf("unproven report: %v\n%s", err, written)
+		}
+		return strings.Count(out, "skip:"), out, unproven
+	}
+
+	if count, out, unproven := listed(""); count != 1 || len(unproven) != 2 {
+		t.Errorf("providing nothing: %d sent, %d unproven, want 1 and 2\n%s", count, len(unproven), out)
+	} else {
+		missing := map[string]string{}
+		for _, u := range unproven {
+			for kind, value := range u.Missing {
+				key := u.Example
+				if strings.Contains(u.Name, "Delete a thing") {
+					// A bodyless 204 carries no response example, so no name
+					// pairs it; its parameter's stand-in still said what it needs.
+					key = "delete"
+				}
+				missing[key] = kind + "=" + value
+			}
+		}
+		if missing["storageDown"] != "fault=database" || missing["delete"] != "principal=app_password" {
+			t.Errorf("unproven report names %v", missing)
+		}
+	}
+	if count, out, unproven := listed("provides: {fault: [database]}\n"); count != 2 || len(unproven) != 1 {
+		t.Errorf("providing the fault: %d sent, %d unproven, want 2 and 1\n%s", count, len(unproven), out)
+	}
+	if count, out, unproven := listed("provides: {fault: [database], principal: [app_password, ordinary]}\n"); count != 3 || len(unproven) != 0 {
+		t.Errorf("providing both: %d sent, %d unproven, want 3 and 0\n%s", count, len(unproven), out)
+	} else if !strings.Contains(out, `provides principal "ordinary", which no exchange requires`) {
+		t.Errorf("a provided value nothing requires was not reported:\n%s", out)
 	}
 }

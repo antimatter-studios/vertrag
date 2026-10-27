@@ -199,6 +199,12 @@ type Transaction struct {
 	// JSON for the same reason OperationID is.
 	Example string `json:"-"`
 
+	// Requires is what proving the exchange needs, by kind, from the
+	// description's `x-requires` (#105); nil when nothing. A run sends it only
+	// when it provides every one. Absent from the JSON for the same reason
+	// OperationID is.
+	Requires map[string]string `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//
