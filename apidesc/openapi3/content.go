@@ -178,6 +178,7 @@ func (d *document) parseContentFor(content node, withSchema bool, dir direction)
 			msg := message{
 				contentType: mediaType,
 				example:     example.name,
+				requires:    example.requires,
 				body:        example.body,
 				hasBody:     example.hasBody,
 				declared:    example.hasBody,
@@ -275,6 +276,9 @@ type namedBody struct {
 	name    string
 	body    string
 	hasBody bool
+
+	// requires is the example's `x-requires`: what proving its exchange needs.
+	requires map[string]string
 }
 
 // examplesOf reads the bodies a Media Type Object describes.
@@ -295,20 +299,21 @@ func (d *document) examplesOf(mediaTypeObject node, mediaType string) []namedBod
 	for _, member := range mediaTypeObject.Get("examples").Entries() {
 		name := member.Key.Str()
 		example := d.Resolve(member.Value)
+		requires := requiresOf(example)
 
 		value := exampleValue(example)
 		if !value.Valid() {
 			// An externalValue points at a body vertrag has not fetched, so
 			// there is nothing to send. The name is still carried, so the
 			// exchange exists and its body comes from the schema.
-			out = append(out, namedBody{name: name})
+			out = append(out, namedBody{name: name, requires: requires})
 			continue
 		}
 		if body, ok := renderExampleBody(scalarValue(value), mediaType); ok {
-			out = append(out, namedBody{name: name, body: body, hasBody: true})
+			out = append(out, namedBody{name: name, body: body, hasBody: true, requires: requires})
 			continue
 		}
-		out = append(out, namedBody{name: name})
+		out = append(out, namedBody{name: name, requires: requires})
 	}
 
 	if len(out) == 0 {
@@ -384,4 +389,17 @@ func isBinarySchema(schema node) bool {
 
 func isMultipartMediaType(mediaType string) bool {
 	return strings.HasPrefix(strings.ToLower(baseMediaType(mediaType)), "multipart/")
+}
+
+// requiresOf reads an Example Object's `x-requires`: what proving the exchange it
+// names needs, by kind (#105). Nil when it gives none.
+func requiresOf(example node) map[string]string {
+	var out map[string]string
+	for _, member := range example.Get("x-requires").Entries() {
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[member.Key.Str()] = member.Value.Str()
+	}
+	return out
 }

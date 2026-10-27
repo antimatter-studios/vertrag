@@ -164,6 +164,7 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		Tags:        compileTags(element.FindParent("transition")),
 		Exclude:     element.FindParent("transition").Attr(refract.ExcludeAttribute).String(),
 		Example:     element.Attr(refract.PairAttribute).String(),
+		Requires:    compileRequires(element.Attr(refract.RequiresAttribute).String()),
 	}, annotations
 }
 
@@ -557,4 +558,16 @@ func intAttr(element *refract.Element, name string) (int, bool) {
 	}
 	n, ok := attr.Primitive.(float64)
 	return int(n), ok
+}
+
+// compileRequires reads the requirements the parser left on a transaction.
+func compileRequires(encoded string) map[string]string {
+	if encoded == "" {
+		return nil
+	}
+	var requires map[string]string
+	if err := json.Unmarshal([]byte(encoded), &requires); err != nil {
+		return nil
+	}
+	return requires
 }

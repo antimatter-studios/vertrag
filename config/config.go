@@ -92,6 +92,15 @@ type Config struct {
 	// test does not have.
 	NamedValues string
 
+	// Provides is what this run can set up for an exchange that needs it, by
+	// kind: the values of each kind it provides (#105). An exchange whose
+	// `x-requires` the run does not wholly provide is not sent: it is unproven
+	// here, listed apart rather than counted, for another run to prove.
+	Provides map[string][]string
+	// Unproven is where the exchanges this run does not provide for are written,
+	// as JSON; empty writes nowhere.
+	Unproven string
+
 	Header       []string
 	Path         []string
 	Sorted       bool
@@ -658,14 +667,16 @@ type file struct {
 	// All seven are vertrag's own, so all seven are refused from a dredd.yml: a
 	// key that decides what is sent must not be read out of a file the other
 	// tester ignores it in.
-	OnlyMatching       []string `yaml:"only-matching"`
-	Exclude            []string `yaml:"exclude"`
-	ExcludeMatching    []string `yaml:"exclude-matching"`
-	ExcludeMethod      []string `yaml:"exclude-method"`
-	ExcludeTag         []string `yaml:"exclude-tag"`
-	ExcludeOperationID []string `yaml:"exclude-operation-id"`
-	ExcludeExample     []string `yaml:"exclude-example"`
-	NamedValues        *string  `yaml:"named-values"`
+	OnlyMatching       []string            `yaml:"only-matching"`
+	Exclude            []string            `yaml:"exclude"`
+	ExcludeMatching    []string            `yaml:"exclude-matching"`
+	ExcludeMethod      []string            `yaml:"exclude-method"`
+	ExcludeTag         []string            `yaml:"exclude-tag"`
+	ExcludeOperationID []string            `yaml:"exclude-operation-id"`
+	ExcludeExample     []string            `yaml:"exclude-example"`
+	NamedValues        *string             `yaml:"named-values"`
+	Provides           map[string][]string `yaml:"provides"`
+	Unproven           *string             `yaml:"unproven"`
 	// MaxFailures stops the run early.
 	MaxFailures *int `yaml:"max-failures"`
 	// Workers sends several transactions at once.
@@ -1455,6 +1466,10 @@ func apply(config *Config, parsed file) {
 	setString(&config.Endpoint, parsed.Endpoint)
 	setString(&config.Language, parsed.Language)
 	setString(&config.NamedValues, parsed.NamedValues)
+	setString(&config.Unproven, parsed.Unproven)
+	if parsed.Provides != nil {
+		config.Provides = parsed.Provides
+	}
 	setString(&config.Server, parsed.Server)
 	setString(&config.LogLevel, parsed.LogLevel)
 	setString(&config.User, parsed.User)
