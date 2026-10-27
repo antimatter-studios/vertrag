@@ -338,7 +338,7 @@ This is two tests: `found` against the `200`, and `missing`, with id 2147483647,
 
 Parameter examples that no response is named after change nothing: the first one stands in, as it always has.
 
-A description whose named values were written against fixtures the server under test does not have can say so with `named-values: illustrate` (or `--named-values illustrate`). The names still pair each request with its response, but a link fills their values as it fills any other, so a sequenced run reads the row it just created rather than fixture id 1. The default, `own`, keeps the behaviour above.
+A description whose named values were written against fixtures the server under test does not have can say so with `named-values: illustrate` (or `--named-values illustrate`). The names still pair each request with its response, but a link fills their values as it fills any other, so a sequenced run reads the row it just created rather than fixture id 1. Only an exchange expecting a success is filled: a refusal's named value is its cause, so `missing` keeps id 2147483647 and still asks for the `404`. The default, `own`, keeps the behaviour above.
 
 ### What an example requires
 
