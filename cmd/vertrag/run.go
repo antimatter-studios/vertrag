@@ -495,6 +495,9 @@ func runRun(args []string) error {
 	if err := applyConfiguredRules(ctx, engine, settings, transactions); err != nil {
 		return err
 	}
+	if err := requiredPrincipals(ctx, engine, settings, transactions); err != nil {
+		return err
+	}
 
 	// Installed after the rules, so the request that OBTAINS the credential is
 	// not counted: `auth.login` sends its own exchange, judged by the auth
@@ -1577,6 +1580,43 @@ type unprovenExchange struct {
 	Example  string            `json:"example,omitempty"`
 	Requires map[string]string `json:"requires"`
 	Missing  map[string]string `json:"missing"`
+}
+
+// requiredPrincipals logs in, once each, the principals the selected exchanges
+// require, and hands their credentials to the runner, which sends each such
+// exchange as its principal rather than with the run's own credential (#105).
+// A principal whose credential cannot be told apart from another's stops the
+// run, as in the authorization phase: its exchanges would prove nothing about
+// who was asking.
+func requiredPrincipals(ctx context.Context, engine *runner.Runner, settings config.Config,
+	transactions []compile.Transaction) error {
+	var required []config.Principal
+	for _, principal := range settings.Principals {
+		if slices.ContainsFunc(transactions, func(t compile.Transaction) bool {
+			return t.Requires["principal"] == principal.Name
+		}) {
+			required = append(required, principal)
+		}
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	principals, err := authorizationPrincipals(required, transactions)
+	if err != nil {
+		return err
+	}
+	credentials, unsupported, err := authorizationCredentials(ctx, engine.Client, engine.Endpoint, required, principals)
+	if err != nil {
+		return err
+	}
+	for _, principal := range principals {
+		if reason, ok := unsupported[principal.Name]; ok {
+			return fmt.Errorf("principal %q, which an exchange requires: %s", principal.Name, reason)
+		}
+	}
+	engine.Principals = credentials
+	engine.Carriers = authorizationCarriers(transactions, principals)
+	return nil
 }
 
 // splitByRequirements separates the exchanges a run provides every requirement of

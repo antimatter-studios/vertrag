@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/corpus"
@@ -743,9 +744,125 @@ func TestProvidesSendsOnlyWhatTheRunCanSetUp(t *testing.T) {
 	if count, out, unproven := listed("provides: {fault: [database]}\n"); count != 2 || len(unproven) != 1 {
 		t.Errorf("providing the fault: %d sent, %d unproven, want 2 and 1\n%s", count, len(unproven), out)
 	}
-	if count, out, unproven := listed("provides: {fault: [database], principal: [app_password, ordinary]}\n"); count != 3 || len(unproven) != 0 {
+	if count, out, unproven := listed("principals: [{name: app_password}, {name: ordinary}]\n" +
+		"provides: {fault: [database], principal: [app_password, ordinary]}\n"); count != 3 || len(unproven) != 0 {
 		t.Errorf("providing both: %d sent, %d unproven, want 3 and 0\n%s", count, len(unproven), out)
 	} else if !strings.Contains(out, `provides principal "ordinary", which no exchange requires`) {
 		t.Errorf("a provided value nothing requires was not reported:\n%s", out)
+	}
+}
+
+// requiringPrincipals has an exchange needing nothing, one that must be sent
+// by nobody, and one that must be sent as the app_password principal.
+const requiringPrincipals = `openapi: 3.0.0
+info: {title: Requiring, version: "1.0"}
+paths:
+  /things/{id}:
+    get:
+      summary: Fetch a thing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            found: {value: 1}
+            anonymous: {value: 1, x-requires: {principal: anonymous}}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              examples:
+                found: {value: {id: 1}}
+        "401":
+          description: no credential
+          content:
+            application/json:
+              examples:
+                anonymous: {value: {error: unauthenticated}, x-requires: {principal: anonymous}}
+    delete:
+      summary: Delete a thing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            asAppPassword: {value: 1, x-requires: {principal: app_password}}
+      responses:
+        "204": {description: gone}
+`
+
+// TestAnExchangeRequiringAPrincipalIsSentAsThatPrincipal is the second half of
+// #105: an exchange whose x-requires names a principal the run provides goes
+// out with that principal's credential instead of the run's own, and one
+// naming a principal with no credential goes out with none.
+func TestAnExchangeRequiringAPrincipalIsSentAsThatPrincipal(t *testing.T) {
+	binary := build(t)
+	var mu sync.Mutex
+	seen := map[string]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		credential := r.Header.Get("Authorization")
+		mu.Lock()
+		seen[r.Method+" "+credential] = r.URL.Path
+		mu.Unlock()
+		switch {
+		case r.Method == http.MethodGet && credential == "Bearer run-token":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id": 1}`))
+		case r.Method == http.MethodGet && credential == "":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error": "unauthenticated"}`))
+		case r.Method == http.MethodDelete && credential == "Bearer app-token":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	dir := t.TempDir()
+	description := filepath.Join(dir, "openapi.yaml")
+	if err := os.WriteFile(description, []byte(requiringPrincipals), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configured := func(config string) string {
+		path := filepath.Join(dir, "vertrag.yml")
+		if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	path := configured(`auth: {header: "Authorization: Bearer run-token"}
+principals:
+  - name: anonymous
+  - name: app_password
+    auth: {header: "Authorization: Bearer app-token"}
+provides:
+  principal: [anonymous, app_password]
+`)
+	out, code := runCommand(t, binary, "run", "--endpoint", server.URL, "--no-color", "--config", path, description)
+	if code != 0 {
+		t.Errorf("exit = %d\n%s", code, out)
+	}
+	mu.Lock()
+	for _, want := range []string{"GET Bearer run-token", "GET ", "DELETE Bearer app-token"} {
+		if _, sent := seen[want]; !sent {
+			t.Errorf("nothing sent as %q; sent %v", want, seen)
+		}
+	}
+	mu.Unlock()
+
+	// A principal the run says it provides but does not define would be sent
+	// with the run's own credential, and its refusal reported as a finding.
+	path = configured(`provides:
+  principal: [app_password]
+`)
+	out, code = runCommand(t, binary, "run", "--endpoint", server.URL, "--no-color", "--dry-run", "--config", path, description)
+	if code == 0 || !strings.Contains(out, `provides principal "app_password", which names no principal`) {
+		t.Errorf("an undefined provided principal was accepted (exit %d):\n%s", code, out)
 	}
 }

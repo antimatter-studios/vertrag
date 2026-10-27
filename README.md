@@ -352,6 +352,17 @@ unproven: .cache/unproven.json
 
 An exchange is sent only when the run provides every one of its requirements, and one with no `x-requires` always is. The rest are **unproven here**: not sent, not counted in the surface figures, and written to `unproven` as JSON (name, example, requires, missing). Several runs that share a description, a live one and a fault-injecting one, say, can then show together that each exchange was proven by one of them. A requirement is read from whichever side of the pair carries it, a parameter's example included, since a bodyless response has no Example Object to put it on. A `provides` value no exchange requires is reported.
 
+An exchange requiring a principal is sent as that principal: with its credential in place of the run's own `auth`, every other credential taken off as in the authorization phase, and none at all for a principal that holds none. Each provided principal must be defined under `principals`, and logs in once before the examples phase.
+
+```yaml
+principals:
+  - name: anonymous
+  - name: app_password
+    auth: {header: "Authorization: Bearer ${APP_PASSWORD}"}
+provides:
+  principal: [anonymous, app_password]
+```
+
 ### Sequences
 
 A description lists operations in whatever order reads well, which is frequently
