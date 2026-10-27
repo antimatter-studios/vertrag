@@ -127,6 +127,14 @@ type Runner struct {
 	// the ones that must go without.
 	Auth Credential
 
+	// Principals are the credentials an exchange requiring a principal is sent
+	// with instead of Auth, by principal name: an `x-requires: {principal: X}`
+	// goes out as X (#105). Carriers are where any credential can travel, all
+	// of them taken off such a request before its principal's is put on, as
+	// SendAs does.
+	Principals map[string]Credential
+	Carriers   Carriers
+
 	// Skip takes transactions out of the run before anything is sent, keyed by
 	// name and carrying the reason to report. A hook could do the same, but a
 	// skip list is where a suite's debt collects and it is worth being able to
@@ -525,13 +533,26 @@ func (r *Runner) SendGenerated(ctx context.Context, source compile.Transaction) 
 }
 
 // Prepare builds the transaction that would be sent for a source, with the
-// endpoint resolved and the run's headers and credential attached.
+// endpoint resolved and the run's headers and credential attached: the run's
+// own, or, when the source requires a principal Principals holds, that
+// principal's in its place and every other credential taken off (#105).
+// Status-conditional headers stay, because this is the documented exchange
+// and its expected answer is the one the description wrote.
 //
 // It is exported for the stateful phase, which sends a chain of transactions
 // with values threaded between them and so needs the prepared form before it
 // goes out — the same form hooks and the sequencer already act on.
 func (r *Runner) Prepare(source compile.Transaction) *Transaction {
-	return newTransaction(source, r.Endpoint, r.headersFor(source))
+	credential, as := r.Principals[source.Requires["principal"]]
+	if !as {
+		return newTransaction(source, r.Endpoint, r.headersFor(source))
+	}
+	transaction := newTransaction(source, r.Endpoint, r.headersCarrying(source, Credential{}, true))
+	r.Carriers.strip(transaction.Request.Headers)
+	if presented := credentialFor(source, credential); presented != "" {
+		applyHeaderLine(transaction.Request.Headers, presented)
+	}
+	return transaction
 }
 
 // Deliver sends a prepared transaction and returns what came back, without
@@ -556,7 +577,7 @@ func (t *Transaction) OperationID() string { return t.source.OperationID }
 func (r *Runner) Run(ctx context.Context, transactions []compile.Transaction) ([]Result, error) {
 	prepared := make([]*Transaction, 0, len(transactions))
 	for i := range transactions {
-		prepared = append(prepared, newTransaction(transactions[i], r.Endpoint, r.headersFor(transactions[i])))
+		prepared = append(prepared, r.Prepare(transactions[i]))
 	}
 
 	if r.Hooks != nil {
