@@ -166,3 +166,43 @@ paths:
 		}
 	}
 }
+
+// TestAnUnnamedRequestIsNotSentExpectingANamedResponse pins the other half of #113:
+// a response a request is named after belongs to that request. A request in a media
+// type the examples were not written in has no name, and is not also sent expecting
+// the named response; it still pairs with the unnamed ones.
+func TestAnUnnamedRequestIsNotSentExpectingANamedResponse(t *testing.T) {
+	transactions := compileSource(t, `
+openapi: 3.0.0
+info: {title: T, version: "1.0"}
+paths:
+  /reports:
+    post:
+      requestBody:
+        content:
+          application/json:
+            examples:
+              stored: {value: {report: ok}}
+          application/gzip:
+            schema: {type: string, format: binary}
+      responses:
+        "201":
+          description: stored
+          content:
+            application/json:
+              examples:
+                stored: {value: {id: 1}}
+        "400": {description: unreadable}
+`)
+	var gzipped []string
+	for _, transaction := range transactions.Transactions {
+		for _, header := range transaction.Request.Headers {
+			if strings.EqualFold(header.Name, "Content-Type") && header.Value == "application/gzip" {
+				gzipped = append(gzipped, transaction.Response.Status)
+			}
+		}
+	}
+	if len(gzipped) != 1 || gzipped[0] != "400" {
+		t.Fatalf("the unnamed gzip request should pair with the unnamed 400 only, got statuses %v", gzipped)
+	}
+}
