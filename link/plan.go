@@ -122,7 +122,9 @@ func Build(transactions []compile.Transaction) Plan {
 		plan.Steps = append(plan.Steps, Step{Index: i, After: after[i], Via: via[i]})
 	}
 
-	plan.Steps = order(plan.Steps)
+	plan.Steps = order(plan.Steps, func(index int) bool {
+		return strings.EqualFold(transactions[index].Request.Method, "DELETE")
+	})
 	return plan
 }
 
@@ -273,7 +275,12 @@ func wouldCycle(after []int, source, target int) bool {
 
 // order sorts steps so a dependency always precedes what depends on it, and
 // otherwise leaves document order alone.
-func order(steps []Step) []Step {
+//
+// A delete runs after every other step, the deepest first: it removes what the
+// steps that read or change a resource need, and a delete and an update linked from
+// the same create would otherwise run in the document's order, which lists DELETE
+// before PATCH. A child is removed before its parent.
+func order(steps []Step, deletes func(index int) bool) []Step {
 	depth := make(map[int]int, len(steps))
 	after := make(map[int]int, len(steps))
 	for _, step := range steps {
@@ -300,9 +307,26 @@ func order(steps []Step) []Step {
 		return value
 	}
 
+	// A delete something else follows keeps its place: what depends on it must
+	// still come after it.
+	followed := make(map[int]bool, len(steps))
+	for _, step := range steps {
+		if step.After != -1 {
+			followed[step.After] = true
+		}
+	}
+	last := func(index int) bool { return deletes(index) && !followed[index] }
+
 	sorted := make([]Step, len(steps))
 	copy(sorted, steps)
 	sort.SliceStable(sorted, func(i, j int) bool {
+		di, dj := last(sorted[i].Index), last(sorted[j].Index)
+		if di != dj {
+			return dj
+		}
+		if di {
+			return depthOf(sorted[i].Index) > depthOf(sorted[j].Index)
+		}
 		return depthOf(sorted[i].Index) < depthOf(sorted[j].Index)
 	})
 	return sorted
