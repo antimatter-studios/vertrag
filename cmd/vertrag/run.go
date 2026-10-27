@@ -58,6 +58,7 @@ type runFlags struct {
 	excludeTags         stringList
 	excludeOperationIDs stringList
 	excludeExamples     stringList
+	namedValues         string
 
 	maxFailures  int
 	failFast     bool
@@ -118,6 +119,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.excludeTags, "exclude-tag", "leave out transactions whose operation carries this tag (repeatable)")
 	fs.Var(&f.excludeOperationIDs, "exclude-operation-id", "leave out transactions of this operationId (repeatable)")
 	fs.Var(&f.excludeExamples, "exclude-example", "leave out exchanges whose example name matches this regular expression (repeatable)")
+	fs.StringVar(&f.namedValues, "named-values", "", `what a parameter value named after its exchange is: "own" (the default; a link does not replace it) or "illustrate" (a link fills it)`)
 	fs.IntVar(&f.maxFailures, "max-failures", 0, "stop sending after this many failures or errors; the rest are reported as skipped (0 = never)")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
@@ -221,6 +223,9 @@ func settingsFor(f runFlags) (config.Config, error) {
 	settings.ExcludeTag = append(settings.ExcludeTag, f.excludeTags...)
 	settings.ExcludeOperationID = append(settings.ExcludeOperationID, f.excludeOperationIDs...)
 	settings.ExcludeExample = append(settings.ExcludeExample, f.excludeExamples...)
+	if f.namedValues != "" {
+		settings.NamedValues = f.namedValues
+	}
 	if f.maxFailures > 0 {
 		settings.MaxFailures = f.maxFailures
 	}
@@ -364,6 +369,9 @@ func runRun(args []string) error {
 	}
 
 	transactions := sortTransactions(selected, settings.Sorted)
+	if err := applyNamedValues(transactions, settings.NamedValues); err != nil {
+		return err
+	}
 	if len(transactions) == 0 {
 		fmt.Fprintln(os.Stdout, "No transactions to run.")
 		// Not a pass when something was required of the run. A filter that
@@ -1497,4 +1505,27 @@ func describeScheme(security compile.SecurityScheme) string {
 	default:
 		return security.Type
 	}
+}
+
+// applyNamedValues applies `named-values`. With "illustrate", a parameter value
+// the description names after its exchange stops being the exchange's own, so
+// a sequenced run's links fill it as they fill any other: the server under test
+// has its own rows, not the fixtures the description's examples were written
+// against. The pairing the names made is unchanged.
+func applyNamedValues(transactions []compile.Transaction, mode string) error {
+	switch mode {
+	case "", "own":
+		return nil
+	case "illustrate":
+	default:
+		return fmt.Errorf(`named-values: %q is neither "own" nor "illustrate"`, mode)
+	}
+	for i := range transactions {
+		parameters := append([]compile.Parameter(nil), transactions[i].Request.Parameters...)
+		for j := range parameters {
+			parameters[j].Named = false
+		}
+		transactions[i].Request.Parameters = parameters
+	}
+	return nil
 }
