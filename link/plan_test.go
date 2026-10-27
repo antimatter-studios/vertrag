@@ -307,3 +307,40 @@ func TestSequencerAncestorsAndFresh(t *testing.T) {
 		t.Errorf("fresh has %d exchanges, original %d", len(fresh.exchanges), len(sequencer.exchanges))
 	}
 }
+
+func method(t compile.Transaction, m string) compile.Transaction {
+	t.Request.Method = m
+	return t
+}
+
+// TestADeleteRunsAfterWhatSharesItsResource pins that a delete linked from a create
+// runs after the update linked from the same create, though the document lists
+// DELETE before PATCH: otherwise the update reads a resource the delete removed.
+func TestADeleteRunsAfterWhatSharesItsResource(t *testing.T) {
+	transactions := []compile.Transaction{
+		method(transaction("deleteThing"), "DELETE"),
+		method(transaction("updateThing"), "PATCH"),
+		method(transaction("createThing", linkTo("Delete", "deleteThing"), linkTo("Update", "updateThing")), "POST"),
+		method(transaction("listThings"), "GET"),
+	}
+
+	got := indexes(Build(transactions), transactions)
+	if !equal(got, []string{"createThing", "listThings", "updateThing", "deleteThing"}) {
+		t.Errorf("order = %v, want the delete last", got)
+	}
+}
+
+// TestADeleteSomethingFollowsKeepsItsPlace pins that moving deletes last never puts
+// a step before its dependency.
+func TestADeleteSomethingFollowsKeepsItsPlace(t *testing.T) {
+	transactions := []compile.Transaction{
+		method(transaction("deleteThing", linkTo("Audit", "readAudit")), "DELETE"),
+		method(transaction("readAudit"), "GET"),
+		method(transaction("other"), "GET"),
+	}
+
+	got := indexes(Build(transactions), transactions)
+	if slices.Index(got, "deleteThing") > slices.Index(got, "readAudit") {
+		t.Errorf("order = %v: the read ran before the delete it follows", got)
+	}
+}
