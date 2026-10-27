@@ -103,3 +103,34 @@ principals:
 		}
 	}
 }
+
+// The `authorization` section names who makes the phase's fixtures and which
+// statuses refuse; a refusal outside 4xx and an owner that is no principal are
+// refused, since either would make the matrix say something false (#81).
+func TestAuthorizationSettings(t *testing.T) {
+	base := "spec: ./api.yaml\nendpoint: http://localhost:4210\nphases: [authorization]\n" +
+		"principals:\n  - name: anonymous\n  - name: admin\n    auth: {header: 'Authorization: Bearer a'}\n"
+	settings, err := config.Load(writeConfig(t, "vertrag.yml", base+"authorization: {owner: admin, refuse: [403, 404]}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := config.AuthorizationSettings{Owner: "admin", Refuse: []string{"403", "404"}}
+	if !reflect.DeepEqual(settings.Authorization, want) {
+		t.Errorf("authorization = %+v, want %+v", settings.Authorization, want)
+	}
+	if err := settings.Validate(); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+
+	if _, err := config.Load(writeConfig(t, "vertrag.yml", base+"authorization: {refuse: [200]}\n")); err == nil ||
+		!strings.Contains(err.Error(), "authorization: refuse: 200 is not a 4xx") {
+		t.Errorf("a 2xx refusal: %v", err)
+	}
+	unknown, err := config.Load(writeConfig(t, "vertrag.yml", base+"authorization: {owner: nobody}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unknown.Validate(); err == nil || !strings.Contains(err.Error(), `authorization.owner "nobody" names no principal`) {
+		t.Errorf("an unknown owner: %v", err)
+	}
+}

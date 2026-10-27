@@ -24,6 +24,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +134,10 @@ type Config struct {
 	// Empty unless the phase is wanted; the phase refuses to run without them.
 	Principals []Principal
 
+	// Authorization tunes the authorization phase: who makes the resources
+	// its cells address, and which statuses count as a refusal.
+	Authorization AuthorizationSettings
+
 	// Transport is how requests reach the server: timeout, retries, pacing,
 	// TLS trust and proxy. Zero values are vertrag's defaults.
 	Transport Transport
@@ -166,6 +171,10 @@ type Config struct {
 
 	// Skip takes transactions out of the run.
 	Skip []SkipRule
+
+	// WaitFor holds a stream open until an event arrives, for the streams
+	// whose events only something else can provoke.
+	WaitFor []WaitFor
 
 	// ConditionalHeaders are the `header` entries written in vertrag's
 	// conditional form.
@@ -205,6 +214,21 @@ type FuzzSettings struct {
 	// cannot carry. Every excused answer is counted and reported — see
 	// fuzz.Accept.
 	Accept []int
+}
+
+// AuthorizationSettings are the `authorization` section, resolved.
+type AuthorizationSettings struct {
+	// Owner names the principal that creates, by following the description's
+	// links, the resource an id-taking cell addresses. Empty means the first
+	// configured principal the description lets call every operation the
+	// create needs.
+	Owner string
+
+	// Refuse lists the statuses any refusal may be answered with. Empty means
+	// the exact one the description requires: 401 for a caller without a
+	// credential it accepts, 403 for one without the roles. An API that hides
+	// what a caller may not see answers 404 instead, and lists it here.
+	Refuse []string
 }
 
 // GraphQLSettings decide how a GraphQL schema is turned into transactions.
@@ -600,6 +624,8 @@ type file struct {
 	Auth   *authFile   `yaml:"auth"`
 	// Principals are vertrag's own: who the authorization phase calls as.
 	Principals []principalFile `yaml:"principals"`
+	// Authorization is vertrag's own: how the authorization phase judges.
+	Authorization *authorizationFile `yaml:"authorization"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
 	// Surface is vertrag's own: the share of the description a run must
@@ -607,6 +633,8 @@ type file struct {
 	Surface *surfaceFile `yaml:"surface"`
 	// Skip is `any` because an entry may be written either way — see toSkipRules.
 	Skip []any `yaml:"skip"`
+	// WaitFor is vertrag's own: which event a stream is held open for.
+	WaitFor []waitForFile `yaml:"wait-for"`
 	// Tag narrows the run to operations carrying one of these tags.
 	Tag []string `yaml:"tag"`
 	// OperationID narrows the run to these operationIds.
@@ -666,6 +694,39 @@ type surfaceExcludeFile struct {
 	Operation string `yaml:"operation"`
 	Status    string `yaml:"status"`
 	Reason    string `yaml:"reason"`
+}
+
+// authorizationFile is the `authorization` section as written.
+type authorizationFile struct {
+	Owner  *string `yaml:"owner"`
+	Refuse []int   `yaml:"refuse"`
+}
+
+// WaitFor is one `wait-for` entry, resolved: the transaction whose stream is
+// read until Event arrives or Within passes, and the transaction sent once
+// the stream's headers have arrived to provoke it.
+type WaitFor struct {
+	// Name is the streaming transaction's name, as `skip` names one.
+	Name string
+	// Event is the event name the read waits for.
+	Event string
+	// Within bounds the wait. DefaultWaitWithin when not given.
+	Within time.Duration
+	// Trigger names the transaction that provokes the event, sent with the
+	// run's credential once the stream is open. Empty when the server sends
+	// the event on its own.
+	Trigger string
+}
+
+// DefaultWaitWithin is how long a `wait-for` waits when it does not say.
+const DefaultWaitWithin = 10 * time.Second
+
+// waitForFile is a `wait-for` entry as written.
+type waitForFile struct {
+	Name    *string `yaml:"name"`
+	Event   *string `yaml:"event"`
+	Within  *string `yaml:"within"`
+	Trigger *string `yaml:"trigger"`
 }
 
 // fuzzFile is the `fuzz` section as written.
@@ -847,12 +908,24 @@ func Load(path string) (Config, error) {
 	if err := applyPrincipals(&config.Principals, parsed.Principals); err != nil {
 		return config, fmt.Errorf("%s: principals: %w", path, err)
 	}
+	if parsed.Authorization != nil {
+		if err := applyAuthorization(&config.Authorization, *parsed.Authorization); err != nil {
+			return config, fmt.Errorf("%s: authorization: %w", path, err)
+		}
+	}
 	if parsed.Transport != nil {
 		if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
 			return config, fmt.Errorf("%s: transport: %w", path, err)
 		}
 	}
 	config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
+	for i, entry := range parsed.WaitFor {
+		wait, err := toWaitFor(entry)
+		if err != nil {
+			return config, fmt.Errorf("%s: wait-for entry %d: %w", path, i+1, err)
+		}
+		config.WaitFor = append(config.WaitFor, wait)
+	}
 	config.Tag = append(config.Tag, parsed.Tag...)
 	config.OperationID = append(config.OperationID, parsed.OperationID...)
 	for _, narrow := range narrowing {
@@ -1223,6 +1296,51 @@ func applyPrincipals(principals *[]Principal, parsed []principalFile) error {
 	return nil
 }
 
+// applyAuthorization reads the `authorization` section. A refusal status
+// outside 4xx is refused: a 2xx accepted as a refusal would pass the bypass
+// the phase exists to find, and a 5xx is a server failing, never a decision.
+func applyAuthorization(settings *AuthorizationSettings, parsed authorizationFile) error {
+	if parsed.Owner != nil {
+		settings.Owner = strings.TrimSpace(*parsed.Owner)
+	}
+	for _, status := range parsed.Refuse {
+		if status < 400 || status > 499 {
+			return fmt.Errorf("refuse: %d is not a 4xx status, and only a 4xx refuses", status)
+		}
+		settings.Refuse = append(settings.Refuse, strconv.Itoa(status))
+	}
+	return nil
+}
+
+// toWaitFor reads one `wait-for` entry. A name and an event are required:
+// without either there is nothing to wait for.
+func toWaitFor(entry waitForFile) (WaitFor, error) {
+	wait := WaitFor{Within: DefaultWaitWithin}
+	if entry.Name != nil {
+		wait.Name = strings.TrimSpace(*entry.Name)
+	}
+	if entry.Event != nil {
+		wait.Event = strings.TrimSpace(*entry.Event)
+	}
+	if entry.Trigger != nil {
+		wait.Trigger = strings.TrimSpace(*entry.Trigger)
+	}
+	if wait.Name == "" || wait.Event == "" {
+		return wait, fmt.Errorf("it needs a name, the streaming transaction, and an event to wait for")
+	}
+	if entry.Within != nil {
+		within, err := time.ParseDuration(*entry.Within)
+		if err != nil {
+			return wait, fmt.Errorf("within %q: %w", *entry.Within, err)
+		}
+		if within <= 0 {
+			return wait, fmt.Errorf("within must be positive, got %s", within)
+		}
+		wait.Within = within
+	}
+	return wait, nil
+}
+
 // envReference is ${NAME} in a credential header (#78).
 var envReference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
@@ -1481,6 +1599,10 @@ func (c Config) Validate() error {
 	if slices.Contains(c.Phases, PhaseAuthorization) && len(c.Principals) == 0 {
 		return fmt.Errorf("the authorization phase needs `principals`: " +
 			"it sends every operation as each of them, and with none it would send nothing")
+	}
+	if owner := c.Authorization.Owner; owner != "" &&
+		!slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == owner }) {
+		return fmt.Errorf("authorization.owner %q names no principal", owner)
 	}
 	return nil
 }

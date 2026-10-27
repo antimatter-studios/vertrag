@@ -8,6 +8,7 @@ import (
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
+	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/runner"
 )
 
@@ -184,6 +185,22 @@ type authorizationCell struct {
 
 	// Why is the reason for the expectation, for the report.
 	Why string
+
+	// Index is Transaction's position in the transactions the plan was made
+	// from, which is how the link sequencer addresses it. Set with Setup, by
+	// planSetups: the matrix itself does not depend on the order compiling
+	// produced, and an index would.
+	Index int
+
+	// Setup is the chain of operations, by index and the furthest first,
+	// whose responses supply this cell's parameters through the description's
+	// links, and Owner the principal that sends them. Before the cell goes
+	// out the chain is sent again for it alone, so the id it addresses is a
+	// resource made for this cell and for nothing else: a 404 then means
+	// "not yours", not "example id 1 does not exist" (#81). Empty when no link
+	// leads to the operation, and the cell sends the description's example.
+	Setup []int
+	Owner string
 }
 
 // authorizationPlan is the whole matrix, operation by operation in a fixed
@@ -196,6 +213,15 @@ type authorizationPlan struct {
 	// Carriers are every place a credential can travel on these operations,
 	// for runner.SendAs to clear before it adds the principal's own.
 	Carriers runner.Carriers
+
+	// Refuse lists the statuses any refusal may be answered with, from
+	// `authorization.refuse`; empty means the exact one each cell requires.
+	Refuse []string
+
+	// Sequencer resolves a cell's parameters from its Setup's responses, and
+	// Transactions are what its indexes address. Nil when no cell has a setup.
+	Sequencer    *link.Sequencer
+	Transactions []compile.Transaction
 }
 
 // planAuthorization works out the matrix for the selected transactions.
@@ -238,6 +264,101 @@ func planAuthorization(transactions []compile.Transaction, principals []authoriz
 	}
 	plan.Carriers = authorizationCarriers(transactions, principals)
 	return plan
+}
+
+// planSetups gives every cell its setup: the chain of operations the
+// description's links say its parameters come from, and the principal that
+// sends it.
+//
+// The owner is the one configured, or else the first principal, in the order
+// configured, the plan lets call every operation in the chain. A chain nobody
+// may send — or one with an operation the run will not send, by its selection
+// or a skip — gives the cell no setup, and it sends the description's example
+// as it always did, with the reason in its Why.
+func planSetups(plan *authorizationPlan, transactions []compile.Transaction, owner string) {
+	sequencer := link.NewSequencer(transactions)
+	index := make(map[string]int, len(transactions))
+	for i, transaction := range transactions {
+		index[transaction.Name] = i
+	}
+	for i := range plan.Cells {
+		if name := plan.Cells[i].Transaction.Name; name != "" {
+			plan.Cells[i].Index = index[name]
+		}
+	}
+	// sent holds the operations the plan sends at least one cell of; an
+	// operation it sends none of — a skip, or a transaction outside the
+	// selection — is not sent by a setup either.
+	allowed := map[int][]string{}
+	sent := map[int]bool{}
+	for _, cell := range plan.Cells {
+		if cell.Transaction.Name == "" || cell.Unsent != "" {
+			continue
+		}
+		sent[cell.Index] = true
+		if cell.Expect == expectAllowed {
+			allowed[cell.Index] = append(allowed[cell.Index], cell.Principal)
+		}
+	}
+
+	used := false
+	for i := range plan.Cells {
+		cell := &plan.Cells[i]
+		if cell.Transaction.Name == "" {
+			continue
+		}
+		chain := sequencer.Ancestors(cell.Index)
+		if len(chain) == 0 {
+			continue
+		}
+		names := make([]string, 0, len(chain))
+		for _, step := range chain {
+			names = append(names, operationLabel(transactions[step]))
+		}
+		who, why := setupOwner(chain, sent, allowed, plan.Principals, owner)
+		if who == "" {
+			cell.Why = joinWhy(cell.Why, "its example ids are sent as written: "+why)
+			continue
+		}
+		cell.Setup, cell.Owner, used = chain, who, true
+		cell.Why = joinWhy(cell.Why, "its ids come from "+strings.Join(names, " → ")+", sent as "+who)
+	}
+	if used {
+		plan.Sequencer, plan.Transactions = sequencer, transactions
+	}
+}
+
+// setupOwner is who sends a setup chain, or "" and why nobody can.
+func setupOwner(chain []int, sent map[int]bool, allowed map[int][]string,
+	principals []string, owner string) (string, string) {
+	for _, step := range chain {
+		if !sent[step] {
+			return "", "an operation its ids come from is not one this run sends"
+		}
+	}
+	if owner != "" {
+		return owner, ""
+	}
+	for _, principal := range principals {
+		everywhere := true
+		for _, step := range chain {
+			if !slices.Contains(allowed[step], principal) {
+				everywhere = false
+				break
+			}
+		}
+		if everywhere {
+			return principal, ""
+		}
+	}
+	return "", "no principal may call every operation its ids come from; set authorization.owner"
+}
+
+func joinWhy(why, more string) string {
+	if why == "" {
+		return more
+	}
+	return why + "; " + more
 }
 
 // authorizationOperations groups transactions by operation, ordered by path

@@ -29,6 +29,7 @@ import (
 var doesNotSelect = map[string]string{
 	"Spec":                   "names the description document, not transactions in it",
 	"Endpoint":               "where requests go",
+	"Authorization":          "names a principal, which Validate refuses when there is none of that name, and statuses, which are values",
 	"Hookfiles":              "files to load; a hook file that matches nothing is the hook worker's business",
 	"Language":               "which worker runs the hooks",
 	"Server":                 "a command to run before testing",
@@ -100,6 +101,7 @@ var registeredSelectorFields = map[string]string{
 	// Principal names and roles describe callers; their auth exclusions and
 	// login paths select operations, like the run's own auth settings.
 	"Principals": "principals.auth.except",
+	"WaitFor":    "wait-for.name",
 }
 
 // TestEveryConfigFieldIsClassified is the mechanism, and everything else in

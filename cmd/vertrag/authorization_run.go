@@ -11,8 +11,10 @@ import (
 
 	"github.com/antimatter-studios/vertrag/auth"
 	"github.com/antimatter-studios/vertrag/config"
+	"github.com/antimatter-studios/vertrag/link"
 	"github.com/antimatter-studios/vertrag/reporter"
 	"github.com/antimatter-studios/vertrag/runner"
+	"github.com/antimatter-studios/vertrag/validate"
 )
 
 // The authorization phase, executed: every cell the plan sends, sent as its
@@ -158,14 +160,65 @@ func executeAuthorization(ctx context.Context, engine *runner.Runner, plan autho
 	}
 	outcomes := make([]authorizationOutcome, 0, len(plan.Cells))
 	for _, cell := range plan.Cells {
-		outcomes = append(outcomes, executeCell(ctx, engine, plan.Carriers, cell,
-			credentials[cell.Principal], unsupported[cell.Principal]))
+		outcomes = append(outcomes, executeCell(ctx, engine, plan, cell, credentials, unsupported[cell.Principal]))
 	}
 	return outcomes
 }
 
-func executeCell(ctx context.Context, engine *runner.Runner, carriers runner.Carriers, cell authorizationCell,
-	credential runner.Credential, unsupported string) authorizationOutcome {
+// errUnprepared ends a request whose parameters could not be filled from its
+// setup's responses; the reason is the sequencer's.
+type errUnprepared string
+
+func (e errUnprepared) Error() string { return string(e) }
+
+// prepareFrom fills a transaction's parameters from the responses its setup
+// got, through the same link sequencer the examples phase uses.
+func prepareFrom(sequencer *link.Sequencer, index int, completed map[int]runner.Result,
+	prepared **runner.Transaction) func(*runner.Transaction) error {
+	return func(transaction *runner.Transaction) error {
+		*prepared = transaction
+		if reason, ok := sequencer.Prepare(index, transaction, completed); !ok {
+			return errUnprepared(reason)
+		}
+		return nil
+	}
+}
+
+// setUp sends a cell's setup chain as its owner, so the cell addresses a
+// resource made for it alone. It returns the sequencer holding the responses
+// and what each step got, or why the resource could not be made — in which
+// case the cell says nothing about who may call the operation, and is unsent.
+func setUp(ctx context.Context, engine *runner.Runner, plan authorizationPlan, cell authorizationCell,
+	credential runner.Credential) (*link.Sequencer, map[int]runner.Result, string) {
+	sequencer := plan.Sequencer.Fresh()
+	completed := map[int]runner.Result{}
+	for _, step := range cell.Setup {
+		source := plan.Transactions[step]
+		var prepared *runner.Transaction
+		sent, err := engine.SendPreparedAs(ctx, source.Name+" (setup) as "+cell.Owner, source, credential,
+			plan.Carriers, prepareFrom(sequencer, step, completed, &prepared))
+		var unprepared errUnprepared
+		switch {
+		case errors.As(err, &unprepared):
+			return nil, nil, fmt.Sprintf("its resource could not be made: %s", unprepared)
+		case errors.Is(err, runner.ErrSkippedByHook):
+			return nil, nil, fmt.Sprintf("a hook skipped %s, which makes its resource", source.Name)
+		case err != nil:
+			return nil, nil, fmt.Sprintf("its resource could not be made: %s: %v", source.Name, err)
+		case !validate.StatusMatches(source.Response.Status, sent.Actual.StatusCode):
+			return nil, nil, fmt.Sprintf("its resource could not be made: %s answered %s for %s where %s is documented",
+				source.Name, sent.Actual.StatusCode, cell.Owner, source.Response.Status)
+		}
+		sent.Status = runner.StatusPass
+		completed[step] = sent
+		sequencer.Record(step, prepared, sent)
+	}
+	return sequencer, completed, ""
+}
+
+func executeCell(ctx context.Context, engine *runner.Runner, plan authorizationPlan, cell authorizationCell,
+	credentials map[string]runner.Credential, unsupported string) authorizationOutcome {
+	carriers, credential := plan.Carriers, credentials[cell.Principal]
 	name := cell.Operation + " as " + cell.Principal
 	unsent := func(reason string) authorizationOutcome {
 		return authorizationOutcome{
@@ -185,8 +238,24 @@ func executeCell(ctx context.Context, engine *runner.Runner, carriers runner.Car
 		return unsent("the run was cancelled before this cell was sent")
 	}
 
-	sent, err := engine.SendAs(ctx, name, cell.Transaction, credential, carriers)
+	var prepare func(*runner.Transaction) error
+	if len(cell.Setup) > 0 && plan.Sequencer != nil {
+		sequencer, completed, failure := setUp(ctx, engine, plan, cell, credentials[cell.Owner])
+		switch {
+		case failure != "" && ctx.Err() != nil:
+			return unsent("the run was cancelled while this cell's resource was being made")
+		case failure != "":
+			return unsent(failure)
+		}
+		var prepared *runner.Transaction
+		prepare = prepareFrom(sequencer, cell.Index, completed, &prepared)
+	}
+
+	sent, err := engine.SendPreparedAs(ctx, name, cell.Transaction, credential, carriers, prepare)
+	var unprepared errUnprepared
 	switch {
+	case errors.As(err, &unprepared):
+		return unsent("its ids could not be filled from its resource: " + string(unprepared))
 	case errors.Is(err, runner.ErrSkippedByHook):
 		return unsent("a hook skipped it")
 	case errors.Is(err, runner.ErrCredentialChangedByHook):
@@ -199,7 +268,7 @@ func executeCell(ctx context.Context, engine *runner.Runner, carriers runner.Car
 		return authorizationOutcome{Cell: cell, Result: sent}
 	}
 
-	outcome := judgeAuthorization(engine, cell, sent)
+	outcome := judgeAuthorization(engine, cell, sent, plan.Refuse)
 	if outcome.Result.Status == runner.StatusFail {
 		outcome.Replay = authorizationReplay(sent.Request, carriers)
 	}
@@ -209,8 +278,22 @@ func executeCell(ctx context.Context, engine *runner.Runner, carriers runner.Car
 // judgeAuthorization compares a reply with the cell's expectation. Success is
 // judged as any documented success is, body and all; a refusal must be the
 // exact one the description requires, and success in its place is a bypass.
-func judgeAuthorization(engine *runner.Runner, cell authorizationCell, sent runner.Result) authorizationOutcome {
+//
+// refuse, from `authorization.refuse`, widens what a refusal may be: any
+// status listed is accepted in place of the one required.
+//
+// A 409 where success is documented is the cell's example colliding with a
+// resource the run already made — the examples phase sent the same create —
+// so it is unsent, as fixture noise, rather than a verdict on who may call.
+func judgeAuthorization(engine *runner.Runner, cell authorizationCell, sent runner.Result,
+	refuse []string) authorizationOutcome {
 	status := sent.Actual.StatusCode
+	if cell.Expect == expectAllowed && status == "409" && !validate.StatusMatches(cell.Status, status) {
+		reason := "its example collides with a resource that already exists (409), which says nothing about who may call it"
+		return authorizationOutcome{Cell: cell, Unsent: reason, Result: runner.Result{
+			Name: sent.Name, Request: sent.Request, Actual: sent.Actual, Status: runner.StatusSkip,
+			Errors: []string{"not sent: " + reason}}}
+	}
 	if cell.Expect == expectAllowed {
 		judged := engine.JudgeAs(cell.Transaction, sent)
 		if strings.HasPrefix(status, "5") {
@@ -223,7 +306,7 @@ func judgeAuthorization(engine *runner.Runner, cell authorizationCell, sent runn
 	outcome := authorizationOutcome{Cell: cell, Result: sent}
 	outcome.Result.Status = runner.StatusPass
 	switch {
-	case status == cell.Status:
+	case status == cell.Status, slices.Contains(refuse, status):
 		return outcome
 	case strings.HasPrefix(status, "2"):
 		outcome.Bypass = true
@@ -234,8 +317,12 @@ func judgeAuthorization(engine *runner.Runner, cell authorizationCell, sent runn
 		outcome.Result.Errors = []string{fmt.Sprintf("the server failed with %s where it should have refused %s with %s",
 			status, cell.Principal, cell.Status)}
 	default:
+		required := cell.Status
+		if len(refuse) > 0 {
+			required += " or one of authorization.refuse (" + strings.Join(refuse, ", ") + ")"
+		}
 		outcome.Result.Errors = []string{fmt.Sprintf("refused %s with %s where the description requires %s (%s)",
-			cell.Principal, status, cell.Status, cell.Why)}
+			cell.Principal, status, required, cell.Why)}
 	}
 	outcome.Result.Status = runner.StatusFail
 	return outcome

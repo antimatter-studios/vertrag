@@ -658,6 +658,31 @@ success body — exits 1, as a failed documented transaction does.
 `--dry-run` prints the planned matrix with what each cell would require, and
 sends nothing: no cell, no login, no token request.
 
+A cell whose parameters a description's `links` supply — `GET /items/{id}`,
+linked from the `POST /items` that returns the id — addresses a resource made
+for it alone: before the cell goes out, the chain of operations its links come
+from is sent again, as the owner, and the id it returned fills the cell's
+request, as `--sequence` fills the examples phase's. So a 404 means the caller
+was refused, not that the example id `1` does not exist, and a DELETE cell
+deletes its own copy. The owner is the first principal, in the order
+configured, the description lets call every operation of the chain, or the
+one `authorization.owner` names. A setup that fails leaves the cell unsent
+with the reason. An operation no link leads to — or one whose chain includes
+an operation this run does not send — sends its example ids as written, and
+its hooks may still rewrite them. A create a principal may call that answers
+409 is its example colliding with a resource that already exists, and is
+unsent rather than judged.
+
+```yaml
+authorization:
+  owner: admin               # who makes each cell's resource; default as above
+  refuse: [401, 403, 404]    # any of these is a refusal; default: exactly the one required
+```
+
+`refuse` is for an API that answers 404 for what a caller may not see: any
+status listed is accepted wherever a refusal is required. Only 4xx statuses
+may be listed.
+
 ### Statuses the description never mentions
 
 The commonest real defect in the APIs vertrag is pointed at is not a broken
@@ -772,6 +797,52 @@ same rule, including through hook round trips. A response with no body example
 or schema leaves the body unspecified. JSON responses with schemas continue to
 be validated against those schemas; example bytes do not replace the schema.
 HEAD, 204 and 304 responses retain their bodyless HTTP semantics.
+
+### Server-sent events
+
+A `text/event-stream` response is read for 2 seconds or 1 MiB, whichever comes
+first, and the stream's schema is usually `{type: string}`, which every stream
+passes. What the stream promises is its events. OpenAPI has no keyword for
+them, so vertrag reads an extension on the media type: each key is an event
+name, and each value is the schema of that event's `data`.
+
+```yaml
+text/event-stream:
+  schema: {type: string}
+  x-events:
+    new_message:     {$ref: "#/components/schemas/NewMessageEvent"}
+    folder_update:   {$ref: "#/components/schemas/FolderUpdateEvent"}
+```
+
+With `x-events`, the body is parsed into events as browsers parse it (`event`,
+`data`, `id` lines, blank-line framing, `:` comments). An event with no
+`event:` line is named `message`. Each event's `data` is read as JSON when it
+parses, and validated against the schema for its name. An event whose name the
+map does not have is a failure, because a client written from the description
+has no handler for it. A `oneOf` with a discriminator cannot express this: the
+name travels on its own `event:` line, outside the data. Without `x-events`,
+nothing changes.
+
+Most streams only send an event when something else happens. `wait-for` holds
+a stream open until an event of a given name arrives. Its `trigger` is the
+transaction that provokes the event, sent with the run's own headers once the
+stream's headers have arrived:
+
+```yaml
+wait-for:
+  - name: /accounts/{id}/events > Stream events > 200 > text/event-stream
+    event: new_message
+    within: 10s               # the default
+    trigger: /messages > Send a message > 201 > application/json
+```
+
+The read ends at the first event of that name. If none arrives within the
+time, the transaction fails, and the message says what the trigger answered.
+The trigger is sent as documented, with the run's headers and credential and
+without hooks. Only documented requests are held open. The probing
+phases' generated requests keep the 2-second read, so a fuzz run does not send
+the trigger once per case. Doctor reports a `name` or `trigger` that matches no
+transaction.
 
 ## GraphQL
 

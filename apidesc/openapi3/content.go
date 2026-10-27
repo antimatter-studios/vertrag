@@ -1,6 +1,7 @@
 package openapi3
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -214,12 +215,40 @@ func (d *document) parseContentFor(content node, withSchema bool, dir direction)
 					msg.schema = converted
 				}
 			}
+			if withSchema && isEventStreamMediaType(mediaType) {
+				msg.events = d.eventSchemas(mediaTypeObject.Get("x-events"), dir)
+			}
 
 			messages = append(messages, msg)
 		}
 	}
 
 	return messages
+}
+
+// isEventStreamMediaType reports a server-sent event stream.
+func isEventStreamMediaType(mediaType string) bool {
+	base, _, _ := strings.Cut(mediaType, ";")
+	return strings.EqualFold(strings.TrimSpace(base), "text/event-stream")
+}
+
+// eventSchemas reads `x-events`, a map from an event's name to the schema of
+// its data, into JSON Schemas. An entry whose schema cannot be converted is
+// left out, as an unconvertible body schema is; nil when there are none.
+func (d *document) eventSchemas(events node, dir direction) *orderedMap {
+	if !events.Valid() {
+		return nil
+	}
+	out := newOrderedMap()
+	for _, member := range events.Entries() {
+		if converted, ok := d.convertSchemaFor(member.Value, dir); ok {
+			out.Set(member.Key.Str(), json.RawMessage(converted))
+		}
+	}
+	if out.Len() == 0 {
+		return nil
+	}
+	return out
 }
 
 // exampleValue reads an Example Object's example as data.

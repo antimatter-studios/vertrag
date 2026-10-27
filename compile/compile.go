@@ -196,6 +196,18 @@ func unusableSchemas(request Request, response Response) []string {
 					"not be validated: %v", header, err))
 		}
 	}
+
+	events := make([]string, 0, len(response.EventSchemas))
+	for event := range response.EventSchemas {
+		events = append(events, event)
+	}
+	sort.Strings(events)
+	for _, event := range events {
+		if err := validate.Usable(response.EventSchemas[event]); err != nil {
+			out = append(out, fmt.Sprintf(
+				"the schema for event %q cannot be read, so its data will not be validated: %v", event, err))
+		}
+	}
 	return out
 }
 
@@ -330,6 +342,9 @@ func compileResponse(element *refract.Element) Response {
 	}
 	if schemas := element.ChildWithClass("asset", "messageHeadersSchema"); schemas != nil {
 		response.HeaderSchemas = compileHeaderSchemas(schemas.String())
+	}
+	if schemas := element.ChildWithClass("asset", "messageEventsSchema"); schemas != nil {
+		response.EventSchemas = compileHeaderSchemas(schemas.String())
 	}
 	return response
 }
