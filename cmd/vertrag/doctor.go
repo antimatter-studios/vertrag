@@ -358,9 +358,10 @@ func stagedConditionalHeaders(settings config.Config) []config.HeaderRule {
 // clean run while a skip list, a pin and a login exclusion all reached nothing,
 // and the person reading it had no way to ask.
 //
-// Sending nothing is the point rather than an economy. The question "is this
+// Sending no API requests is the point rather than an economy. The question "is this
 // configuration doing what it says" should be answerable against an API that is
 // not running, from a laptop, before anybody has decided to trust a result.
+// A description supplied as a URL is fetched, just as run and compile fetch it.
 func runDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to a vertrag.yml (default: the first found here)")
@@ -378,7 +379,7 @@ func runDoctor(args []string) error {
 		return fmt.Errorf("no API description given: set `spec` in the config or name one")
 	}
 
-	source, err := os.ReadFile(settings.Spec)
+	source, err := readDescription(settings.Spec)
 	if err != nil {
 		return err
 	}
