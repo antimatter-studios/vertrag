@@ -2,6 +2,7 @@ package link
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -68,6 +69,33 @@ func NewSequencer(transactions []compile.Transaction) *Sequencer {
 
 // Notes are the diagnostics the plan raised about the description.
 func (s *Sequencer) Notes() []string { return s.plan.Notes }
+
+// Fresh is the same plan with nothing yet recorded, for a caller that runs
+// the same chain more than once — the authorization phase makes a resource of
+// its own for every cell — and must not read one run's values in another.
+func (s *Sequencer) Fresh() *Sequencer {
+	fresh := *s
+	fresh.exchanges = map[int]Exchange{}
+	fresh.substituted = map[int]map[string]string{}
+	return &fresh
+}
+
+// Ancestors are the steps a step takes its values from, the furthest first:
+// what must be sent, in this order, before the step can be. Empty for a step
+// that stands alone.
+func (s *Sequencer) Ancestors(index int) []int {
+	var chain []int
+	for at, dependent := s.sources[index]; dependent; at, dependent = s.sources[at] {
+		if slices.Contains(chain, at) {
+			// Build refuses a cycle; this only keeps a hand-made plan from
+			// hanging the caller.
+			break
+		}
+		chain = append(chain, at)
+	}
+	slices.Reverse(chain)
+	return chain
+}
 
 // Order returns the plan's order.
 func (s *Sequencer) Order(count int) []int {

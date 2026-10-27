@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
@@ -36,7 +37,10 @@ func planAuthorizationPhase(settings config.Config, transactions []compile.Trans
 	if err != nil {
 		return authorizationPlan{}, nil, err
 	}
-	return planAuthorization(transactions, principals, authorizationSkip(skips)), principals, nil
+	plan := planAuthorization(transactions, principals, authorizationSkip(skips))
+	planSetups(&plan, transactions, settings.Authorization.Owner)
+	plan.Refuse = slices.Clone(settings.Authorization.Refuse)
+	return plan, principals, nil
 }
 
 // dryRunAuthorization is the plan as a matrix with nothing sent: every cell

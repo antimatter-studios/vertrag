@@ -24,6 +24,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,6 +125,10 @@ type Config struct {
 	// Empty unless the phase is wanted; the phase refuses to run without them.
 	Principals []Principal
 
+	// Authorization tunes the authorization phase: who makes the resources
+	// its cells address, and which statuses count as a refusal.
+	Authorization AuthorizationSettings
+
 	// Transport is how requests reach the server: timeout, retries, pacing,
 	// TLS trust and proxy. Zero values are vertrag's defaults.
 	Transport Transport
@@ -196,6 +201,21 @@ type FuzzSettings struct {
 	// cannot carry. Every excused answer is counted and reported — see
 	// fuzz.Accept.
 	Accept []int
+}
+
+// AuthorizationSettings are the `authorization` section, resolved.
+type AuthorizationSettings struct {
+	// Owner names the principal that creates, by following the description's
+	// links, the resource an id-taking cell addresses. Empty means the first
+	// configured principal the description lets call every operation the
+	// create needs.
+	Owner string
+
+	// Refuse lists the statuses any refusal may be answered with. Empty means
+	// the exact one the description requires: 401 for a caller without a
+	// credential it accepts, 403 for one without the roles. An API that hides
+	// what a caller may not see answers 404 instead, and lists it here.
+	Refuse []string
 }
 
 // GraphQLSettings decide how a GraphQL schema is turned into transactions.
@@ -591,6 +611,8 @@ type file struct {
 	Auth   *authFile   `yaml:"auth"`
 	// Principals are vertrag's own: who the authorization phase calls as.
 	Principals []principalFile `yaml:"principals"`
+	// Authorization is vertrag's own: how the authorization phase judges.
+	Authorization *authorizationFile `yaml:"authorization"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
 	// Surface is vertrag's own: the share of the description a run must
@@ -655,6 +677,12 @@ type surfaceExcludeFile struct {
 	Operation string `yaml:"operation"`
 	Status    string `yaml:"status"`
 	Reason    string `yaml:"reason"`
+}
+
+// authorizationFile is the `authorization` section as written.
+type authorizationFile struct {
+	Owner  *string `yaml:"owner"`
+	Refuse []int   `yaml:"refuse"`
 }
 
 // fuzzFile is the `fuzz` section as written.
@@ -835,6 +863,11 @@ func Load(path string) (Config, error) {
 	}
 	if err := applyPrincipals(&config.Principals, parsed.Principals); err != nil {
 		return config, fmt.Errorf("%s: principals: %w", path, err)
+	}
+	if parsed.Authorization != nil {
+		if err := applyAuthorization(&config.Authorization, *parsed.Authorization); err != nil {
+			return config, fmt.Errorf("%s: authorization: %w", path, err)
+		}
 	}
 	if parsed.Transport != nil {
 		if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
@@ -1212,6 +1245,22 @@ func applyPrincipals(principals *[]Principal, parsed []principalFile) error {
 	return nil
 }
 
+// applyAuthorization reads the `authorization` section. A refusal status
+// outside 4xx is refused: a 2xx accepted as a refusal would pass the bypass
+// the phase exists to find, and a 5xx is a server failing, never a decision.
+func applyAuthorization(settings *AuthorizationSettings, parsed authorizationFile) error {
+	if parsed.Owner != nil {
+		settings.Owner = strings.TrimSpace(*parsed.Owner)
+	}
+	for _, status := range parsed.Refuse {
+		if status < 400 || status > 499 {
+			return fmt.Errorf("refuse: %d is not a 4xx status, and only a 4xx refuses", status)
+		}
+		settings.Refuse = append(settings.Refuse, strconv.Itoa(status))
+	}
+	return nil
+}
+
 // envReference is ${NAME} in a credential header (#78).
 var envReference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
@@ -1466,6 +1515,10 @@ func (c Config) Validate() error {
 	if slices.Contains(c.Phases, PhaseAuthorization) && len(c.Principals) == 0 {
 		return fmt.Errorf("the authorization phase needs `principals`: " +
 			"it sends every operation as each of them, and with none it would send nothing")
+	}
+	if owner := c.Authorization.Owner; owner != "" &&
+		!slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == owner }) {
+		return fmt.Errorf("authorization.owner %q names no principal", owner)
 	}
 	return nil
 }

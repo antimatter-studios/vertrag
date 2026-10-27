@@ -53,6 +53,17 @@ var ErrCredentialChangedByHook = errors.New("a hook changed the credential")
 // depends on who was asking, which the caller knows and the runner does not.
 func (r *Runner) SendAs(ctx context.Context, name string, source compile.Transaction, credential Credential,
 	carriers Carriers) (Result, error) {
+	return r.SendPreparedAs(ctx, name, source, credential, carriers, nil)
+}
+
+// SendPreparedAs is SendAs with a step between building the request and the
+// before hooks: prepare may rewrite the transaction — fill a path parameter
+// from a response an earlier request got, as a Plan does — and an error from
+// it ends the request unsent, returned as it came. It runs before the hooks
+// for the reason Plan.Prepare does: a hook is the project's own code and has
+// the last word.
+func (r *Runner) SendPreparedAs(ctx context.Context, name string, source compile.Transaction, credential Credential,
+	carriers Carriers, prepare func(*Transaction) error) (Result, error) {
 	started := time.Now()
 	// The transaction keeps its own name, because that is what a hook
 	// addresses it by; only the result is named for the principal.
@@ -60,6 +71,11 @@ func (r *Runner) SendAs(ctx context.Context, name string, source compile.Transac
 	carriers.strip(transaction.Request.Headers)
 	if presented := credentialFor(source, credential); presented != "" {
 		applyHeaderLine(transaction.Request.Headers, presented)
+	}
+	if prepare != nil {
+		if err := prepare(transaction); err != nil {
+			return Result{}, err
+		}
 	}
 
 	before := carriers.collect(transaction.Request.Headers)
