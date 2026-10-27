@@ -338,6 +338,8 @@ This is two tests: `found` against the `200`, and `missing`, with id 2147483647,
 
 Parameter examples that no response is named after change nothing: the first one stands in, as it always has.
 
+A description whose named values were written against fixtures the server under test does not have can say so with `named-values: illustrate` (or `--named-values illustrate`). The names still pair each request with its response, but a link fills their values as it fills any other, so a sequenced run reads the row it just created rather than fixture id 1. The default, `own`, keeps the behaviour above.
+
 ### Sequences
 
 A description lists operations in whatever order reads well, which is frequently

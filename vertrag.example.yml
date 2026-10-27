@@ -69,6 +69,11 @@ exclude-tag: [destructive]         # by tag
 exclude-operation-id: []           # by operationId
 exclude-example: []                # by the example name an exchange was paired by
 
+# What a parameter value named after its exchange is: "own" (the default; a
+# link does not replace it) or "illustrate" (a link fills it, for named values
+# written against fixtures the server under test does not have).
+named-values: own
+
 # An exclude wins over every include, because the two are meant to be written
 # together and the exclude is the more specific half of the pair. A pattern that
 # does not compile stops the run and names itself, rather than becoming a filter

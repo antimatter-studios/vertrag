@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -466,5 +467,96 @@ func TestExcludeExampleLeavesOutExchangesByPairName(t *testing.T) {
 		"--exclude-example", "^nonexistent$", description)
 	if !strings.Contains(out, `exclude-example has no transaction whose example name matches "^nonexistent$"`) {
 		t.Errorf("an unmatched exclude-example was not reported:\n%s", out)
+	}
+}
+
+// linkedNamedExamples names a fixture id (1) on a read that a create links to.
+// The server under test creates id 7, so only a link-filled read finds it.
+const linkedNamedExamples = `openapi: 3.0.0
+info: {title: Linked, version: "1.0"}
+paths:
+  /things:
+    post:
+      summary: Create a thing
+      operationId: createThing
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {id: {type: integer}}
+          links:
+            read:
+              operationId: getThing
+              parameters: {id: $response.body#/id}
+  /things/{id}:
+    get:
+      summary: Fetch a thing
+      operationId: getThing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            found: {value: 1}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {id: {type: integer}}
+              examples:
+                found: {value: {id: 7}}
+`
+
+// TestNamedValuesIllustrateLetsALinkFillTheId pins `named-values`: by default a
+// value named after its exchange is the exchange's own and a link leaves it, so
+// the fixture id is sent; "illustrate" lets the link fill the id the server
+// under test created.
+func TestNamedValuesIllustrateLetsALinkFillTheId(t *testing.T) {
+	binary := build(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/things":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":7}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/things/7":
+			_, _ = w.Write([]byte(`{"id":7}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(server.Close)
+	dir := t.TempDir()
+	description := filepath.Join(dir, "openapi.yaml")
+	if err := os.WriteFile(description, []byte(linkedNamedExamples), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (string, int) {
+		return runCommand(t, binary, append(append([]string{"run", "--endpoint", server.URL, "--no-color", "--sequence"}, args...), description)...)
+	}
+	if out, code := run(); code == 0 || !strings.Contains(out, "/things/1") {
+		t.Errorf("by default the named id should be sent and fail (exit %d):\n%s", code, out)
+	}
+	if out, code := run("--named-values", "illustrate"); code != 0 {
+		t.Errorf("--named-values illustrate should send the linked id and pass (exit %d):\n%s", code, out)
+	}
+	config := filepath.Join(dir, "vertrag.yml")
+	if err := os.WriteFile(config, []byte("named-values: illustrate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := run("--config", config); code != 0 {
+		t.Errorf("named-values in vertrag.yml should send the linked id and pass (exit %d):\n%s", code, out)
+	}
+	if out, code := run("--named-values", "sometimes"); code == 0 || !strings.Contains(out, `named-values: "sometimes"`) {
+		t.Errorf("an unknown named-values mode should stop the run (exit %d):\n%s", code, out)
 	}
 }

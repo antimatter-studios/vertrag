@@ -83,6 +83,13 @@ type Config struct {
 	// response were paired by, matches one of these regular expressions.
 	ExcludeExample []string
 
+	// NamedValues says what a parameter value named after its exchange is
+	// (#85): "own", the default, keeps it as the exchange's own, which a link
+	// does not replace; "illustrate" lets a link fill it like any other value,
+	// for a description whose named values come from fixtures the server under
+	// test does not have.
+	NamedValues string
+
 	Header       []string
 	Path         []string
 	Sorted       bool
@@ -607,6 +614,7 @@ type file struct {
 	ExcludeTag         []string `yaml:"exclude-tag"`
 	ExcludeOperationID []string `yaml:"exclude-operation-id"`
 	ExcludeExample     []string `yaml:"exclude-example"`
+	NamedValues        *string  `yaml:"named-values"`
 	// MaxFailures stops the run early.
 	MaxFailures *int `yaml:"max-failures"`
 	// Workers sends several transactions at once.
@@ -1269,6 +1277,7 @@ func apply(config *Config, parsed file) {
 	setString(&config.Spec, parsed.Spec)
 	setString(&config.Endpoint, parsed.Endpoint)
 	setString(&config.Language, parsed.Language)
+	setString(&config.NamedValues, parsed.NamedValues)
 	setString(&config.Server, parsed.Server)
 	setString(&config.LogLevel, parsed.LogLevel)
 	setString(&config.User, parsed.User)

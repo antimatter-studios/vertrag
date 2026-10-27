@@ -75,6 +75,7 @@ var doesNotSelect = map[string]string{
 	"ExcludeTag":         "a filter; unmatched values are reported by filterTransactions",
 	"ExcludeOperationID": "a filter; unmatched values are reported by filterTransactions",
 	"ExcludeExample":     "a filter; unmatched values are reported by filterTransactions",
+	"NamedValues":        "a mode, not a selector: it names nothing a value could fail to match",
 
 	// Fuzz.Pin and Fuzz.Accept select; Pin is registered. Accept is the one
 	// remaining silent selector and is recorded as such rather than quietly
