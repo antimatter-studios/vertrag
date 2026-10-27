@@ -205,6 +205,11 @@ func (d *document) parseOperation(path, method string, operation node, pathParam
 // surface figures, with the reason as its value.
 const excludeKey = "x-vertrag-exclude"
 
+// referenceKey marks a request body property as a reference to another
+// operation's resource, naming that operation by its operationId: the
+// ownership phase sends it another tenant's id (#107).
+const referenceKey = "x-vertrag-reference"
+
 // excludeReason is the reason an operation's `x-vertrag-exclude` gives, or ""
 // when it gives none. Only a string is a reason: YAML reads `true` and `yes`
 // as booleans, and either would otherwise arrive here as the text "true".

@@ -65,6 +65,26 @@ type ownershipCell struct {
 	Expected string
 
 	Unsent string
+
+	// Reference, for a cell whose victim id travels in the request body, is
+	// what it fills: the body property, marked with `x-vertrag-reference`,
+	// and the operation whose last path parameter takes the same id (#107).
+	// The victim's id is the value a link chain puts into that parameter,
+	// RefSetup sent as RefOwner, or the victim tenant's declared id for it
+	// when no link leads there.
+	//
+	// The operation's own path ids, if it has any, are the attacker's: Setup
+	// is then sent as the attacker, or OwnIDs are its tenant's declared ids.
+	// Only the body names somebody else's resource.
+	Reference  string
+	Referenced compile.Transaction
+	RefIndex   int
+	RefParam   string
+	RefSetup   []int
+	RefOwner   string
+	RefID      string
+	Numeric    bool
+	OwnIDs     map[string]string
 }
 
 // ownershipPlan is the matrix: rows by operation, columns by principal and
@@ -124,6 +144,7 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 	var columns []column
 	tenants := tenantOrder(settings.Tenants)
 	members := map[string]bool{}
+	tenantOf := map[string]string{}
 	for _, victim := range tenants {
 		for _, attacker := range tenants {
 			if attacker == victim {
@@ -133,6 +154,7 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 				columns = append(columns, column{name, victim})
 				plan.Columns = append(plan.Columns, name+" → "+victim)
 				members[name] = true
+				tenantOf[name] = attacker
 			}
 		}
 	}
@@ -169,12 +191,39 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 		takesID := slices.ContainsFunc(success.Request.Parameters, func(p compile.Parameter) bool {
 			return p.In == compile.InPath
 		})
+		chain := sequencer.Ancestors(index[success.Name])
+		// sent reports whether every operation of a chain is one this run
+		// sends.
+		sent := func(chain []int) bool {
+			return !slices.ContainsFunc(chain, func(step int) bool {
+				label := operationLabel(transactions[step])
+				return !slices.ContainsFunc(roles.Cells, func(c authorizationCell) bool {
+					return c.Operation == label && c.Unsent == ""
+				})
+			})
+		}
+		for _, field := range slices.Sorted(maps.Keys(success.References)) {
+			row := operation + " body." + field
+			plan.Operations = append(plan.Operations, row)
+			for i, col := range columns {
+				cell := planReference(field, success.References[field], success, transactions, index, sequencer,
+					settings.TenantIDs, col.principal, tenantOf[col.principal], col.tenant, chain, sent, allowed, owner)
+				cell.Operation, cell.Column, cell.Principal, cell.Tenant = row, plan.Columns[i], col.principal, col.tenant
+				cell.Transaction, cell.Index, cell.Expected = success, index[success.Name], strings.Join(refuse, "|")
+				if roleCell := byCell[[2]string{operation, col.principal}]; roleCell.Unsent != "" {
+					cell.Unsent = roleCell.Unsent
+				} else if roleCell.Expect != expectAllowed {
+					cell.Unsent = col.principal + "'s roles already refuse it, which the authorization phase checks"
+				}
+				plan.Cells = append(plan.Cells, cell)
+			}
+		}
+
 		list := !takesID && strings.EqualFold(success.Request.Method, "GET")
 		if !takesID && !list {
 			continue
 		}
 		plan.Operations = append(plan.Operations, operation)
-		chain := sequencer.Ancestors(index[success.Name])
 
 		for i, col := range columns {
 			cell := ownershipCell{
@@ -199,12 +248,7 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 			case len(chain) == 0:
 				cell.Unsent = "no link makes a resource for its ids, and tenant " + col.tenant +
 					" declares no ids for them, so whose they are is not known"
-			case slices.ContainsFunc(chain, func(step int) bool {
-				label := operationLabel(transactions[step])
-				return !slices.ContainsFunc(roles.Cells, func(c authorizationCell) bool {
-					return c.Operation == label && c.Unsent == ""
-				})
-			}):
+			case !sent(chain):
 				cell.Unsent = "an operation its ids come from is not one this run sends"
 			default:
 				cell.IDs = settings.TenantIDs[col.tenant]
@@ -218,6 +262,78 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 		}
 	}
 	return plan, nil
+}
+
+// planReference plans one body-reference cell: where the victim's id comes
+// from, and the attacker's own ids for the operation's path, if it has any.
+func planReference(field string, reference compile.Reference, success compile.Transaction,
+	transactions []compile.Transaction, index map[string]int, sequencer *link.Sequencer,
+	declared map[string]map[string]string, attacker, attackerTenant, victim string, chain []int, sent func([]int) bool,
+	allowed func(operation, principal string) bool, owner func(tenant string, chain []int) string) ownershipCell {
+	cell := ownershipCell{Reference: field, Numeric: reference.Numeric}
+
+	// The referenced operation's documented success, whose path parameter
+	// takes the id the body names.
+	at := slices.IndexFunc(transactions, func(t compile.Transaction) bool {
+		return t.OperationID == reference.OperationID && strings.HasPrefix(t.Response.Status, "2")
+	})
+	if at < 0 || !sent([]int{at}) {
+		cell.Unsent = fmt.Sprintf("x-vertrag-reference names %q, which is no operation this run sends", reference.OperationID)
+		return cell
+	}
+	cell.Referenced, cell.RefIndex = transactions[at], index[transactions[at].Name]
+	for _, p := range cell.Referenced.Request.Parameters {
+		if p.In == compile.InPath {
+			cell.RefParam = p.Name
+		}
+	}
+	if cell.RefParam == "" {
+		cell.Unsent = fmt.Sprintf("x-vertrag-reference names %q, which takes no id in its path", reference.OperationID)
+		return cell
+	}
+
+	refChain := sequencer.Ancestors(cell.RefIndex)
+	switch {
+	case len(refChain) == 0:
+		for key, value := range declared[victim] {
+			if link.Match(key, compile.InPath, cell.RefParam) {
+				cell.RefID = value
+			}
+		}
+		if cell.RefID == "" {
+			cell.Unsent = "no link makes a resource for " + reference.OperationID + ", and tenant " + victim +
+				" declares no id for it, so whose it is is not known"
+			return cell
+		}
+	case !sent(refChain):
+		cell.Unsent = "an operation " + reference.OperationID + "'s ids come from is not one this run sends"
+		return cell
+	default:
+		cell.RefSetup, cell.RefOwner = refChain, owner(victim, refChain)
+		if cell.RefOwner == "" {
+			cell.Unsent = "no principal of tenant " + victim + " may make the resource " + field + " refers to"
+			return cell
+		}
+	}
+
+	// The operation's own path ids are the attacker's.
+	if !slices.ContainsFunc(success.Request.Parameters, func(p compile.Parameter) bool { return p.In == compile.InPath }) {
+		return cell
+	}
+	switch {
+	case len(chain) == 0 && coversPath(success, declared[attackerTenant]):
+		cell.OwnIDs = declared[attackerTenant]
+	case len(chain) == 0:
+		cell.Unsent = "no link makes " + attacker + "'s own resource for its path ids, and tenant " +
+			attackerTenant + " declares no ids for them"
+	case !sent(chain):
+		cell.Unsent = "an operation its own ids come from is not one this run sends"
+	case slices.ContainsFunc(chain, func(step int) bool { return !allowed(operationLabel(transactions[step]), attacker) }):
+		cell.Unsent = attacker + " may not make its own resource for its path ids"
+	default:
+		cell.Setup, cell.Owner = chain, attacker
+	}
+	return cell
 }
 
 // ownershipOutcome is what became of one cell.
@@ -310,7 +426,12 @@ func executeOwnershipCell(ctx context.Context, engine *runner.Runner, plan owner
 
 	var prepare func(*runner.Transaction) error
 	var sequencer *link.Sequencer
-	if len(cell.Setup) > 0 {
+	if cell.Reference != "" {
+		var reason string
+		if prepare, reason = prepareReference(ctx, engine, plan, cell, credentials, ids); reason != "" {
+			return unsent(reason)
+		}
+	} else if len(cell.Setup) > 0 {
 		var completed map[int]runner.Result
 		var failure string
 		sequencer, completed, failure = setUp(ctx, engine, plan.sending,
@@ -360,6 +481,88 @@ func executeOwnershipCell(ctx context.Context, engine *runner.Runner, plan owner
 		outcome.Replay = authorizationReplay(sent.Request, carriers)
 	}
 	return outcome
+}
+
+// prepareReference makes what a body-reference cell needs before it is sent:
+// the victim's resource, whose id the body names, and the attacker's own,
+// when the operation's path needs one. It returns the step that fills both
+// into the request, or why the cell cannot be sent.
+func prepareReference(ctx context.Context, engine *runner.Runner, plan ownershipPlan, cell ownershipCell,
+	credentials map[string]runner.Credential, ids map[string][]string) (func(*runner.Transaction) error, string) {
+	victimID := cell.RefID
+	if len(cell.RefSetup) > 0 {
+		sequencer, completed, failure := setUp(ctx, engine, plan.sending,
+			authorizationCell{Setup: cell.RefSetup, Owner: cell.RefOwner}, credentials[cell.RefOwner])
+		if failure != "" {
+			return nil, failure
+		}
+		// The referenced operation is prepared, not sent: what a link puts
+		// into its path is the id of the resource just made.
+		if reason, ok := sequencer.Prepare(cell.RefIndex, engine.Prepare(cell.Referenced), completed); !ok {
+			return nil, "the id " + cell.Reference + " refers to could not be read from its resource: " + reason
+		}
+		victimID = sequencer.Filled(cell.RefIndex)[compile.InPath+"."+cell.RefParam]
+		if victimID == "" {
+			return nil, "no link puts an id into " + cell.Referenced.OperationID + "'s " + cell.RefParam
+		}
+	}
+	if !slices.Contains(ids[cell.Tenant], victimID) {
+		ids[cell.Tenant] = append(ids[cell.Tenant], victimID)
+	}
+
+	var own func(*runner.Transaction) error
+	switch {
+	case len(cell.Setup) > 0:
+		sequencer, completed, failure := setUp(ctx, engine, plan.sending,
+			authorizationCell{Setup: cell.Setup, Owner: cell.Owner}, credentials[cell.Owner])
+		if failure != "" {
+			return nil, failure
+		}
+		var prepared *runner.Transaction
+		own = prepareFrom(sequencer, cell.Index, completed, &prepared)
+	case len(cell.OwnIDs) > 0:
+		own = withDeclaredIDs(nil, ownershipCell{Transaction: cell.Transaction, IDs: cell.OwnIDs},
+			func() map[string]string { return nil })
+	}
+	return func(transaction *runner.Transaction) error {
+		if own != nil {
+			if err := own(transaction); err != nil {
+				return err
+			}
+		}
+		body, err := withReference(transaction.Request.Body, cell.Reference, victimID, cell.Numeric)
+		if err != nil {
+			return errUnprepared(err.Error())
+		}
+		transaction.Request.Body = body
+		return nil
+	}, ""
+}
+
+// withReference puts an id into one top-level property of a JSON body,
+// keeping the rest of it: as a number when the property's schema says so and
+// the id is one, as a string otherwise.
+func withReference(body, field, id string, numeric bool) (string, error) {
+	document := map[string]any{}
+	if strings.TrimSpace(body) != "" {
+		decoder := json.NewDecoder(strings.NewReader(body))
+		decoder.UseNumber()
+		if err := decoder.Decode(&document); err != nil || document == nil {
+			return "", fmt.Errorf("its request body is not a JSON object to put %s into", field)
+		}
+	}
+	var value any = id
+	if number := json.Number(id); numeric {
+		if _, err := number.Float64(); err == nil {
+			value = number
+		}
+	}
+	document[field] = value
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 // coversPath reports whether a tenant's declared ids name every path
@@ -521,6 +724,12 @@ func dryRunOwnership(plan ownershipPlan) *reporter.Authorization {
 		case reason != "":
 		case cell.List:
 			reason = "dry run; its answer must hold none of tenant " + cell.Tenant + "'s ids"
+		case cell.Reference != "" && cell.RefID != "":
+			reason = fmt.Sprintf("dry run; %s naming tenant %s's declared id must be refused with %s",
+				cell.Reference, cell.Tenant, strings.Join(plan.Refuse, " or "))
+		case cell.Reference != "":
+			reason = fmt.Sprintf("dry run; %s naming tenant %s's resource, made as %s, must be refused with %s",
+				cell.Reference, cell.Tenant, cell.RefOwner, strings.Join(plan.Refuse, " or "))
 		default:
 			reason = fmt.Sprintf("dry run; tenant %s's resource, made as %s, must be refused with %s",
 				cell.Tenant, cell.Owner, strings.Join(plan.Refuse, " or "))

@@ -165,6 +165,7 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		Exclude:     element.FindParent("transition").Attr(refract.ExcludeAttribute).String(),
 		Example:     element.Attr(refract.PairAttribute).String(),
 		Requires:    compileRequires(element.Attr(refract.RequiresAttribute).String()),
+		References:  compileReferences(request.Schema),
 	}, annotations
 }
 
@@ -558,6 +559,45 @@ func intAttr(element *refract.Element, name string) (int, bool) {
 	}
 	n, ok := attr.Primitive.(float64)
 	return int(n), ok
+}
+
+// compileReferences reads the `x-vertrag-reference` marks on the top-level
+// properties of a request body schema. A property nested deeper, or one
+// reached through a combinator, is not read: a body id is nearly always a
+// top-level field, and a mark that is not read says nothing it cannot keep.
+func compileReferences(schema string) map[string]Reference {
+	if schema == "" {
+		return nil
+	}
+	var document struct {
+		Properties map[string]struct {
+			Type      any    `json:"type"`
+			Reference string `json:"x-vertrag-reference"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(schema), &document); err != nil {
+		return nil
+	}
+	var references map[string]Reference
+	for name, property := range document.Properties {
+		if property.Reference == "" {
+			continue
+		}
+		if references == nil {
+			references = map[string]Reference{}
+		}
+		numeric := false
+		switch kind := property.Type.(type) {
+		case string:
+			numeric = kind == "integer" || kind == "number"
+		case []any:
+			for _, each := range kind {
+				numeric = numeric || each == "integer" || each == "number"
+			}
+		}
+		references[name] = Reference{OperationID: property.Reference, Numeric: numeric}
+	}
+	return references
 }
 
 // compileRequires reads the requirements the parser left on a transaction.
