@@ -194,6 +194,11 @@ type Transaction struct {
 	// OperationID is.
 	Exclude string `json:"-"`
 
+	// Example is the name the description's examples paired this exchange by
+	// (#85), empty when none did; `exclude-example` matches it. Absent from the
+	// JSON for the same reason OperationID is.
+	Example string `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//

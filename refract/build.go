@@ -61,6 +61,14 @@ const ExcludeAttribute = "vertragExclude"
 // content is the example's name. Dredd has no such attribute.
 const ExampleAttribute = "vertragExample"
 
+// PairAttribute carries, on an httpTransaction, the example name its request
+// and response were paired by: the response's name, or the request's when only
+// the request is named. Empty for an exchange no name chose. It is what
+// `exclude-example` matches; it is not part of the transaction's name, which
+// hooks address and which stays as the reference spells it. Dredd has no such
+// attribute.
+const PairAttribute = "vertragPair"
+
 // DeclaredAttribute marks a messageBody asset whose content the description
 // wrote out, as an example, rather than one generated from a schema. Only a
 // declared body can be an explicitly empty expectation (#90): an empty value

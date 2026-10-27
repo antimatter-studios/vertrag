@@ -385,3 +385,86 @@ func TestAConfigFileDrivesAWholeRun(t *testing.T) {
 		}
 	})
 }
+
+// pairedExamples documents one status with two named exchanges and another
+// with one, so only the pair name tells the two 200s apart.
+const pairedExamples = `openapi: 3.0.0
+info: {title: Paired, version: "1.0"}
+paths:
+  /things/{id}:
+    get:
+      summary: Fetch a thing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            found: {value: 1}
+            primary: {value: 2}
+            missing: {value: 2147483647}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              examples:
+                found: {value: {id: 1}}
+                primary: {value: {id: 2}}
+        "404":
+          description: missing
+          content:
+            application/json:
+              examples:
+                missing: {value: {error: not_found}}
+`
+
+// TestExcludeExampleLeavesOutExchangesByPairName pins `exclude-example`, flag
+// and configuration key: it drops exchanges by the name their request and
+// response were paired by, which the transaction name does not carry, so
+// `exclude-matching` cannot tell "found" from "primary" on the same 200.
+func TestExcludeExampleLeavesOutExchangesByPairName(t *testing.T) {
+	binary := build(t)
+	endpoint, _ := serve(t, "widgets")
+	dir := t.TempDir()
+	description := filepath.Join(dir, "openapi.yaml")
+	if err := os.WriteFile(description, []byte(pairedExamples), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	listed := func(args ...string) (int, string) {
+		t.Helper()
+		out, code := runCommand(t, binary,
+			append([]string{"run", "--endpoint", endpoint, "--no-color", "--dry-run"},
+				append(args, description)...)...)
+		if code != 0 {
+			t.Fatalf("exit = %d for %v\n%s", code, args, out)
+		}
+		return strings.Count(out, "skip:"), out
+	}
+
+	if count, out := listed(); count != 3 {
+		t.Fatalf("the description should yield three exchanges, got %d\n%s", count, out)
+	}
+	if count, out := listed("--exclude-example", "^primary$"); count != 2 {
+		t.Errorf("--exclude-example ^primary$ listed %d exchanges, want 2\n%s", count, out)
+	}
+	if count, out := listed("--exclude-example", "^(found|missing)$"); count != 1 {
+		t.Errorf("--exclude-example ^(found|missing)$ listed %d exchanges, want 1\n%s", count, out)
+	}
+
+	config := filepath.Join(dir, "vertrag.yml")
+	if err := os.WriteFile(config, []byte("exclude-example: ['^missing$']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if count, out := listed("--config", config); count != 2 {
+		t.Errorf("exclude-example in vertrag.yml listed %d exchanges, want 2\n%s", count, out)
+	}
+
+	// A pattern no pair name matches is reported, as every unmatched exclude is.
+	out, _ := runCommand(t, binary, "run", "--endpoint", endpoint, "--no-color", "--dry-run",
+		"--exclude-example", "^nonexistent$", description)
+	if !strings.Contains(out, `exclude-example has no transaction whose example name matches "^nonexistent$"`) {
+		t.Errorf("an unmatched exclude-example was not reported:\n%s", out)
+	}
+}

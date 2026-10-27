@@ -67,6 +67,7 @@ exclude-matching: ['> 500 >']      # by pattern
 exclude-method: [TRACE]            # by method
 exclude-tag: [destructive]         # by tag
 exclude-operation-id: []           # by operationId
+exclude-example: []                # by the example name an exchange was paired by
 
 # An exclude wins over every include, because the two are meant to be written
 # together and the exclude is the more specific half of the pair. A pattern that

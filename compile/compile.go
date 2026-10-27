@@ -163,6 +163,7 @@ func compileTransaction(mediaType, filename string, element *refract.Element, ex
 		Security:    compileSecurity(element.FindParent("transition")),
 		Tags:        compileTags(element.FindParent("transition")),
 		Exclude:     element.FindParent("transition").Attr(refract.ExcludeAttribute).String(),
+		Example:     element.Attr(refract.PairAttribute).String(),
 	}, annotations
 }
 
