@@ -356,3 +356,55 @@ paths:
 		t.Errorf("surface = %+v", surface)
 	}
 }
+
+// TestAStatusPassesOnlyWhenEveryExchangeSentForItPassed is #103. Named
+// examples turn one documented status into several exchanges that share one
+// transaction name, so the ledger sees that name more than once. Whatever order
+// their outcomes arrive in, one failed or left-out exchange keeps the status
+// from passing, and its reason stays in the report.
+func TestAStatusPassesOnlyWhenEveryExchangeSentForItPassed(t *testing.T) {
+	pass := runner.Result{Status: runner.StatusPass, Actual: validate.Message{StatusCode: "200"}}
+	fail := runner.Result{Status: runner.StatusFail, Actual: validate.Message{StatusCode: "404"}}
+	for _, test := range []struct {
+		name   string
+		record func(*surfaceLedger, compile.Transaction)
+		why    string
+	}{
+		{"a failure, then a pass", func(l *surfaceLedger, transaction compile.Transaction) {
+			l.outcome(transaction, fail)
+			l.outcome(transaction, pass)
+		}, "200 answered 404 and failed"},
+		{"a pass, then a failure", func(l *surfaceLedger, transaction compile.Transaction) {
+			l.outcome(transaction, pass)
+			l.outcome(transaction, fail)
+		}, "200 answered 404 and failed"},
+		{"left out, then a pass", func(l *surfaceLedger, transaction compile.Transaction) {
+			l.leftOut(transaction, "left out by exclude-example missing")
+			l.outcome(transaction, pass)
+		}, "200 left out by exclude-example missing"},
+	} {
+		widgets := documents("GET", "/widgets", "200")
+		ledger, _ := newSurfaceLedger(widgets, nil)
+		ledger.phase(config.PhaseExamples)
+		reach(ledger, widgets[0], "200")
+		test.record(ledger, widgets[0])
+
+		surface := ledger.summary(config.SurfaceSettings{}, false)
+		if surface.Run.OperationsPassed != 0 {
+			t.Errorf("%s: the status counts as passed: %+v", test.name, surface.Run)
+		}
+		if passed, why := ledger.operationPassed(operationOf(widgets[0]), []string{"200"}, false); passed || why != test.why {
+			t.Errorf("%s: passed = %v, why = %q, want %q", test.name, passed, why, test.why)
+		}
+	}
+
+	// A dry run is held to the same rule: an exchange the configuration takes
+	// out is not planned because another exchange on its status is.
+	widgets := documents("GET", "/widgets", "200")
+	ledger, _ := newSurfaceLedger(widgets, nil)
+	ledger.leftOut(widgets[0], skipReasonText("destroys shared state"))
+	ledger.plan(widgets[0])
+	if passed, _ := ledger.operationPassed(operationOf(widgets[0]), []string{"200"}, true); passed {
+		t.Error("dry run: a skipped exchange counts as planned because another on its status is")
+	}
+}

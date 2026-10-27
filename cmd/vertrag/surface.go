@@ -61,6 +61,10 @@ type surfaceLedger struct {
 
 	// passed are the examples-phase transactions that passed with an answer
 	// below 500, by name; failedWhy says, for the others, why not.
+	//
+	// Named examples (#85) send one name as several exchanges, so a name can
+	// be both: one exchange passed and another did not. failedWhy wins, and
+	// keeps the first reason, whatever order the outcomes arrived in (#103).
 	passed    map[string]bool
 	failedWhy map[string]string
 
@@ -360,8 +364,7 @@ func (l *surfaceLedger) outcome(transaction compile.Transaction, result runner.R
 	defer l.mu.Unlock()
 	if passing, why := passedOutright(result); passing {
 		l.passed[transaction.Name] = true
-		delete(l.failedWhy, transaction.Name)
-	} else {
+	} else if _, already := l.failedWhy[transaction.Name]; !already {
 		l.failedWhy[transaction.Name] = why
 	}
 }
@@ -554,16 +557,16 @@ func (l *surfaceLedger) operationPassed(op operation, statuses []string, dryRun 
 		if !slices.Contains(statuses, transaction.status) {
 			continue
 		}
+		reason, failed := l.failedWhy[transaction.name]
 		if dryRun {
-			if !l.plannedTransactions[transaction.name] {
+			if failed || !l.plannedTransactions[transaction.name] {
 				why = append(why, "not sent")
 			}
 			continue
 		}
-		if l.passed[transaction.name] {
+		if !failed && l.passed[transaction.name] {
 			continue
 		}
-		reason := l.failedWhy[transaction.name]
 		if reason == "" {
 			reason = "not sent"
 		}
