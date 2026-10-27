@@ -36,6 +36,8 @@ type JUnit struct {
 	// properties: its totals and each cell's verdict. Its cells are already
 	// test cases, as results. Nil leaves it out.
 	Authorization *Authorization
+	// Ownership is the ownership phase's, as vertrag.ownership.* properties.
+	Ownership *Authorization
 }
 
 // Provenance names the run a report describes: which binary, which
@@ -140,6 +142,9 @@ func (r JUnit) Report(results []runner.Result) bool {
 	if r.Authorization != nil {
 		suite.Properties = r.Authorization.properties(suite.Properties)
 	}
+	if r.Ownership != nil {
+		suite.Properties = r.Ownership.properties(suite.Properties)
+	}
 
 	var total time.Duration
 	passed := true
@@ -200,7 +205,7 @@ func (r JUnit) Report(results []runner.Result) bool {
 	encoder.Encode(suite)
 	fmt.Fprintln(r.Out)
 
-	return passed && (r.Authorization == nil || r.Authorization.Met())
+	return passed && metOrAbsent(r.Authorization) && metOrAbsent(r.Ownership)
 }
 
 // properties adds the surface figures to the suite's properties: the run's,

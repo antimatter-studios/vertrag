@@ -16,10 +16,31 @@ import (
 // ordinary runner.Result too, so the table, the failures and the recordings
 // already cover it; the matrix adds the one view those cannot give, which is
 // who may do what, side by side.
+//
+// The ownership phase reports in the same shape, with Phase set to
+// "ownership": its columns are principals sent another tenant's ids.
 type Authorization struct {
 	Operations []string            `json:"operations"`
 	Principals []string            `json:"principals"`
 	Cells      []AuthorizationCell `json:"cells"`
+
+	// Phase names the matrix in every report — its heading, its summary
+	// line and its JUnit properties. Empty is "authorization".
+	Phase string `json:"-"`
+}
+
+// PhaseName is the phase the matrix belongs to.
+func (a Authorization) PhaseName() string {
+	if a.Phase == "" {
+		return "authorization"
+	}
+	return a.Phase
+}
+
+// Title is the matrix's heading: "Authorization matrix".
+func (a Authorization) Title() string {
+	name := a.PhaseName()
+	return strings.ToUpper(name[:1]) + name[1:] + " matrix"
 }
 
 // AuthorizationVerdict is what became of one cell.
@@ -134,7 +155,7 @@ func (a Authorization) Normal() Authorization {
 	}
 	// Names come from the description and the config; neither may move a
 	// terminal's cursor or smuggle a control character into a file.
-	out := Authorization{Operations: []string{}, Principals: []string{}, Cells: []AuthorizationCell{}}
+	out := Authorization{Operations: []string{}, Principals: []string{}, Cells: []AuthorizationCell{}, Phase: a.Phase}
 	for _, name := range a.Operations {
 		out.Operations = append(out.Operations, printable(name))
 	}
@@ -187,10 +208,10 @@ func (a Authorization) Met() bool {
 // Verdict is the matrix's one-line summary.
 func (a Authorization) Verdict() string {
 	c := a.Counts()
-	line := fmt.Sprintf("authorization: %d cells, %d passing, %d failing, %d errors, %d unsent",
-		c.Cells, c.Passing, c.Failing, c.Errors, c.Unsent)
+	line := fmt.Sprintf("%s: %d cells, %d passing, %d failing, %d errors, %d unsent",
+		a.PhaseName(), c.Cells, c.Passing, c.Failing, c.Errors, c.Unsent)
 	if c.Bypasses > 0 {
-		line += fmt.Sprintf("; %d authorization bypasses", c.Bypasses)
+		line += fmt.Sprintf("; %d %s bypasses", c.Bypasses, a.PhaseName())
 	}
 	return line
 }
@@ -244,10 +265,39 @@ func WithAuthorization(r Reporter, matrix *Authorization) Reporter {
 	return r
 }
 
+// WithOwnership hands the ownership phase's matrix to every reporter that
+// renders one, beside the authorization matrix.
+func WithOwnership(r Reporter, matrix *Authorization) Reporter {
+	switch r := r.(type) {
+	case Multi:
+		out := make(Multi, len(r))
+		for i, each := range r {
+			out[i] = WithOwnership(each, matrix)
+		}
+		return out
+	case JUnit:
+		r.Ownership = matrix
+		return r
+	case Markdown:
+		r.Ownership = matrix
+		return r
+	case HTML:
+		r.Ownership = matrix
+		return r
+	case JSON:
+		r.Ownership = matrix
+		return r
+	}
+	return r
+}
+
+// metOrAbsent is whether a matrix that may not have run holds no failure.
+func metOrAbsent(matrix *Authorization) bool { return matrix == nil || matrix.Met() }
+
 // WriteAuthorization writes the matrix a run ends with on the terminal.
 func WriteAuthorization(w io.Writer, a Authorization, color bool) {
 	normal := a.Normal()
-	fmt.Fprint(w, "\nAuthorization matrix\n\n")
+	fmt.Fprintf(w, "\n%s\n\n", normal.Title())
 
 	operation := len("operation")
 	for _, name := range normal.Operations {
@@ -334,7 +384,7 @@ func markdownFence(text string) string {
 // authorization is the Markdown section for the matrix.
 func (r Markdown) authorization(a Authorization) {
 	normal := a.Normal()
-	fmt.Fprint(r.Out, "\n## Authorization matrix\n\n| Operation |")
+	fmt.Fprintf(r.Out, "\n## %s\n\n| Operation |", normal.Title())
 	for _, name := range normal.Principals {
 		fmt.Fprintf(r.Out, " %s |", markdownText(name))
 	}
@@ -381,12 +431,13 @@ func (a Authorization) properties(existing *junitProperties) *junitProperties {
 		existing.Properties = append(existing.Properties, junitProperty{Name: name, Value: printable(value)})
 	}
 	c := a.Counts()
-	add("vertrag.authorization.cells", fmt.Sprint(c.Cells))
-	add("vertrag.authorization.passing", fmt.Sprint(c.Passing))
-	add("vertrag.authorization.failing", fmt.Sprint(c.Failing))
-	add("vertrag.authorization.errors", fmt.Sprint(c.Errors))
-	add("vertrag.authorization.unsent", fmt.Sprint(c.Unsent))
-	add("vertrag.authorization.bypasses", fmt.Sprint(c.Bypasses))
+	prefix := "vertrag." + a.PhaseName()
+	add(prefix+".cells", fmt.Sprint(c.Cells))
+	add(prefix+".passing", fmt.Sprint(c.Passing))
+	add(prefix+".failing", fmt.Sprint(c.Failing))
+	add(prefix+".errors", fmt.Sprint(c.Errors))
+	add(prefix+".unsent", fmt.Sprint(c.Unsent))
+	add(prefix+".bypasses", fmt.Sprint(c.Bypasses))
 	for _, each := range a.Normal().Cells {
 		value := string(each.Verdict)
 		if each.Expected != "" {
@@ -401,7 +452,7 @@ func (a Authorization) properties(existing *junitProperties) *junitProperties {
 		if each.Reason != "" {
 			value += ": " + each.Reason
 		}
-		add("vertrag.authorization.cell["+each.Operation+" as "+each.Principal+"]", value)
+		add(prefix+".cell["+each.Operation+" as "+each.Principal+"]", value)
 	}
 	return existing
 }

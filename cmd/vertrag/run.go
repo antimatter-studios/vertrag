@@ -457,6 +457,13 @@ func runRun(args []string) error {
 			}
 			reporter.WriteAuthorization(os.Stdout, *dryRunAuthorization(plan), settings.Color)
 		}
+		if slices.Contains(settings.Phases, config.PhaseOwnership) {
+			plan, err := planOwnership(settings, transactions, skips)
+			if err != nil {
+				return err
+			}
+			reporter.WriteAuthorization(os.Stdout, *dryRunOwnership(plan), settings.Color)
+		}
 		ceiling := surface.summary(settings.Surface, true)
 		reporter.WriteSurface(os.Stdout, ceiling, settings.Color)
 		if !ceiling.Met() {
@@ -693,7 +700,7 @@ func runRun(args []string) error {
 	}
 	// The authorization matrix, when the phase ran; nil leaves every report as
 	// it was.
-	var authorization *reporter.Authorization
+	var authorization, ownership *reporter.Authorization
 	for _, phase := range settings.Phases {
 		statuses.phase(phase)
 		surface.phase(phase)
@@ -735,6 +742,13 @@ func runRun(args []string) error {
 			}
 			results = append(results, prefixed("authorization", phaseResults)...)
 			authorization = matrix
+		case config.PhaseOwnership:
+			phaseResults, matrix, phaseErr := runOwnership(ctx, engine, settings, transactions)
+			if phaseErr != nil {
+				return phaseErr
+			}
+			results = append(results, prefixed("ownership", phaseResults)...)
+			ownership = matrix
 		case config.PhaseFuzz:
 			probeable, _ := partitionBySchema(probeableTransactions)
 			seed := settings.Fuzz.Seed
@@ -762,6 +776,7 @@ func runRun(args []string) error {
 	reached := surface.summary(settings.Surface, false)
 	report = reporter.WithSurface(report, &reached)
 	report = reporter.WithAuthorization(report, authorization)
+	report = reporter.WithOwnership(report, ownership)
 	report.Report(results)
 
 	// Last, and to the terminal whatever --reporter was asked for, because
@@ -777,6 +792,9 @@ func runRun(args []string) error {
 	// exit code, and the verdict belongs where a reader stops reading.
 	if authorization != nil {
 		reporter.WriteAuthorization(os.Stdout, *authorization, settings.Color)
+	}
+	if ownership != nil {
+		reporter.WriteAuthorization(os.Stdout, *ownership, settings.Color)
 	}
 	reporter.WriteSurface(os.Stdout, reached, settings.Color)
 	noteIgnoredAuthIsOff(settings, engine, transactions)
@@ -797,6 +815,9 @@ func runRun(args []string) error {
 	// fails the run as a documented transaction does. An unsent cell does not
 	// by itself: it is counted and shown, and never as a pass.
 	case authorization != nil && !authorization.Met():
+		return errFailed
+	// An ownership bypass is a resource another tenant reached: as serious.
+	case ownership != nil && !ownership.Met():
 		return errFailed
 	case !reached.Met():
 		return errShortfall

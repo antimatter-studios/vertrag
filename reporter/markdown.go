@@ -26,8 +26,9 @@ type Markdown struct {
 	// section of its own after the table; nil leaves it out.
 	Surface *Surface
 	// Authorization is the authorization phase's matrix, a section after the
-	// surface; nil leaves it out.
+	// surface; nil leaves it out. Ownership is the ownership phase's, after it.
 	Authorization *Authorization
+	Ownership     *Authorization
 }
 
 // Report writes the document and returns true when the run passed.
@@ -44,12 +45,15 @@ func (r Markdown) Report(results []runner.Result) bool {
 	if r.Authorization != nil {
 		r.authorization(*r.Authorization)
 	}
+	if r.Ownership != nil {
+		r.authorization(*r.Ownership)
+	}
 	for _, entry := range doc.Cases {
 		r.section(entry)
 	}
 
 	return doc.Summary.Passed() && (r.Surface == nil || r.Surface.Met()) &&
-		(r.Authorization == nil || r.Authorization.Met())
+		metOrAbsent(r.Authorization) && metOrAbsent(r.Ownership)
 }
 
 // surface is how much of the description the run reached. It comes before the
