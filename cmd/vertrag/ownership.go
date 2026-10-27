@@ -57,6 +57,10 @@ type ownershipCell struct {
 	Setup []int
 	Owner string
 
+	// IDs are the victim tenant's declared ids (`tenants.<name>.ids`): the
+	// values of the parameters no link fills, its own account, say (#110).
+	IDs map[string]string
+
 	// Expected is what the matrix shows the cell is held to.
 	Expected string
 
@@ -188,8 +192,13 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 			case roleCell.Expect != expectAllowed:
 				cell.Unsent = col.principal + "'s roles already refuse it, which the authorization phase checks"
 			case list:
+			case len(chain) == 0 && coversPath(success, settings.TenantIDs[col.tenant]):
+				// Ids the tenant already has: its own account, which no
+				// operation in the description makes for it.
+				cell.IDs = settings.TenantIDs[col.tenant]
 			case len(chain) == 0:
-				cell.Unsent = "no link makes a resource for its ids, so whose they are is not known"
+				cell.Unsent = "no link makes a resource for its ids, and tenant " + col.tenant +
+					" declares no ids for them, so whose they are is not known"
 			case slices.ContainsFunc(chain, func(step int) bool {
 				label := operationLabel(transactions[step])
 				return !slices.ContainsFunc(roles.Cells, func(c authorizationCell) bool {
@@ -198,6 +207,7 @@ func planOwnership(settings config.Config, transactions []compile.Transaction,
 			}):
 				cell.Unsent = "an operation its ids come from is not one this run sends"
 			default:
+				cell.IDs = settings.TenantIDs[col.tenant]
 				cell.Setup, cell.Owner = chain, owner(col.tenant, chain)
 				if cell.Owner == "" {
 					cell.Setup = nil
@@ -252,7 +262,16 @@ func executeOwnership(ctx context.Context, engine *runner.Runner, plan ownership
 		reporter.AddRedactedHeader(name)
 	}
 	outcomes := make([]ownershipOutcome, len(plan.Cells))
+	// Each tenant's ids, for the list leak check: the declared ones, then
+	// those its resources are given as the cells run.
 	ids := map[string][]string{}
+	for _, cell := range plan.Cells {
+		for _, id := range cell.IDs {
+			if !slices.Contains(ids[cell.Tenant], id) {
+				ids[cell.Tenant] = append(ids[cell.Tenant], id)
+			}
+		}
+	}
 	for _, lists := range []bool{false, true} {
 		for i, cell := range plan.Cells {
 			if cell.List != lists {
@@ -302,6 +321,14 @@ func executeOwnershipCell(ctx context.Context, engine *runner.Runner, plan owner
 		var prepared *runner.Transaction
 		prepare = prepareFrom(sequencer, cell.Index, completed, &prepared)
 	}
+	if len(cell.IDs) > 0 {
+		prepare = withDeclaredIDs(prepare, cell, func() map[string]string {
+			if sequencer == nil {
+				return nil
+			}
+			return sequencer.Filled(cell.Index)
+		})
+	}
 
 	carriers := plan.sending.Carriers
 	sent, err := engine.SendPreparedAs(ctx, name, cell.Transaction, credentials[cell.Principal], carriers, prepare)
@@ -333,6 +360,60 @@ func executeOwnershipCell(ctx context.Context, engine *runner.Runner, plan owner
 		outcome.Replay = authorizationReplay(sent.Request, carriers)
 	}
 	return outcome
+}
+
+// coversPath reports whether a tenant's declared ids name every path
+// parameter of a transaction, so it can be sent with them and nothing else.
+func coversPath(transaction compile.Transaction, declared map[string]string) bool {
+	if len(declared) == 0 {
+		return false
+	}
+	for _, p := range transaction.Request.Parameters {
+		if p.In != compile.InPath {
+			continue
+		}
+		if !slices.ContainsFunc(slices.Collect(maps.Keys(declared)), func(key string) bool {
+			return link.Match(key, p.In, p.Name)
+		}) {
+			return false
+		}
+	}
+	return true
+}
+
+// withDeclaredIDs runs prepare, then puts the victim tenant's declared ids
+// into every parameter the links did not fill. The link values are put back
+// with them, because filling a parameter rebuilds the request from its
+// template.
+func withDeclaredIDs(prepare func(*runner.Transaction) error, cell ownershipCell,
+	filled func() map[string]string) func(*runner.Transaction) error {
+	return func(transaction *runner.Transaction) error {
+		if prepare != nil {
+			if err := prepare(transaction); err != nil {
+				return err
+			}
+		}
+		values := map[string]any{}
+		linked := filled()
+		for key, value := range linked {
+			values[key] = value
+		}
+		for key, value := range cell.IDs {
+			taken := false
+			for _, p := range cell.Transaction.Request.Parameters {
+				if _, ok := linked[p.In+"."+p.Name]; ok && link.Match(key, p.In, p.Name) {
+					taken = true
+				}
+			}
+			if !taken {
+				values[key] = value
+			}
+		}
+		if failure := link.Apply(transaction, cell.Transaction, values); failure != "" {
+			return errUnprepared(failure)
+		}
+		return nil
+	}
 }
 
 // judgeOwnership decides one cell. An id-taking cell must be refused with one

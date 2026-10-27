@@ -104,6 +104,7 @@ var registeredSelectorFields = map[string]string{
 	// login paths select operations, like the run's own auth settings.
 	"Principals": "principals.auth.except",
 	"WaitFor":    "wait-for.name",
+	"TenantIDs":  "tenants.ids",
 }
 
 // TestEveryConfigFieldIsClassified is the mechanism, and everything else in

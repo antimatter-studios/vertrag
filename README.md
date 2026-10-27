@@ -710,12 +710,27 @@ request is then filled from what came back. The answer must be one of
 `ownership.refuse`. A success is an **ownership bypass**, and a 5xx or any
 other status is a failure.
 
+Some ids exist before the run and no operation makes them: the tenant's own
+account, say, in `/accounts/{id}/…`. A tenant declares those beside its
+principals, keyed by parameter (bare, or `path.id`), with `${NAME}` read from
+the environment because a fixture mints them per run:
+
+```yaml
+tenants:
+  a: {principals: [owner-a, app-password-a], ids: {path.id: "${ACCOUNT_A}"}}
+  b: {principals: [owner-b], ids: {path.id: "${ACCOUNT_B}"}}
+```
+
+An operation no link leads to is sent with the victim's declared ids when they
+name all of its path parameters. Where a chain exists, the ids fill whatever
+the links leave unset. The declared ids are also looked for in lists.
+
 Every `GET` without a path parameter is a row too: a list. The attacker's
 answer must not contain, in any field named `id` or ending in `_id`, `Id` or
 `ID`, an id that the phase gave the victim's resources.
 
 A cell is unsent when the attacker's roles already refuse the operation (the
-authorization phase checks that), when no link makes a resource for its ids,
+authorization phase checks that), when no link makes a resource for its ids and the victim declares none,
 or when no principal of the victim tenant may make one. An unsent cell is
 counted and never passes. The matrix is reported as the authorization
 matrix is: on the terminal, under `ownership` in JSON, as a table in Markdown
