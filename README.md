@@ -139,7 +139,14 @@ those can either select what runs or leave it out:
 vertrag run --tag orders --exclude-method DELETE    # the orders API, read-only
 vertrag run --only-matching '^/api/v1/'            # by name, as a pattern
 vertrag run --exclude-matching '> 5[0-9][0-9] >'   # not the error variants
+vertrag run --exclude-example '_unavailable$'      # not these named exchanges
 ```
+
+`--exclude-example` matches the example name an exchange was paired by (see
+[Named examples are exchanges](#named-examples-are-exchanges)), not the
+transaction name, which does not carry it: one documented status can hold
+several named exchanges, and only that name tells them apart. An exchange no
+name chose has an empty one.
 
 An exclude wins over every include, because the two are meant to be written
 together and the exclude is the more specific half of the pair. The same keys go

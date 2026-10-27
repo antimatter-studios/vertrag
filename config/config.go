@@ -79,6 +79,9 @@ type Config struct {
 	ExcludeMethod      []string
 	ExcludeTag         []string
 	ExcludeOperationID []string
+	// ExcludeExample drops exchanges whose example name, the name a request and
+	// response were paired by, matches one of these regular expressions.
+	ExcludeExample []string
 
 	Header       []string
 	Path         []string
@@ -594,7 +597,7 @@ type file struct {
 	OperationID []string `yaml:"operation-id"`
 	// OnlyMatching narrows the run to transactions whose name matches one of
 	// these regular expressions, and the Exclude* keys drop what they match.
-	// All six are vertrag's own, so all six are refused from a dredd.yml: a
+	// All seven are vertrag's own, so all seven are refused from a dredd.yml: a
 	// key that decides what is sent must not be read out of a file the other
 	// tester ignores it in.
 	OnlyMatching       []string `yaml:"only-matching"`
@@ -603,6 +606,7 @@ type file struct {
 	ExcludeMethod      []string `yaml:"exclude-method"`
 	ExcludeTag         []string `yaml:"exclude-tag"`
 	ExcludeOperationID []string `yaml:"exclude-operation-id"`
+	ExcludeExample     []string `yaml:"exclude-example"`
 	// MaxFailures stops the run early.
 	MaxFailures *int `yaml:"max-failures"`
 	// Workers sends several transactions at once.
@@ -808,6 +812,7 @@ func Load(path string) (Config, error) {
 		{"exclude-method", parsed.ExcludeMethod, &config.ExcludeMethod},
 		{"exclude-tag", parsed.ExcludeTag, &config.ExcludeTag},
 		{"exclude-operation-id", parsed.ExcludeOperationID, &config.ExcludeOperationID},
+		{"exclude-example", parsed.ExcludeExample, &config.ExcludeExample},
 	}
 	if parsed.Auth != nil {
 		applyAuth(&config.Auth, *parsed.Auth)

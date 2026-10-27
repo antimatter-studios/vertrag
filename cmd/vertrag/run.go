@@ -57,6 +57,7 @@ type runFlags struct {
 	excludeMethods      stringList
 	excludeTags         stringList
 	excludeOperationIDs stringList
+	excludeExamples     stringList
 
 	maxFailures  int
 	failFast     bool
@@ -116,6 +117,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.Var(&f.excludeMethods, "exclude-method", "leave out transactions using this method (repeatable)")
 	fs.Var(&f.excludeTags, "exclude-tag", "leave out transactions whose operation carries this tag (repeatable)")
 	fs.Var(&f.excludeOperationIDs, "exclude-operation-id", "leave out transactions of this operationId (repeatable)")
+	fs.Var(&f.excludeExamples, "exclude-example", "leave out exchanges whose example name matches this regular expression (repeatable)")
 	fs.IntVar(&f.maxFailures, "max-failures", 0, "stop sending after this many failures or errors; the rest are reported as skipped (0 = never)")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "stop at the first failure — the same as --max-failures 1")
 	fs.BoolVar(&f.noSanitize, "no-sanitize", false, "show credential header values in reports instead of <redacted>")
@@ -218,6 +220,7 @@ func settingsFor(f runFlags) (config.Config, error) {
 	settings.ExcludeMethod = append(settings.ExcludeMethod, f.excludeMethods...)
 	settings.ExcludeTag = append(settings.ExcludeTag, f.excludeTags...)
 	settings.ExcludeOperationID = append(settings.ExcludeOperationID, f.excludeOperationIDs...)
+	settings.ExcludeExample = append(settings.ExcludeExample, f.excludeExamples...)
 	if f.maxFailures > 0 {
 		settings.MaxFailures = f.maxFailures
 	}
@@ -1283,6 +1286,7 @@ func narrowingFilters(settings config.Config) ([]narrowingFilter, error) {
 		tagged    = "carrying the tag %q"
 		operation = "whose operationId is %q"
 		matching  = "whose name matches %q"
+		example   = "whose example name matches %q"
 	)
 
 	filters := []narrowingFilter{
@@ -1301,13 +1305,22 @@ func narrowingFilters(settings config.Config) ([]narrowingFilter, error) {
 	// than per transaction, and the compiled form is looked up by the pattern
 	// text so that the filter still matches by value like every other one and
 	// the unmatched report needs no special case.
+	name := func(transaction compile.Transaction) string { return transaction.Name }
+	pair := func(transaction compile.Transaction) string { return transaction.Example }
 	for _, regex := range []struct {
 		key     string
+		subject string
 		values  []string
+		of      func(compile.Transaction) string
 		exclude bool
 	}{
-		{"only-matching", settings.OnlyMatching, false},
-		{"exclude-matching", settings.ExcludeMatching, true},
+		{"only-matching", matching, settings.OnlyMatching, name, false},
+		{"exclude-matching", matching, settings.ExcludeMatching, name, true},
+		// The example name is the pair's own (#85), not part of the transaction
+		// name: one documented status can hold several exchanges, and only this
+		// tells "found" from "lookup_unavailable". An exchange no name chose has
+		// an empty one, which a pattern must ask for to match.
+		{"exclude-example", example, settings.ExcludeExample, pair, true},
 	} {
 		compiled := make(map[string]*regexp.Regexp, len(regex.values))
 		for _, pattern := range regex.values {
@@ -1327,15 +1340,16 @@ func narrowingFilters(settings config.Config) ([]narrowingFilter, error) {
 			}
 			compiled[pattern] = expression
 		}
+		of := regex.of
 		filters = append(filters, narrowingFilter{
-			key: regex.key, subject: matching, values: regex.values, exclude: regex.exclude,
+			key: regex.key, subject: regex.subject, values: regex.values, exclude: regex.exclude,
 			matches: func(value string, transaction compile.Transaction) bool {
 				// A search, not a whole-name comparison: `--only-matching
 				// orders` finds "/orders > List > 200 > application/json"
 				// without anybody writing `.*orders.*`. A pattern that means
 				// the entire name says so with ^ and $, which is the shorter
 				// of the two things to type.
-				return compiled[value].MatchString(transaction.Name)
+				return compiled[value].MatchString(of(transaction))
 			},
 		})
 	}

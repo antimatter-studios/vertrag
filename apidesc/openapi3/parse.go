@@ -433,8 +433,15 @@ func buildTransactions(method string, requests, responses []message, headerParam
 				httpResponse.Append(asset)
 			}
 
-			transactions = append(transactions,
-				refract.Named("httpTransaction", httpRequest, httpResponse))
+			transaction := refract.Named("httpTransaction", httpRequest, httpResponse)
+			pair := response.example
+			if pair == "" {
+				pair = request.example
+			}
+			if pair != "" {
+				transaction.SetAttr(refract.PairAttribute, refract.String(pair))
+			}
+			transactions = append(transactions, transaction)
 		}
 	}
 	return transactions
