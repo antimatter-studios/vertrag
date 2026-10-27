@@ -164,6 +164,15 @@ func (s *Sequencer) Prepare(index int, transaction *runner.Transaction, complete
 // runner derives FullPath once and sends to it precisely so that a late hook
 // editing Request.URI cannot silently redirect a request; the same protection
 // means editing URI alone here would change nothing at all.
+// Apply puts values into a transaction about to be sent, as a link's
+// resolved values are put: keyed bare or by location (`path.id`), expanded
+// through the source's URI template, a parameter named by its own example
+// left alone. It returns why a value could not be put, or "".
+func Apply(target *runner.Transaction, source compile.Transaction, values map[string]any) string {
+	_, _, failure := apply(target, source, values)
+	return failure
+}
+
 func apply(target *runner.Transaction, source compile.Transaction, values map[string]any) (int, map[string]string, string) {
 	applied := 0
 	used := map[string]string{}

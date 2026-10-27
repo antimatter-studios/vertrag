@@ -144,6 +144,12 @@ type Config struct {
 	Tenants   map[string][]string
 	Ownership OwnershipSettings
 
+	// TenantIDs are the values a tenant's own resources already have, by
+	// parameter (`path.id` or a bare name): the ids no link in the
+	// description can make, such as the tenant's own account. Keyed by
+	// tenant name; a tenant written as a plain list of principals has none.
+	TenantIDs map[string]map[string]string
+
 	// Transport is how requests reach the server: timeout, retries, pacing,
 	// TLS trust and proxy. Zero values are vertrag's defaults.
 	Transport Transport
@@ -647,8 +653,9 @@ type file struct {
 	Authorization *authorizationFile `yaml:"authorization"`
 	// Tenants and Ownership are vertrag's own: who owns what, for the
 	// ownership phase.
-	Tenants   map[string][]string `yaml:"tenants"`
-	Ownership *ownershipFile      `yaml:"ownership"`
+	// A tenant is a list of principals, or {principals, ids}.
+	Tenants   map[string]yaml.Node `yaml:"tenants"`
+	Ownership *ownershipFile       `yaml:"ownership"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
 	// Surface is vertrag's own: the share of the description a run must
@@ -943,8 +950,19 @@ func Load(path string) (Config, error) {
 	}
 	if len(parsed.Tenants) > 0 {
 		config.Tenants = map[string][]string{}
-		for name, members := range parsed.Tenants {
-			config.Tenants[strings.TrimSpace(name)] = slices.Clone(members)
+		for name, node := range parsed.Tenants {
+			name = strings.TrimSpace(name)
+			members, ids, err := toTenant(node)
+			if err != nil {
+				return config, fmt.Errorf("%s: tenants: %q: %w", path, name, err)
+			}
+			config.Tenants[name] = members
+			if len(ids) > 0 {
+				if config.TenantIDs == nil {
+					config.TenantIDs = map[string]map[string]string{}
+				}
+				config.TenantIDs[name] = ids
+			}
 		}
 	}
 	config.Ownership.Refuse = slices.Clone(DefaultOwnershipRefuse)
@@ -1402,6 +1420,41 @@ func toWaitFor(entry waitForFile) (WaitFor, error) {
 
 // envReference is ${NAME} in a credential header (#78).
 var envReference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// toTenant reads one tenant: a list of principal names, or a mapping with
+// `principals` and `ids`, the parameter values its own resources already
+// have. An id may be ${NAME}, read from the environment as a credential
+// header is, since a fixture mints its ids for each run.
+func toTenant(node yaml.Node) ([]string, map[string]string, error) {
+	var members []string
+	if node.Kind == yaml.SequenceNode {
+		if err := node.Decode(&members); err != nil {
+			return nil, nil, err
+		}
+		return members, nil, nil
+	}
+	var written struct {
+		Principals []string       `yaml:"principals"`
+		IDs        map[string]any `yaml:"ids"`
+	}
+	if err := node.Decode(&written); err != nil {
+		return nil, nil, fmt.Errorf("a tenant is a list of principals, or {principals, ids}: %w", err)
+	}
+	ids := map[string]string{}
+	for key, value := range written.IDs {
+		switch value.(type) {
+		case string, int, int64, uint64, float64:
+		default:
+			return nil, nil, fmt.Errorf("ids: %s must be a string or a number", key)
+		}
+		expanded, err := expandEnv(fmt.Sprint(value))
+		if err != nil {
+			return nil, nil, fmt.Errorf("ids: %s: %w", key, err)
+		}
+		ids[strings.TrimSpace(key)] = expanded
+	}
+	return written.Principals, ids, nil
+}
 
 // expandEnv replaces each ${NAME} in a credential header with that environment variable,
 // so a token issued for one run need not be written into a config kept in version control.

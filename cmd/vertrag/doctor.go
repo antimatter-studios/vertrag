@@ -4,13 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/compile"
 	"github.com/antimatter-studios/vertrag/config"
 	"github.com/antimatter-studios/vertrag/fuzz"
+	"github.com/antimatter-studios/vertrag/link"
 )
 
 // A setting that SELECTS — that names transactions, paths, fields or statuses
@@ -55,6 +58,31 @@ type selector struct {
 // selectors is every setting that selects, and the test beside this file
 // asserts it is every one — see TestEveryConfigFieldIsClassified.
 var selectors = []selector{
+	{
+		key: "tenants.ids",
+		values: func(c config.Config) []string {
+			var values []string
+			for _, tenant := range slices.Sorted(maps.Keys(c.TenantIDs)) {
+				for _, key := range slices.Sorted(maps.Keys(c.TenantIDs[tenant])) {
+					values = append(values, tenant+": "+key)
+				}
+			}
+			return values
+		},
+		matches: func(_ config.Config, value string, transactions []compile.Transaction) int {
+			_, key, _ := strings.Cut(value, ": ")
+			matched := 0
+			for _, transaction := range transactions {
+				if slices.ContainsFunc(transaction.Request.Parameters, func(p compile.Parameter) bool {
+					return link.Match(key, p.In, p.Name)
+				}) {
+					matched++
+				}
+			}
+			return matched
+		},
+		consequence: "no request is sent with the id, and the tenant's resources it meant stay unaddressed",
+	},
 	{
 		key: "wait-for.name",
 		values: func(c config.Config) []string {

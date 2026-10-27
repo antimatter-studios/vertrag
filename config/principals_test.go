@@ -176,3 +176,36 @@ func TestTenantsAndOwnership(t *testing.T) {
 		}
 	}
 }
+
+// A tenant may declare the ids its own resources already have, beside its
+// principals, with ${NAME} read from the environment (#110). The list form
+// stays valid.
+func TestTenantsDeclareTheirIDs(t *testing.T) {
+	t.Setenv("VERTRAG_TEST_ACCOUNT_B", "12")
+	base := "spec: ./api.yaml\nendpoint: http://localhost:4210\nphases: [ownership]\n" +
+		"principals:\n  - name: a1\n  - name: b1\n"
+	settings, err := config.Load(writeConfig(t, "vertrag.yml", base+
+		"tenants:\n  a: {principals: [a1], ids: {path.id: 11}}\n  b:\n    principals: [b1]\n    ids: {id: '${VERTRAG_TEST_ACCOUNT_B}'}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Validate(); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+	if !reflect.DeepEqual(settings.Tenants, map[string][]string{"a": {"a1"}, "b": {"b1"}}) {
+		t.Errorf("tenants %v", settings.Tenants)
+	}
+	want := map[string]map[string]string{"a": {"path.id": "11"}, "b": {"id": "12"}}
+	if !reflect.DeepEqual(settings.TenantIDs, want) {
+		t.Errorf("tenant ids %v, want %v", settings.TenantIDs, want)
+	}
+
+	for body, wantErr := range map[string]string{
+		"tenants:\n  a: {principals: [a1], ids: {id: [1, 2]}}\n  b: [b1]\n":                  "ids: id must be a string or a number",
+		"tenants:\n  a: {principals: [a1], ids: {id: '${VERTRAG_TEST_UNSET}'}}\n  b: [b1]\n": "VERTRAG_TEST_UNSET",
+	} {
+		if _, err := config.Load(writeConfig(t, "vertrag.yml", base+body)); err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("%q: %v, want %q", body, err, wantErr)
+		}
+	}
+}
