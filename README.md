@@ -786,6 +786,52 @@ or schema leaves the body unspecified. JSON responses with schemas continue to
 be validated against those schemas; example bytes do not replace the schema.
 HEAD, 204 and 304 responses retain their bodyless HTTP semantics.
 
+### Server-sent events
+
+A `text/event-stream` response is read for 2 seconds or 1 MiB, whichever comes
+first, and the stream's schema is usually `{type: string}`, which every stream
+passes. What the stream promises is its events. OpenAPI has no keyword for
+them, so vertrag reads an extension on the media type: each key is an event
+name, and each value is the schema of that event's `data`.
+
+```yaml
+text/event-stream:
+  schema: {type: string}
+  x-events:
+    new_message:     {$ref: "#/components/schemas/NewMessageEvent"}
+    folder_update:   {$ref: "#/components/schemas/FolderUpdateEvent"}
+```
+
+With `x-events`, the body is parsed into events as browsers parse it (`event`,
+`data`, `id` lines, blank-line framing, `:` comments). An event with no
+`event:` line is named `message`. Each event's `data` is read as JSON when it
+parses, and validated against the schema for its name. An event whose name the
+map does not have is a failure, because a client written from the description
+has no handler for it. A `oneOf` with a discriminator cannot express this: the
+name travels on its own `event:` line, outside the data. Without `x-events`,
+nothing changes.
+
+Most streams only send an event when something else happens. `wait-for` holds
+a stream open until an event of a given name arrives. Its `trigger` is the
+transaction that provokes the event, sent with the run's own headers once the
+stream's headers have arrived:
+
+```yaml
+wait-for:
+  - name: /accounts/{id}/events > Stream events > 200 > text/event-stream
+    event: new_message
+    within: 10s               # the default
+    trigger: /messages > Send a message > 201 > application/json
+```
+
+The read ends at the first event of that name. If none arrives within the
+time, the transaction fails, and the message says what the trigger answered.
+The trigger is sent as documented, with the run's headers and credential and
+without hooks. Only documented requests are held open. The probing
+phases' generated requests keep the 2-second read, so a fuzz run does not send
+the trigger once per case. Doctor reports a `name` or `trigger` that matches no
+transaction.
+
 ## GraphQL
 
 A GraphQL schema is a description too, so vertrag tests one the same way:

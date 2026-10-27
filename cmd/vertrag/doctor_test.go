@@ -99,6 +99,7 @@ var registeredSelectorFields = map[string]string{
 	// Principal names and roles describe callers; their auth exclusions and
 	// login paths select operations, like the run's own auth settings.
 	"Principals": "principals.auth.except",
+	"WaitFor":    "wait-for.name",
 }
 
 // TestEveryConfigFieldIsClassified is the mechanism, and everything else in

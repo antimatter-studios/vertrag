@@ -56,6 +56,30 @@ type selector struct {
 // asserts it is every one — see TestEveryConfigFieldIsClassified.
 var selectors = []selector{
 	{
+		key: "wait-for.name",
+		values: func(c config.Config) []string {
+			var names []string
+			for _, wait := range c.WaitFor {
+				names = append(names, wait.Name)
+			}
+			return names
+		},
+		matches:     byTransactionName,
+		consequence: "no stream is held open for its event, and the event is not checked for",
+	},
+	{
+		key: "wait-for.trigger",
+		values: func(c config.Config) []string {
+			var names []string
+			for _, wait := range c.WaitFor {
+				names = append(names, nonEmpty(wait.Trigger)...)
+			}
+			return names
+		},
+		matches:     byTransactionName,
+		consequence: "nothing is sent to provoke the event, and the stream waits for it all the same",
+	},
+	{
 		key:         "skip",
 		values:      func(c config.Config) []string { return skipNames(c) },
 		matches:     byTransactionName,

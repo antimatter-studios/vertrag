@@ -163,6 +163,10 @@ type Config struct {
 	// Skip takes transactions out of the run.
 	Skip []SkipRule
 
+	// WaitFor holds a stream open until an event arrives, for the streams
+	// whose events only something else can provoke.
+	WaitFor []WaitFor
+
 	// ConditionalHeaders are the `header` entries written in vertrag's
 	// conditional form.
 	ConditionalHeaders []HeaderRule
@@ -620,6 +624,8 @@ type file struct {
 	Surface *surfaceFile `yaml:"surface"`
 	// Skip is `any` because an entry may be written either way — see toSkipRules.
 	Skip []any `yaml:"skip"`
+	// WaitFor is vertrag's own: which event a stream is held open for.
+	WaitFor []waitForFile `yaml:"wait-for"`
 	// Tag narrows the run to operations carrying one of these tags.
 	Tag []string `yaml:"tag"`
 	// OperationID narrows the run to these operationIds.
@@ -683,6 +689,33 @@ type surfaceExcludeFile struct {
 type authorizationFile struct {
 	Owner  *string `yaml:"owner"`
 	Refuse []int   `yaml:"refuse"`
+}
+
+// WaitFor is one `wait-for` entry, resolved: the transaction whose stream is
+// read until Event arrives or Within passes, and the transaction sent once
+// the stream's headers have arrived to provoke it.
+type WaitFor struct {
+	// Name is the streaming transaction's name, as `skip` names one.
+	Name string
+	// Event is the event name the read waits for.
+	Event string
+	// Within bounds the wait. DefaultWaitWithin when not given.
+	Within time.Duration
+	// Trigger names the transaction that provokes the event, sent with the
+	// run's credential once the stream is open. Empty when the server sends
+	// the event on its own.
+	Trigger string
+}
+
+// DefaultWaitWithin is how long a `wait-for` waits when it does not say.
+const DefaultWaitWithin = 10 * time.Second
+
+// waitForFile is a `wait-for` entry as written.
+type waitForFile struct {
+	Name    *string `yaml:"name"`
+	Event   *string `yaml:"event"`
+	Within  *string `yaml:"within"`
+	Trigger *string `yaml:"trigger"`
 }
 
 // fuzzFile is the `fuzz` section as written.
@@ -875,6 +908,13 @@ func Load(path string) (Config, error) {
 		}
 	}
 	config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
+	for i, entry := range parsed.WaitFor {
+		wait, err := toWaitFor(entry)
+		if err != nil {
+			return config, fmt.Errorf("%s: wait-for entry %d: %w", path, i+1, err)
+		}
+		config.WaitFor = append(config.WaitFor, wait)
+	}
 	config.Tag = append(config.Tag, parsed.Tag...)
 	config.OperationID = append(config.OperationID, parsed.OperationID...)
 	for _, narrow := range narrowing {
@@ -1259,6 +1299,35 @@ func applyAuthorization(settings *AuthorizationSettings, parsed authorizationFil
 		settings.Refuse = append(settings.Refuse, strconv.Itoa(status))
 	}
 	return nil
+}
+
+// toWaitFor reads one `wait-for` entry. A name and an event are required:
+// without either there is nothing to wait for.
+func toWaitFor(entry waitForFile) (WaitFor, error) {
+	wait := WaitFor{Within: DefaultWaitWithin}
+	if entry.Name != nil {
+		wait.Name = strings.TrimSpace(*entry.Name)
+	}
+	if entry.Event != nil {
+		wait.Event = strings.TrimSpace(*entry.Event)
+	}
+	if entry.Trigger != nil {
+		wait.Trigger = strings.TrimSpace(*entry.Trigger)
+	}
+	if wait.Name == "" || wait.Event == "" {
+		return wait, fmt.Errorf("it needs a name, the streaming transaction, and an event to wait for")
+	}
+	if entry.Within != nil {
+		within, err := time.ParseDuration(*entry.Within)
+		if err != nil {
+			return wait, fmt.Errorf("within %q: %w", *entry.Within, err)
+		}
+		if within <= 0 {
+			return wait, fmt.Errorf("within must be positive, got %s", within)
+		}
+		wait.Within = within
+	}
+	return wait, nil
 }
 
 // envReference is ${NAME} in a credential header (#78).

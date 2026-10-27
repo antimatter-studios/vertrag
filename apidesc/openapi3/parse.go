@@ -241,6 +241,10 @@ type message struct {
 	// links are the operations this response declares it leads to. Only a
 	// response has them; a request cannot lead anywhere.
 	links *refract.Element
+
+	// events are a server-sent event stream's event schemas, by event name,
+	// from the media type's `x-events` (#83).
+	events *orderedMap
 }
 
 type header struct {
@@ -432,6 +436,9 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			if asset := headerSchemasAsset(response.headers); asset != nil {
 				httpResponse.Append(asset)
 			}
+			if asset := eventSchemasAsset(response.events); asset != nil {
+				httpResponse.Append(asset)
+			}
 
 			transaction := refract.Named("httpTransaction", httpRequest, httpResponse)
 			pair := response.example
@@ -581,6 +588,22 @@ func schemaAsset(schema string) *refract.Element {
 // header, because an element holds a single asset of any given class and the
 // compiler finds assets by class. Nothing in Dredd reads it; it exists so the
 // header-schema check has something to check against.
+// eventSchemasAsset carries an event stream's schemas, one per event name, as
+// headerSchemasAsset carries a response's header schemas.
+func eventSchemasAsset(events *orderedMap) *refract.Element {
+	if events == nil || events.Len() == 0 {
+		return nil
+	}
+	encoded, ok := encodeToString(events)
+	if !ok {
+		return nil
+	}
+	asset := refract.Text("asset", encoded)
+	asset.AddClass("messageEventsSchema")
+	asset.SetAttr("contentType", refract.String("application/json"))
+	return asset
+}
+
 func headerSchemasAsset(headers []header) *refract.Element {
 	schemas := newOrderedMap()
 	for _, h := range headers {

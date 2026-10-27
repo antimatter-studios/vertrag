@@ -160,7 +160,33 @@ func applyConfiguredRules(
 
 	engine.MaxFailures = settings.MaxFailures
 
+	if len(settings.WaitFor) > 0 {
+		engine.Waits = streamWaits(settings.WaitFor, transactions)
+	}
+
 	return nil
+}
+
+// streamWaits resolves `wait-for` against the transactions. A trigger naming
+// no transaction is left out — the wait still holds the stream open — and an
+// entry naming no transaction holds nothing; doctor reports both.
+func streamWaits(entries []config.WaitFor, transactions []compile.Transaction) map[string]runner.StreamWait {
+	byName := make(map[string]compile.Transaction, len(transactions))
+	for _, transaction := range transactions {
+		byName[transaction.Name] = transaction
+	}
+	waits := make(map[string]runner.StreamWait, len(entries))
+	for _, entry := range entries {
+		wait := runner.StreamWait{Event: entry.Event, Within: entry.Within}
+		if trigger, ok := byName[entry.Trigger]; ok && entry.Trigger != "" {
+			wait.Trigger = &trigger
+		} else if entry.Trigger != "" {
+			fmt.Fprintf(os.Stderr, "vertrag: wait-for %q: no transaction is named %q, so nothing triggers its event\n",
+				entry.Name, entry.Trigger)
+		}
+		waits[entry.Name] = wait
+	}
+	return waits
 }
 
 // withoutSkipped removes the skipped transactions from a list, returning the
