@@ -18,10 +18,6 @@
           {
             "name": "Content-Type",
             "value": "application/json"
-          },
-          {
-            "name": "x-next",
-            "value": ""
           }
         ],
         "body": "[\"\"]",

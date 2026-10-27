@@ -49,23 +49,14 @@
         "headers": [
           {
             "name": "X-Request-Id",
-            "value": ""
-          },
-          {
-            "name": "X-Empty",
-            "value": ""
+            "value": "req-1"
           }
         ],
         "body": ""
       },
       "response": {
         "status": "200",
-        "headers": [
-          {
-            "name": "X-Rate-Limit",
-            "value": ""
-          }
-        ]
+        "headers": []
       },
       "name": "Parameters \u003e /headers \u003e Header parameters \u003e 200",
       "origin": {

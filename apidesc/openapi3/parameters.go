@@ -238,8 +238,15 @@ func (p *parameters) headers() []header {
 		value := ""
 		if param.hasValue {
 			value = stringifyScalar(param.value)
+		} else if example := param.schema.Get("example"); example.Valid() {
+			value = stringifyScalar(scalarValue(example))
+			param.hasValue = true
+		} else if fallback := param.schema.Get("default"); fallback.Valid() {
+			value = stringifyScalar(scalarValue(fallback))
+			param.hasValue = true
 		}
-		out = append(out, header{name: param.name, value: value, schema: param.converted})
+		out = append(out, header{name: param.name, value: value, schema: param.converted,
+			omitted: !param.hasValue && !param.required})
 	}
 	return out
 }

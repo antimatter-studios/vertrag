@@ -244,8 +244,12 @@ type message struct {
 }
 
 type header struct {
-	name  string
-	value string
+	name     string
+	value    string
+	required bool
+	// omitted keeps an optional request parameter available for generation
+	// without putting an invented empty value on the wire.
+	omitted bool
 
 	// schema is the JSON Schema the document gave this header's value, empty
 	// when it gave none or gave one vertrag will not act on. It serves both
@@ -410,7 +414,11 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			if response.contentType != "" {
 				responseHeaders = append(responseHeaders, header{name: "Content-Type", value: response.contentType})
 			}
-			responseHeaders = append(responseHeaders, response.headers...)
+			for _, h := range response.headers {
+				if h.required {
+					responseHeaders = append(responseHeaders, h)
+				}
+			}
 			setHeaders(httpResponse, responseHeaders)
 			if response.hasBody {
 				httpResponse.Append(bodyAsset(response.body, response.contentType, response.declared))
@@ -421,7 +429,7 @@ func buildTransactions(method string, requests, responses []message, headerParam
 			if response.links != nil {
 				httpResponse.SetAttr("links", response.links)
 			}
-			if asset := headerSchemasAsset(responseHeaders); asset != nil {
+			if asset := headerSchemasAsset(response.headers); asset != nil {
 				httpResponse.Append(asset)
 			}
 
@@ -525,6 +533,9 @@ func setHeaders(element *refract.Element, headers []header) {
 	httpHeaders := refract.Named("httpHeaders")
 	for _, h := range headers {
 		value := refract.String(h.value)
+		if h.omitted {
+			value.SetAttr(refract.OmittedAttribute, refract.Bool(true))
+		}
 		if h.schema != "" {
 			value.SetAttr(refract.SchemaAttribute, refract.String(h.schema))
 		}

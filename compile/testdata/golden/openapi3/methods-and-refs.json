@@ -182,12 +182,7 @@
       },
       "response": {
         "status": "200",
-        "headers": [
-          {
-            "name": "X-Shared",
-            "value": ""
-          }
-        ]
+        "headers": []
       },
       "name": "Methods and References \u003e /shared-header \u003e Response header behind a reference \u003e 200",
       "origin": {
