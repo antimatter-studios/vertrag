@@ -35,10 +35,8 @@ import (
 // AgainstHeaderSchemas reports where a response's headers contradict the schemas
 // the description gave them.
 //
-// Presence is not checked here. Gavel already demands every header a description
-// declares, so a missing one — required or not — is reported by ordinary
-// validation, and saying it a second time would only make a report harder to
-// read.
+// Presence is not checked here. Required headers are presence expectations in
+// ordinary validation; an absent optional header has no value to check.
 func AgainstHeaderSchemas(schemas map[string]json.RawMessage, headers map[string]string) []string {
 	names := make([]string, 0, len(schemas))
 	for name := range schemas {

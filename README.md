@@ -872,6 +872,13 @@ spawning node: killing npm leaves node holding the port, and the next run's
 description gave it — so an `X-Rate-Limit` documented as a non-negative integer
 fails when the server answers `banana`.
 
+In OpenAPI 3, only response headers marked `required: true` are demanded.
+Optional response headers are schema-checked when present. The content map still
+requires its media type; a Header Object named `Content-Type` is ignored as the
+specification requires. Optional request header parameters with no example or
+default are omitted from example requests, but remain available to generated
+probes. An explicitly empty example or default is sent as an empty header.
+
 Dredd compares values for exactly five headers — `content-type`, `accept`, and
 the three `accept-*` — and checks only presence for every other one it declares.
 It never reads a Header Object's schema at all. So no description has ever had

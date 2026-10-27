@@ -356,6 +356,9 @@ func compileHeaders(element *refract.Element) []Header {
 		if member.Kind != refract.ContentMember {
 			continue
 		}
+		if member.Value.Attr(refract.OmittedAttribute) != nil {
+			continue
+		}
 		name, _ := member.Key.StringValue()
 		headers = append(headers, Header{Name: name, Value: member.Value.String()})
 	}

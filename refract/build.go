@@ -22,6 +22,10 @@ package refract
 // and would otherwise be dropped at the parse stage.
 const SchemaAttribute = "vertragSchema"
 
+// OmittedAttribute marks a header parameter that has no value to send. Its
+// schema still travels for generation, but it is absent from the wire headers.
+const OmittedAttribute = "vertragOmitted"
+
 // StyleAttribute carries an OpenAPI parameter's serialisation style
 // ("form", "spaceDelimited", "pipeDelimited", "deepObject", "simple") on an
 // hrefVariables member, so the compiler and generation render a list or an

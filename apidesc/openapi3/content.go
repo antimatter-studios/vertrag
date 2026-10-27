@@ -90,18 +90,16 @@ func isStatusCodeRange(key string) bool {
 
 // parseResponseHeaders reads a Headers Object.
 //
-// A value is only a demonstration — the document declares what a header will be,
-// not what it will contain — so the name is what matters downstream: the
-// compiler carries it through and the response is checked for its presence.
-//
-// `required` is deliberately not carried. Gavel demands every header the
-// description declares, whether or not it was marked required, so an absent one
-// already fails through ordinary validation; recording the flag would let it
-// look as though something acted on it.
+// Only required headers become presence expectations. Optional headers keep
+// their schemas, so a value is checked when present without demanding that the
+// server send it. Content-Type is described by the content map instead.
 func (d *document) parseResponseHeaders(n node) []header {
 	var headers []header
 	for _, member := range n.Entries() {
 		name := member.Key.Str()
+		if strings.EqualFold(name, "content-type") {
+			continue
+		}
 		declared := d.Resolve(member.Value)
 		value := ""
 		if example, ok := schemaExample(d.Resolve(declared.Get("schema"))); ok {
@@ -111,9 +109,10 @@ func (d *document) parseResponseHeaders(n node) []header {
 			value = stringifyScalar(scalarValue(example))
 		}
 		headers = append(headers, header{
-			name:   name,
-			value:  value,
-			schema: d.headerSchema(name, declared),
+			name:     name,
+			value:    value,
+			required: declared.Get("required").Bool(),
+			schema:   d.headerSchema(name, declared),
 		})
 	}
 	return headers

@@ -66,6 +66,27 @@ type divergence struct {
 
 var divergences = []divergence{
 	{
+		fixture: "methods-and-refs",
+		path:    "transactions[8].response.headers",
+		reason:  optionalHeadersAreOptional,
+	},
+	{
+		fixture: "parameters",
+		path:    "transactions[2].request.headers",
+		reason: "Optional header parameters without examples or defaults are omitted; " +
+			"a schema example is sent as the declared value instead of an invented empty header (#98).",
+	},
+	{
+		fixture: "parameters",
+		path:    "transactions[2].response.headers",
+		reason:  optionalHeadersAreOptional,
+	},
+	{
+		fixture: "proof-of-concept",
+		path:    "transactions[0].response.headers",
+		reason:  optionalHeadersAreOptional,
+	},
+	{
 		fixture: "media-types",
 		path:    "transactions[0].request.body",
 		reason: "Dredd sends an empty body for application/x-www-form-urlencoded, " +
@@ -236,6 +257,10 @@ var divergences = []divergence{
 			"nothing.",
 	},
 }
+
+const optionalHeadersAreOptional = "Dredd demands every declared response header. " +
+	"OpenAPI 3 headers default to optional, so vertrag requires only headers marked required " +
+	"and validates an optional header's schema when it is present (#98)."
 
 // statusRangesAreSupported explains the expected status vertrag derives from a
 // Responses Object key naming a band.
