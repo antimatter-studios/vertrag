@@ -97,6 +97,8 @@ type Config struct {
 	// kind: the values of each kind it provides (#105). An exchange whose
 	// `x-requires` the run does not wholly provide is not sent: it is unproven
 	// here, listed apart rather than counted, for another run to prove.
+	// A provided principal names one of Principals, and an exchange requiring
+	// it is sent with that principal's credential instead of the run's own.
 	Provides map[string][]string
 	// Unproven is where the exchanges this run does not provide for are written,
 	// as JSON; empty writes nowhere.
@@ -1748,6 +1750,14 @@ func (c Config) Validate() error {
 	if owner := c.Authorization.Owner; owner != "" &&
 		!slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == owner }) {
 		return fmt.Errorf("authorization.owner %q names no principal", owner)
+	}
+	// An exchange requiring a principal is sent as that principal (#105). One
+	// the run provides without defining would go out with the run's own
+	// credential, and its refusal be reported as the server's fault.
+	for _, name := range c.Provides["principal"] {
+		if !slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == name }) {
+			return fmt.Errorf("provides principal %q, which names no principal: define it under `principals`", name)
+		}
 	}
 	return nil
 }
