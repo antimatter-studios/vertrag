@@ -671,6 +671,45 @@ authorization:
 status listed is accepted wherever a refusal is required. Only 4xx statuses
 may be listed.
 
+### Whose resource is it: the ownership phase
+
+Roles say which operations a caller may use, not on whose objects. Most real
+break-ins use an operation the caller is entitled to, with somebody else's id
+(OWASP API1, broken object-level authorization), and a description cannot
+say "only your own". `--phases ownership` tests exactly that. It groups
+principals into tenants, and each tenant's principals are sent the other
+tenants' ids:
+
+```yaml
+phases: [ownership]
+tenants:
+  a: [admin-a, user-a]       # principals, as configured under `principals`
+  b: [admin-b, user-b]
+ownership:
+  refuse: [403, 404]         # the default
+```
+
+Every operation with a path parameter is a row. A column is a principal and
+the tenant whose ids it is sent, such as `user-b → a`. The phase makes each
+cell a resource of its own, owned by the victim tenant. It sends the chain the
+description's `links` lead the operation from, as the first principal of that
+tenant the description lets call every operation in the chain. The attacker's
+request is then filled from what came back. The answer must be one of
+`ownership.refuse`. A success is an **ownership bypass**, and a 5xx or any
+other status is a failure.
+
+Every `GET` without a path parameter is a row too: a list. The attacker's
+answer must not contain, in any field named `id` or ending in `_id`, `Id` or
+`ID`, an id that the phase gave the victim's resources.
+
+A cell is unsent when the attacker's roles already refuse the operation (the
+authorization phase checks that), when no link makes a resource for its ids,
+or when no principal of the victim tenant may make one. An unsent cell is
+counted and never passes. The matrix is reported as the authorization
+matrix is: on the terminal, under `ownership` in JSON, as a table in Markdown
+and HTML, and as `vertrag.ownership.*` JUnit properties. Any failing cell
+exits 1. `--dry-run` prints the planned matrix and sends nothing.
+
 ### Statuses the description never mentions
 
 The commonest real defect in the APIs vertrag is pointed at is not a broken

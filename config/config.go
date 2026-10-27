@@ -20,6 +20,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"regexp"
@@ -129,6 +130,11 @@ type Config struct {
 	// its cells address, and which statuses count as a refusal.
 	Authorization AuthorizationSettings
 
+	// Tenants group principals by whose resources they own, for the
+	// ownership phase, keyed by tenant name. Ownership tunes that phase.
+	Tenants   map[string][]string
+	Ownership OwnershipSettings
+
 	// Transport is how requests reach the server: timeout, retries, pacing,
 	// TLS trust and proxy. Zero values are vertrag's defaults.
 	Transport Transport
@@ -221,6 +227,19 @@ type AuthorizationSettings struct {
 	// what a caller may not see answers 404 instead, and lists it here.
 	Refuse []string
 }
+
+// OwnershipSettings are the `ownership` section, resolved.
+type OwnershipSettings struct {
+	// Refuse lists the statuses a principal of one tenant may be answered
+	// with when it addresses another tenant's resource: 403 or 404 unless
+	// configured.
+	Refuse []string
+}
+
+// DefaultOwnershipRefuse is what a refusal of another tenant's id may be
+// when `ownership.refuse` is not set: forbidden, or not found for an API
+// that does not reveal what a caller may not see.
+var DefaultOwnershipRefuse = []string{"403", "404"}
 
 // GraphQLSettings decide how a GraphQL schema is turned into transactions.
 //
@@ -617,6 +636,10 @@ type file struct {
 	Principals []principalFile `yaml:"principals"`
 	// Authorization is vertrag's own: how the authorization phase judges.
 	Authorization *authorizationFile `yaml:"authorization"`
+	// Tenants and Ownership are vertrag's own: who owns what, for the
+	// ownership phase.
+	Tenants   map[string][]string `yaml:"tenants"`
+	Ownership *ownershipFile      `yaml:"ownership"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
 	// Surface is vertrag's own: the share of the description a run must
@@ -716,6 +739,11 @@ type waitForFile struct {
 	Event   *string `yaml:"event"`
 	Within  *string `yaml:"within"`
 	Trigger *string `yaml:"trigger"`
+}
+
+// ownershipFile is the `ownership` section as written.
+type ownershipFile struct {
+	Refuse []int `yaml:"refuse"`
 }
 
 // fuzzFile is the `fuzz` section as written.
@@ -901,6 +929,20 @@ func Load(path string) (Config, error) {
 		if err := applyAuthorization(&config.Authorization, *parsed.Authorization); err != nil {
 			return config, fmt.Errorf("%s: authorization: %w", path, err)
 		}
+	}
+	if len(parsed.Tenants) > 0 {
+		config.Tenants = map[string][]string{}
+		for name, members := range parsed.Tenants {
+			config.Tenants[strings.TrimSpace(name)] = slices.Clone(members)
+		}
+	}
+	config.Ownership.Refuse = slices.Clone(DefaultOwnershipRefuse)
+	if parsed.Ownership != nil && len(parsed.Ownership.Refuse) > 0 {
+		refuse, err := refusalStatuses(parsed.Ownership.Refuse)
+		if err != nil {
+			return config, fmt.Errorf("%s: ownership: %w", path, err)
+		}
+		config.Ownership.Refuse = refuse
 	}
 	if parsed.Transport != nil {
 		if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
@@ -1162,6 +1204,9 @@ const (
 	PhaseStateful = "stateful"
 	// PhaseAuthorization sends every operation as every principal.
 	PhaseAuthorization = "authorization"
+	// PhaseOwnership sends every id-taking operation as one tenant's
+	// principals with another tenant's ids.
+	PhaseOwnership = "ownership"
 )
 
 // normalisePhases validates and orders a phase list. Order is fixed —
@@ -1174,11 +1219,11 @@ func normalisePhases(names []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, name := range names {
 		switch strings.ToLower(strings.TrimSpace(name)) {
-		case PhaseExamples, PhaseCoverage, PhaseFuzz, PhaseAuthorization, PhaseStateful:
+		case PhaseExamples, PhaseCoverage, PhaseFuzz, PhaseAuthorization, PhaseOwnership, PhaseStateful:
 			seen[strings.ToLower(strings.TrimSpace(name))] = true
 		default:
 			return nil, fmt.Errorf(
-				"unknown phase %q; phases are examples, coverage, fuzz, authorization and stateful", name)
+				"unknown phase %q; phases are examples, coverage, fuzz, authorization, ownership and stateful", name)
 		}
 	}
 	out := []string{PhaseExamples}
@@ -1193,6 +1238,12 @@ func normalisePhases(names []string) ([]string, error) {
 	// before stateful and not after.
 	if seen[PhaseAuthorization] {
 		out = append(out, PhaseAuthorization)
+	}
+	// Ownership after authorization, for the same reason, and before
+	// stateful: a bypass it finds may delete another tenant's resource, but
+	// nothing it sends removes what the documented state holds.
+	if seen[PhaseOwnership] {
+		out = append(out, PhaseOwnership)
 	}
 	// Stateful last: it runs whole lifecycles and leaves the server holding
 	// less than it started with, so anything judging the documented state
@@ -1292,13 +1343,21 @@ func applyAuthorization(settings *AuthorizationSettings, parsed authorizationFil
 	if parsed.Owner != nil {
 		settings.Owner = strings.TrimSpace(*parsed.Owner)
 	}
-	for _, status := range parsed.Refuse {
+	refuse, err := refusalStatuses(parsed.Refuse)
+	settings.Refuse = refuse
+	return err
+}
+
+// refusalStatuses reads a `refuse` list as statuses.
+func refusalStatuses(statuses []int) ([]string, error) {
+	var out []string
+	for _, status := range statuses {
 		if status < 400 || status > 499 {
-			return fmt.Errorf("refuse: %d is not a 4xx status, and only a 4xx refuses", status)
+			return nil, fmt.Errorf("refuse: %d is not a 4xx status, and only a 4xx refuses", status)
 		}
-		settings.Refuse = append(settings.Refuse, strconv.Itoa(status))
+		out = append(out, strconv.Itoa(status))
 	}
-	return nil
+	return out, nil
 }
 
 // toWaitFor reads one `wait-for` entry. A name and an event are required:
@@ -1570,6 +1629,35 @@ func setDuration(target *time.Duration, value *float64, unit time.Duration) {
 	}
 }
 
+// validateTenants refuses tenants the ownership phase could not test: fewer
+// than two, a member that is no principal, or a principal in two tenants,
+// whose resources would be both its own and somebody else's.
+func (c Config) validateTenants() error {
+	if slices.Contains(c.Phases, PhaseOwnership) && len(c.Tenants) < 2 {
+		return fmt.Errorf("the ownership phase needs `tenants`, at least two: " +
+			"it sends one tenant's principals another tenant's ids")
+	}
+	member := map[string]string{}
+	for _, tenant := range slices.Sorted(maps.Keys(c.Tenants)) {
+		if tenant == "" {
+			return fmt.Errorf("tenants: a tenant has no name")
+		}
+		if len(c.Tenants[tenant]) == 0 {
+			return fmt.Errorf("tenants: %q has no principals", tenant)
+		}
+		for _, name := range c.Tenants[tenant] {
+			if !slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == name }) {
+				return fmt.Errorf("tenants: %q lists %q, which names no principal", tenant, name)
+			}
+			if other, taken := member[name]; taken {
+				return fmt.Errorf("tenants: %q is in both %q and %q", name, other, tenant)
+			}
+			member[name] = tenant
+		}
+	}
+	return nil
+}
+
 // Validate reports settings that would make a run impossible.
 func (c Config) Validate() error {
 	if c.Spec == "" {
@@ -1584,6 +1672,9 @@ func (c Config) Validate() error {
 	if slices.Contains(c.Phases, PhaseAuthorization) && len(c.Principals) == 0 {
 		return fmt.Errorf("the authorization phase needs `principals`: " +
 			"it sends every operation as each of them, and with none it would send nothing")
+	}
+	if err := c.validateTenants(); err != nil {
+		return err
 	}
 	if owner := c.Authorization.Owner; owner != "" &&
 		!slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == owner }) {

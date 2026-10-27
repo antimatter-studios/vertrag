@@ -134,3 +134,45 @@ func TestAuthorizationSettings(t *testing.T) {
 		t.Errorf("an unknown owner: %v", err)
 	}
 }
+
+// `tenants` groups principals for the ownership phase: two at least, each
+// member a principal, none in two tenants. `ownership.refuse` defaults to 403
+// or 404 (#82).
+func TestTenantsAndOwnership(t *testing.T) {
+	base := "spec: ./api.yaml\nendpoint: http://localhost:4210\nphases: [ownership]\n" +
+		"principals:\n  - name: a1\n  - name: b1\n"
+	settings, err := config.Load(writeConfig(t, "vertrag.yml", base+"tenants: {a: [a1], b: [b1]}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Validate(); err != nil {
+		t.Errorf("Validate: %v", err)
+	}
+	if !reflect.DeepEqual(settings.Tenants, map[string][]string{"a": {"a1"}, "b": {"b1"}}) ||
+		!reflect.DeepEqual(settings.Ownership.Refuse, []string{"403", "404"}) {
+		t.Errorf("tenants %v, refuse %v", settings.Tenants, settings.Ownership.Refuse)
+	}
+	if !reflect.DeepEqual(settings.Phases, []string{config.PhaseExamples, config.PhaseOwnership}) {
+		t.Errorf("phases = %v", settings.Phases)
+	}
+
+	custom, err := config.Load(writeConfig(t, "vertrag.yml", base+"tenants: {a: [a1], b: [b1]}\nownership: {refuse: [404]}\n"))
+	if err != nil || !reflect.DeepEqual(custom.Ownership.Refuse, []string{"404"}) {
+		t.Errorf("custom refuse: %v %v", custom.Ownership.Refuse, err)
+	}
+
+	for tenants, want := range map[string]string{
+		"tenants: {a: [a1]}\n":              "at least two",
+		"tenants: {a: [a1], b: [nobody]}\n": `"b" lists "nobody", which names no principal`,
+		"tenants: {a: [a1], b: [a1]}\n":     `"a1" is in both "a" and "b"`,
+		"tenants: {a: [a1], b: []}\n":       `"b" has no principals`,
+	} {
+		loaded, err := config.Load(writeConfig(t, "vertrag.yml", base+tenants))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", strings.TrimSpace(tenants), err, want)
+		}
+	}
+}
