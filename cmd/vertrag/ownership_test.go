@@ -25,6 +25,9 @@ import (
 type tenantAPI struct {
 	brokenRead bool
 	brokenList bool
+	// brokenMove forgets the owner check on the item a move names in its
+	// body (#107).
+	brokenMove bool
 
 	mu    sync.Mutex
 	next  int
@@ -66,6 +69,16 @@ func (a *tenantAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id := fmt.Sprint(a.next)
 		a.owner[id] = caller.tenant
 		reply(http.StatusCreated, `{"id":"`+id+`"}`)
+	case r.URL.Path == "/moves" && r.Method == http.MethodPost:
+		var move struct {
+			ItemID string `json:"item_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&move)
+		if tenant, exists := a.owner[move.ItemID]; !exists || tenant != caller.tenant && !a.brokenMove {
+			reply(http.StatusNotFound, `{"error":"no such item"}`)
+			return
+		}
+		reply(http.StatusOK, `{"moved":"`+move.ItemID+`"}`)
 	case r.URL.Path == "/items":
 		var items []string
 		for id, tenant := range a.owner {
@@ -116,10 +129,15 @@ func tenantSettings() config.Config {
 
 func runTenants(t *testing.T, api *tenantAPI) ([]authorizationOutcome, ownershipPlan) {
 	t.Helper()
+	return runTenantsWith(t, api, tenantTransactions())
+}
+
+func runTenantsWith(t *testing.T, api *tenantAPI, transactions []compile.Transaction) ([]authorizationOutcome, ownershipPlan) {
+	t.Helper()
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 	settings := tenantSettings()
-	plan, err := planOwnership(settings, tenantTransactions(), nil)
+	plan, err := planOwnership(settings, transactions, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,11 +276,38 @@ paths:
         "204": {description: gone}
 `
 
+// ownershipReferenceSpec adds a move whose item travels in the body, marked
+// with x-vertrag-reference. It comes before the delete, so the examples phase
+// moves the item it made before deleting it.
+var ownershipReferenceSpec = strings.Replace(ownershipSpec, "  /items/{id}:\n", movesPath+"  /items/{id}:\n", 1)
+
+const movesPath = `  /moves:
+    post:
+      operationId: moveItem
+      security: [{bearer: [items:read]}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_id: {type: string, x-vertrag-reference: getItem}
+                to: {type: string}
+            example: {item_id: "1", to: archive}
+      responses:
+        "200": {description: moved, content: {application/json: {schema: {type: object}}}}
+`
+
 func writeOwnershipConfig(t *testing.T, endpoint string) string {
+	t.Helper()
+	return writeOwnershipConfigFor(t, endpoint, ownershipSpec)
+}
+
+func writeOwnershipConfigFor(t *testing.T, endpoint, description string) string {
 	t.Helper()
 	dir := t.TempDir()
 	spec := filepath.Join(dir, "openapi.yaml")
-	if err := os.WriteFile(spec, []byte(ownershipSpec), 0o600); err != nil {
+	if err := os.WriteFile(spec, []byte(description), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "vertrag.yml")
@@ -307,6 +352,111 @@ func TestTheOwnershipPhaseThroughRun(t *testing.T) {
 		t.Fatalf("a missing ownership check passed:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "4 ownership bypasses") || !strings.Contains(stdout, "ownership bypass: GET /items/{id} answered 200") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+}
+
+// referenceTransactions add a move that names its item in the body rather
+// than the path, marked as a reference to getItem's resource (#107).
+func referenceTransactions() []compile.Transaction {
+	move := transactionFor("POST", "/moves", "200", requires(compile.Requirement{need(bearerScheme, "items:read")}))
+	move.OperationID = "moveItem"
+	move.Request.Body = `{"item_id":"1","to":"archive"}`
+	move.References = map[string]compile.Reference{"item_id": {OperationID: "getItem"}}
+	return append(tenantTransactions(), move)
+}
+
+// TestOwnershipSendsABodyReferenceAnotherTenantsID is #107: an id that travels
+// in a request body field marked as a reference is filled with the victim's
+// id, made by the chain that makes the resource it refers to, and must be
+// refused; a success is a bypass. The operation has no id in its path, and
+// still gets a row.
+func TestOwnershipSendsABodyReferenceAnotherTenantsID(t *testing.T) {
+	outcomes, plan := runTenantsWith(t, &tenantAPI{}, referenceTransactions())
+	if !slices.Contains(plan.Operations, "POST /moves body.item_id") {
+		t.Fatalf("no row for the body reference: %q", plan.Operations)
+	}
+	var moves []string
+	for _, line := range ownershipLines(outcomes) {
+		if strings.HasPrefix(line, "POST /moves") {
+			moves = append(moves, line)
+		}
+	}
+	want := []string{
+		"POST /moves body.item_id admin-b → a pass 404", "POST /moves body.item_id user-b → a pass 404",
+		"POST /moves body.item_id admin-a → b pass 404", "POST /moves body.item_id user-a → b pass 404",
+	}
+	if !slices.Equal(moves, want) {
+		t.Fatalf("cells:\n  got  %q\n  want %q", moves, want)
+	}
+	for _, outcome := range outcomes {
+		if strings.HasPrefix(outcome.Cell.Operation, "POST /moves") &&
+			!strings.Contains(outcome.Result.Request.Body, `"to":"archive"`) {
+			t.Errorf("the rest of the body was not kept: %s", outcome.Result.Request.Body)
+		}
+	}
+
+	broken, plan := runTenantsWith(t, &tenantAPI{brokenMove: true}, referenceTransactions())
+	bypasses := 0
+	for _, outcome := range broken {
+		if !strings.HasPrefix(outcome.Cell.Operation, "POST /moves") {
+			continue
+		}
+		if !outcome.Bypass || !strings.Contains(outcome.Result.Errors[0], "ownership bypass") || outcome.Replay == "" {
+			t.Errorf("%s: bypass %v errors %q", outcome.Cell.Principal, outcome.Bypass, outcome.Result.Errors)
+			continue
+		}
+		bypasses++
+	}
+	if matrix := ownershipMatrix(plan, broken); bypasses != 4 || matrix.Counts().Bypasses != 4 {
+		t.Errorf("bypasses: %d cells, matrix %s", bypasses, matrix.Verdict())
+	}
+}
+
+// TestOwnershipSaysWhyABodyReferenceCannotBeSent covers a mark naming an
+// operation the description does not have.
+func TestOwnershipSaysWhyABodyReferenceCannotBeSent(t *testing.T) {
+	transactions := referenceTransactions()
+	transactions[len(transactions)-1].References = map[string]compile.Reference{"item_id": {OperationID: "getNothing"}}
+	plan, err := planOwnership(tenantSettings(), transactions, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cells := 0
+	for _, cell := range plan.Cells {
+		if !strings.HasPrefix(cell.Operation, "POST /moves") {
+			continue
+		}
+		cells++
+		if !strings.Contains(cell.Unsent, `x-vertrag-reference names "getNothing", which is no operation this run sends`) {
+			t.Errorf("%s: unsent %q", cell.Column, cell.Unsent)
+		}
+	}
+	if cells != 4 {
+		t.Errorf("%d cells for the body reference, want one per column", cells)
+	}
+}
+
+// Through `vertrag run`, from the description's own mark: a move that forgets
+// to check whose item its body names fails the run with four bypasses.
+func TestABodyReferenceThroughRun(t *testing.T) {
+	correct := httptest.NewServer(&tenantAPI{})
+	defer correct.Close()
+	stdout, err := runAuthzCLI(t, "--config", writeOwnershipConfigFor(t, correct.URL, ownershipReferenceSpec))
+	if err != nil {
+		t.Fatalf("a correct server: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, "ownership: 16 cells, 14 passing, 0 failing, 0 errors, 2 unsent") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+
+	broken := httptest.NewServer(&tenantAPI{brokenMove: true})
+	defer broken.Close()
+	stdout, err = runAuthzCLI(t, "--config", writeOwnershipConfigFor(t, broken.URL, ownershipReferenceSpec))
+	if err == nil {
+		t.Fatalf("a missing ownership check on a body id passed:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "4 ownership bypasses") || !strings.Contains(stdout, "ownership bypass: POST /moves body.item_id answered 200") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }

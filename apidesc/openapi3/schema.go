@@ -612,7 +612,10 @@ func (d *document) convertSubSchemaFor(schema node, references *[]string, dir di
 			out.Set(key, scalarValue(member.Value))
 
 		default:
-			if strings.HasPrefix(key, "x-") {
+			// `x-vertrag-reference` is kept: it is vertrag's own, read from
+			// the request body schema by the ownership phase (#107), and a
+			// validator ignores a keyword it does not know.
+			if strings.HasPrefix(key, "x-") && key != referenceKey {
 				continue
 			}
 			out.Set(key, scalarValue(member.Value))

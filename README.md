@@ -729,6 +729,26 @@ Every `GET` without a path parameter is a row too: a list. The attacker's
 answer must not contain, in any field named `id` or ending in `_id`, `Id` or
 `ID`, an id that the phase gave the victim's resources.
 
+An id can travel in the request body instead: `POST /messages {"folder_id": 7}`,
+or a move that names its target. A description cannot tell such a field from
+any other number, so it is marked on the body schema's top-level property with
+the operationId of the operation whose resource it refers to:
+
+```yaml
+properties:
+  folder_id: {type: integer, x-vertrag-reference: getFolder}
+```
+
+Each marked field is a row of its own, `POST /messages body.folder_id`, even for
+an operation with no path parameter. The victim's id is what the links put into
+the referenced operation's last path parameter after its chain is sent as the
+victim tenant, or the victim's declared id for that parameter when no link leads
+there. The attacker's request keeps the rest of its documented body, carries
+that id in the marked field (as a number when the schema says so), and must be
+refused as above. The operation's own path ids, if it has any, belong to the
+attacker: its chain is sent as the attacker, or the attacker tenant's declared
+ids fill them.
+
 A cell is unsent when the attacker's roles already refuse the operation (the
 authorization phase checks that), when no link makes a resource for its ids and the victim declares none,
 or when no principal of the victim tenant may make one. An unsent cell is

@@ -210,6 +210,13 @@ type Transaction struct {
 	// OperationID is.
 	Requires map[string]string `json:"-"`
 
+	// References are the request body's properties that refer to another
+	// operation's resource, by property name, from `x-vertrag-reference` on
+	// a top-level property of the body schema (#107). The ownership phase
+	// fills each with another tenant's id. Absent from the JSON for the same
+	// reason OperationID is.
+	References map[string]Reference `json:"-"`
+
 	// OperationID is how the description names this transaction's operation,
 	// and is how an OpenAPI Link Object refers to the operation it leads to.
 	//
@@ -244,4 +251,12 @@ type Result struct {
 	MediaType    string        `json:"mediaType"`
 	Transactions []Transaction `json:"transactions"`
 	Annotations  []Annotation  `json:"annotations"`
+}
+
+// Reference is a request body property that names another operation's
+// resource: the operation, by operationId, whose path parameter takes the
+// same id, and whether the property carries that id as a number.
+type Reference struct {
+	OperationID string
+	Numeric     bool
 }
