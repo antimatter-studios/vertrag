@@ -43,6 +43,10 @@ type Message struct {
 	// response headers, by name. Ordinary validation ignores them, as Gavel
 	// does; the header-schema check is what reads them.
 	HeaderSchemas map[string]json.RawMessage
+	// EventSchemas are the schemas of a server-sent event stream's events, by
+	// event name, from the media type's `x-events`. When there are any, the
+	// body is read as events and each is validated — see AgainstEventSchemas.
+	EventSchemas map[string]json.RawMessage
 }
 
 // FieldResult is the verdict on one part of the response.
@@ -78,7 +82,7 @@ func Validate(expected, real Message) Result {
 	// With no body expectation and no schema, there is nothing to say about the
 	// body, and the field is left out entirely rather than reported as trivially
 	// valid — which is what the reference does.
-	if expected.BodyPresent || expected.Body != "" || len(expected.BodySchema) > 0 {
+	if expected.BodyPresent || expected.Body != "" || len(expected.BodySchema) > 0 || len(expected.EventSchemas) > 0 {
 		result.add("body", validateBody(expected, real))
 	}
 
@@ -204,6 +208,11 @@ func validateHeaders(expected, real map[string]string) FieldResult {
 // validateBody checks the response body against the schema when there is one,
 // and against the shape of the expected body when there is not.
 func validateBody(expected, real Message) FieldResult {
+	// A stream's schema is usually `{type: string}`, which every stream
+	// passes; its events are what it promises.
+	if len(expected.EventSchemas) > 0 {
+		return AgainstEventSchemas(expected.EventSchemas, real.Body)
+	}
 	if len(expected.BodySchema) > 0 {
 		return validateAgainstSchema(expected.BodySchema, real.Body)
 	}

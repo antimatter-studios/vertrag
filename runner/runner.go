@@ -133,6 +133,10 @@ type Runner struct {
 	// read the whole of it in one place.
 	Skip map[string]string
 
+	// Waits hold a streaming response's read open until a named event
+	// arrives, by transaction name — see StreamWait.
+	Waits map[string]StreamWait
+
 	// ConditionalHeaders are added to the transactions they match.
 	ConditionalHeaders []ConditionalHeader
 
@@ -509,7 +513,9 @@ var ErrSkippedByHook = errors.New("skipped by a hook")
 // stage a documented answer that a generated request is not asking for. See
 // headers.
 func (r *Runner) PrepareGenerated(source compile.Transaction) *Transaction {
-	return newTransaction(source, r.Endpoint, r.headers(source, true, false))
+	transaction := newTransaction(source, r.Endpoint, r.headers(source, true, false))
+	transaction.generated = true
+	return transaction
 }
 
 // SendGenerated is Send for a generated request. Every probing phase sends
@@ -886,7 +892,13 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 	// instant — which is the reading of "response time" nobody waiting on the
 	// response would recognise.
 	reading := time.Now()
-	payload, err := readBody(response)
+	var payload string
+	if wait, held := r.Waits[transaction.Name]; held && !transaction.generated &&
+		streamingMediaTypes[baseMediaType(response.Header.Get("Content-Type"))] {
+		payload, transaction.streamFailure = r.readUntilEvent(ctx, response, wait)
+	} else {
+		payload, err = readBody(response)
+	}
 	if err != nil {
 		return validate.Message{}, 0, fmt.Errorf("reading the response body: %w", err)
 	}
@@ -992,6 +1004,103 @@ func readBody(response *http.Response) (string, error) {
 	return collected.String(), nil
 }
 
+// StreamWait holds a stream's read open until an event arrives (#83).
+//
+// The bounded read takes what a stream sends in its first two seconds, which
+// for a stream of notifications is usually nothing: the events it exists for
+// happen when something else does. A wait names the event, how long to give
+// it, and the transaction that provokes it — sent with the run's own headers
+// once the stream's headers have arrived, so the server has a subscriber to
+// tell. The read ends at the first event of that name; a stream without one
+// by then fails, since the description promised it and nothing came.
+type StreamWait struct {
+	Event   string
+	Within  time.Duration
+	Trigger *compile.Transaction
+}
+
+// readUntilEvent is readBody for a stream held open by a StreamWait. It
+// returns what arrived, and why the wait failed or "".
+func (r *Runner) readUntilEvent(ctx context.Context, response *http.Response, wait StreamWait) (string, string) {
+	watcher := &eventWatcher{event: wait.Event, found: make(chan struct{})}
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		io.Copy(watcher, io.LimitReader(response.Body, streamReadLimit))
+	}()
+
+	triggered := make(chan string, 1)
+	if wait.Trigger != nil {
+		go func() {
+			reply, err := r.Deliver(ctx, r.Prepare(*wait.Trigger))
+			switch {
+			case err != nil:
+				triggered <- fmt.Sprintf("%s could not be sent: %v", wait.Trigger.Name, err)
+			case !validate.StatusMatches(wait.Trigger.Response.Status, reply.StatusCode):
+				triggered <- fmt.Sprintf("%s answered %s where %s is documented",
+					wait.Trigger.Name, reply.StatusCode, wait.Trigger.Response.Status)
+			default:
+				triggered <- ""
+			}
+		}()
+	}
+
+	timer := time.NewTimer(wait.Within)
+	defer timer.Stop()
+	select {
+	case <-watcher.found:
+	case <-finished:
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	// As in readBody: closing the body interrupts the read, and waiting for
+	// the copy makes the buffer safe to read.
+	response.Body.Close()
+	<-finished
+	trigger := ""
+	if wait.Trigger != nil {
+		trigger = <-triggered
+	}
+
+	body := watcher.String()
+	if validate.HasEvent(body, wait.Event) {
+		return body, ""
+	}
+	failure := fmt.Sprintf("no %q event arrived within %s", wait.Event, wait.Within)
+	if trigger != "" {
+		failure += "; the trigger " + trigger
+	}
+	return body, failure
+}
+
+// eventWatcher collects a stream and closes found once an event of its name
+// has been dispatched.
+type eventWatcher struct {
+	event string
+	found chan struct{}
+
+	mu        sync.Mutex
+	collected bytes.Buffer
+	closed    bool
+}
+
+func (w *eventWatcher) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.collected.Write(p)
+	if !w.closed && validate.HasEvent(w.collected.String(), w.event) {
+		w.closed = true
+		close(w.found)
+	}
+	return len(p), nil
+}
+
+func (w *eventWatcher) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.collected.String()
+}
+
 // Transaction is a compiled transaction as it moves through a run: hooks may
 // rewrite the request, the expectation, or remove it altogether.
 type Transaction struct {
@@ -1029,6 +1138,16 @@ type Transaction struct {
 	// invented by the tester's own probe, in the one report whose whole
 	// argument is that the document should describe what really happens.
 	unobserved bool
+
+	// streamFailure is why a stream held open for an event (StreamWait) is
+	// a failure: the event never came. Empty otherwise.
+	streamFailure string
+
+	// generated marks a request a probing phase drew rather than the
+	// documented one. A StreamWait holds only a documented request open: a
+	// probe waiting out the bound, and triggering the event, once per drawn
+	// value would multiply both by the number of cases.
+	generated bool
 
 	endpoint string
 	fullURL  string
@@ -1078,6 +1197,7 @@ func newTransaction(source compile.Transaction, endpoint string, extraHeaders []
 			BodyPresent:   source.Response.BodyPresent,
 			BodySchema:    schema,
 			HeaderSchemas: source.Response.HeaderSchemas,
+			EventSchemas:  source.Response.EventSchemas,
 		},
 		FullPath: source.Request.URI,
 		endpoint: endpoint,
@@ -1220,6 +1340,10 @@ func (t *Transaction) validated(checks Checks, elapsed, exchange time.Duration) 
 	result.Beyond = checks.run(expected, t.Real, exchange)
 	if len(result.Beyond) > 0 {
 		result.Status = StatusFail
+	}
+	if t.streamFailure != "" {
+		result.Status = StatusFail
+		result.Errors = append(result.Errors, "body: "+t.streamFailure)
 	}
 
 	if !validation.Valid {

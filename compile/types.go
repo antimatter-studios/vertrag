@@ -143,6 +143,11 @@ type Response struct {
 	// at its value — so emitting it would make every compiled transaction
 	// differ from the reference for nothing. The header-schema check reads it.
 	HeaderSchemas map[string]json.RawMessage `json:"-"`
+
+	// EventSchemas are the JSON Schemas of a server-sent event stream's
+	// events' data, by event name, from the media type's `x-events` (#83).
+	// Absent from the JSON for the same reason HeaderSchemas are.
+	EventSchemas map[string]json.RawMessage `json:"-"`
 }
 
 // Origin records where in the API description a transaction came from. Its
