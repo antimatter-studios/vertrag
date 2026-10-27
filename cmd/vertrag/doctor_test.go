@@ -29,6 +29,7 @@ import (
 var doesNotSelect = map[string]string{
 	"Spec":                   "names the description document, not transactions in it",
 	"Endpoint":               "where requests go",
+	"Authorization":          "names a principal, which Validate refuses when there is none of that name, and statuses, which are values",
 	"Hookfiles":              "files to load; a hook file that matches nothing is the hook worker's business",
 	"Language":               "which worker runs the hooks",
 	"Server":                 "a command to run before testing",

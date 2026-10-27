@@ -646,6 +646,31 @@ success body — exits 1, as a failed documented transaction does.
 `--dry-run` prints the planned matrix with what each cell would require, and
 sends nothing: no cell, no login, no token request.
 
+A cell whose parameters a description's `links` supply — `GET /items/{id}`,
+linked from the `POST /items` that returns the id — addresses a resource made
+for it alone: before the cell goes out, the chain of operations its links come
+from is sent again, as the owner, and the id it returned fills the cell's
+request, as `--sequence` fills the examples phase's. So a 404 means the caller
+was refused, not that the example id `1` does not exist, and a DELETE cell
+deletes its own copy. The owner is the first principal, in the order
+configured, the description lets call every operation of the chain, or the
+one `authorization.owner` names. A setup that fails leaves the cell unsent
+with the reason. An operation no link leads to — or one whose chain includes
+an operation this run does not send — sends its example ids as written, and
+its hooks may still rewrite them. A create a principal may call that answers
+409 is its example colliding with a resource that already exists, and is
+unsent rather than judged.
+
+```yaml
+authorization:
+  owner: admin               # who makes each cell's resource; default as above
+  refuse: [401, 403, 404]    # any of these is a refusal; default: exactly the one required
+```
+
+`refuse` is for an API that answers 404 for what a caller may not see: any
+status listed is accepted wherever a refusal is required. Only 4xx statuses
+may be listed.
+
 ### Statuses the description never mentions
 
 The commonest real defect in the APIs vertrag is pointed at is not a broken

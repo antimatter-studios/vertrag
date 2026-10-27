@@ -1,6 +1,7 @@
 package link
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/compile"
@@ -283,4 +284,26 @@ func containsText(haystack, needle string) bool {
 		}
 	}
 	return false
+}
+
+// Ancestors is the chain a step takes its values from, furthest first, and a
+// fresh sequencer has none of another run's responses (#81).
+func TestSequencerAncestorsAndFresh(t *testing.T) {
+	transactions := []compile.Transaction{
+		transaction("readMember"),
+		transaction("createGroup", linkTo("AddMember", "addMember")),
+		transaction("addMember", linkTo("ReadMember", "readMember")),
+	}
+	sequencer := NewSequencer(transactions)
+	if got := sequencer.Ancestors(0); !slices.Equal(got, []int{1, 2}) {
+		t.Errorf("ancestors of readMember: %v, want [1 2]", got)
+	}
+	if got := sequencer.Ancestors(1); len(got) != 0 {
+		t.Errorf("a root has ancestors: %v", got)
+	}
+
+	sequencer.exchanges[1] = Exchange{StatusCode: "201"}
+	if fresh := sequencer.Fresh(); len(fresh.exchanges) != 0 || len(sequencer.exchanges) != 1 {
+		t.Errorf("fresh has %d exchanges, original %d", len(fresh.exchanges), len(sequencer.exchanges))
+	}
 }
