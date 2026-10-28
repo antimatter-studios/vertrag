@@ -213,6 +213,11 @@ func validateBody(expected, real Message) FieldResult {
 	if len(expected.EventSchemas) > 0 {
 		return AgainstEventSchemas(expected.EventSchemas, real.Body)
 	}
+	// A multipart body is compared part by part: its boundary is chosen per
+	// response, and no example can repeat it (#121).
+	if isMultipartContent(expected.Headers) && expected.Body != "" {
+		return validateMultipart(expected, real)
+	}
 	if len(expected.BodySchema) > 0 {
 		return validateAgainstSchema(expected.BodySchema, real.Body)
 	}

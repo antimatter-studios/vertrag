@@ -316,6 +316,8 @@ to a request, which is the whole of what makes a replay library opinionated.
 
 An example name says which request produces which response. A request body named `rejected` is sent with the `400` named `rejected`, not with the `200`. A request named after a response is sent with that response only, so a bodyless `204`, which cannot carry a name, is not also sent the request named for the `400`. Otherwise a response or request without a name pairs with everything on the other side.
 
+A multipart response, such as a `206 multipart/byteranges` answer to a multi-range request, is compared part by part: each part's `Content-Type`, `Content-Range` and content. Its boundary is chosen per response, so the boundary, preamble and epilogue are not compared.
+
 Parameters can name their values in the same way. When a Parameter Object's `examples` map uses a name that a response also carries, that name is a request of its own, sent with that name's values:
 
 ```yaml
