@@ -227,7 +227,7 @@ def serve(port):
     listener.listen(1)
 
     # vertrag waits for this line before connecting.
-    sys.stdout.write("vertrag-hooks-ready\n")
+    sys.stdout.write("vertrag-hooks-ready %d\n" % listener.getsockname()[1])
     sys.stdout.flush()
 
     while True:
@@ -279,7 +279,7 @@ def reply(connection, line):
 
 
 def main(argv):
-    port = 61321
+    port = 0
     hookfiles = []
 
     index = 0

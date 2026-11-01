@@ -868,7 +868,7 @@ func Default() Config {
 		LogLevel:               "warning",
 		ServerWait:             3 * time.Second,
 		HooksWorkerHandlerHost: "127.0.0.1",
-		HooksWorkerHandlerPort: 61321,
+		HooksWorkerHandlerPort: 0,
 		HooksWorkerTimeout:     5 * time.Second,
 		HooksWorkerConnectWait: 100 * time.Millisecond,
 		Reporters:              []string{"cli"},

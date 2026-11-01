@@ -232,7 +232,8 @@ hookfiles: ./hooks.js
 language: nodejs
 
 hooks-worker-handler-host: 127.0.0.1
-hooks-worker-handler-port: 61321
+# 0, the default, takes a free port, so runs side by side on one machine never meet.
+hooks-worker-handler-port: 0
 hooks-worker-timeout: 5000
 
 # --- What to check -----------------------------------------------------------
