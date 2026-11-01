@@ -217,6 +217,21 @@ transport:
   # this is for overriding it.
   # proxy: http://proxy.internal:3128
 
+# Operations that go to a server of their own, in the same run: an internal
+# listener, or a server whose data they may destroy. They are still sent, judged,
+# reported and counted by the surface gate. `transport` is laid over the one
+# above. A name the description lacks stops the run before any request, because
+# ignored it would send the operation to `endpoint`. The run's credential is sent
+# as it is; a server with sessions of its own has a hook supply one, reading the
+# server from the transaction's host and port.
+# endpoints:
+#   - endpoint: https://api.internal:8443
+#     operation-id: [deliverMessage, checkMailboxAddress]
+#     transport:
+#       ca-cert: ./internal-ca.pem
+#       cert: ./gateway-client.pem
+#       cert-key: ./gateway-client.key
+
 # --- Hooks -------------------------------------------------------------------
 
 # For setup and teardown that genuinely varies by project — anything reacting to

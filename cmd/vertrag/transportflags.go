@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/antimatter-studios/vertrag/compile"
 	"time"
 
 	"github.com/antimatter-studios/vertrag/config"
@@ -77,18 +78,51 @@ func (f transportFlags) apply(t *config.Transport) {
 // newEngine builds the runner from the resolved settings, failing before any
 // request when the transport itself cannot be built.
 func newEngine(settings config.Config) (*runner.Runner, error) {
-	engine, err := runner.NewWithTransport(settings.Endpoint, runner.Transport{
-		Timeout:       settings.Transport.Timeout,
-		Retries:       settings.Transport.Retries,
-		Delay:         settings.Transport.Delay,
-		Insecure:      settings.Transport.Insecure,
-		CACert:        settings.Transport.CACert,
-		ClientCert:    settings.Transport.ClientCert,
-		ClientCertKey: settings.Transport.ClientCertKey,
-		Proxy:         settings.Transport.Proxy,
-	})
+	engine, err := runner.NewWithTransport(settings.Endpoint, runnerTransport(settings.Transport))
 	if err != nil {
 		return nil, fmt.Errorf("transport: %w", err)
 	}
+	for _, entry := range settings.Endpoints {
+		transport, err := entry.Transport(settings.Transport)
+		if err == nil {
+			err = engine.AddRoute(entry.Endpoint, runnerTransport(transport), entry.OperationIDs)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("endpoints: %s: %w", entry.Endpoint, err)
+		}
+	}
 	return engine, nil
+}
+
+// checkEndpointOperations refuses an `endpoints` entry naming an operation the
+// description lacks. Measured against the whole description, not the selection:
+// a run narrowed to one tag has not made the others' routes wrong. Silently
+// ignored, a misspelt name sends that operation to the run's own server, and
+// these entries exist because it must not go there.
+func checkEndpointOperations(entries []config.OperationEndpoint, transactions []compile.Transaction) error {
+	known := make(map[string]bool, len(transactions))
+	for _, transaction := range transactions {
+		known[transaction.OperationID] = true
+	}
+	for _, entry := range entries {
+		for _, id := range entry.OperationIDs {
+			if !known[id] {
+				return fmt.Errorf("endpoints: the description has no operation-id %q to send to %s", id, entry.Endpoint)
+			}
+		}
+	}
+	return nil
+}
+
+func runnerTransport(t config.Transport) runner.Transport {
+	return runner.Transport{
+		Timeout:       t.Timeout,
+		Retries:       t.Retries,
+		Delay:         t.Delay,
+		Insecure:      t.Insecure,
+		CACert:        t.CACert,
+		ClientCert:    t.ClientCert,
+		ClientCertKey: t.ClientCertKey,
+		Proxy:         t.Proxy,
+	}
 }

@@ -101,6 +101,10 @@ type Runner struct {
 	// pacing decisions send makes per request.
 	Transport Transport
 
+	// routes sends the named operations to servers other than Endpoint, by
+	// operationId. See AddRoute.
+	routes map[string]*route
+
 	// paceMu guards lastSend, which is when the next request may go out. It is
 	// shared state on purpose: a delay bounds the run's request stream, and
 	// under workers that can only be enforced across all of them.
@@ -418,7 +422,7 @@ func NewWithTransport(endpoint string, transport Transport) (*Runner, error) {
 // keeps the URL resolution, extra headers and redirect policy identical to a
 // normal run, so a finding is reproducible by `vertrag run`.
 func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate.Message, error) {
-	transaction := newTransaction(source, r.Endpoint, r.headersFor(source))
+	transaction := newTransaction(source, r.endpointFor(source), r.headersFor(source))
 
 	// Hooks run here too, and it took a safety review to notice they did not.
 	//
@@ -521,7 +525,7 @@ var ErrSkippedByHook = errors.New("skipped by a hook")
 // stage a documented answer that a generated request is not asking for. See
 // headers.
 func (r *Runner) PrepareGenerated(source compile.Transaction) *Transaction {
-	transaction := newTransaction(source, r.Endpoint, r.headers(source, true, false))
+	transaction := newTransaction(source, r.endpointFor(source), r.headers(source, true, false))
 	transaction.generated = true
 	return transaction
 }
@@ -545,9 +549,9 @@ func (r *Runner) SendGenerated(ctx context.Context, source compile.Transaction) 
 func (r *Runner) Prepare(source compile.Transaction) *Transaction {
 	credential, as := r.Principals[source.Requires["principal"]]
 	if !as {
-		return newTransaction(source, r.Endpoint, r.headersFor(source))
+		return newTransaction(source, r.endpointFor(source), r.headersFor(source))
 	}
-	transaction := newTransaction(source, r.Endpoint, r.headersCarrying(source, Credential{}, true))
+	transaction := newTransaction(source, r.endpointFor(source), r.headersCarrying(source, Credential{}, true))
 	r.Carriers.strip(transaction.Request.Headers)
 	if presented := credentialFor(source, credential); presented != "" {
 		applyHeaderLine(transaction.Request.Headers, presented)
@@ -900,7 +904,7 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 	if err := r.pace(ctx); err != nil {
 		return validate.Message{}, 0, err
 	}
-	response, exchange, err := r.do(request)
+	response, exchange, err := r.doFor(transaction.source.OperationID, request)
 	if err != nil {
 		return validate.Message{}, 0, fmt.Errorf("%s %s: %w",
 			transaction.Request.Method, transaction.FullURL(), err)
@@ -1419,7 +1423,7 @@ func (r *Runner) checkIgnoredAuth(ctx context.Context, source compile.Transactio
 	// The same transaction, prepared without the credential — and kept out of
 	// the observation ledger, since a request stripped of its credential is
 	// not one the description describes. See Transaction.unobserved.
-	prepared := newTransaction(source, r.Endpoint, r.headers(source, false, true))
+	prepared := newTransaction(source, r.endpointFor(source), r.headers(source, false, true))
 	prepared.unobserved = true
 
 	reply, _, err := r.send(ctx, prepared)

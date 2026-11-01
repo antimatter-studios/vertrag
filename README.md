@@ -1205,6 +1205,26 @@ often enough that splitting it to satisfy vertrag would be a chore. A key given
 with no certificate is refused before any request, because a handshake would
 otherwise go out anonymous while whoever passed it believed otherwise.
 
+`endpoints` sends named operations to a server of their own, in the same run:
+
+```yaml
+endpoints:
+  - endpoint: https://api.internal:8443
+    operation-id: [deliverMessage, checkMailboxAddress]
+    transport:                     # laid over the section above
+      ca-cert: ./internal-ca.pem
+      cert: ./gateway-client.pem
+      cert-key: ./gateway-client.key
+```
+
+An internal listener is the usual reason, or a server whose data the operation
+may destroy. These operations are still sent, judged, reported and counted by the
+surface gate, so nothing has to be excluded to send them elsewhere. Hooks read the
+server from the transaction's `host` and `port`. The run's credential is sent as
+it is; a server with sessions of its own has a hook supply one. An operation the
+description does not have stops the run before any request, because ignored it
+would send that operation to `endpoint`.
+
 `proxy` overrides the `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` environment, which is
 otherwise honoured as usual — normally what a CI runner has already arranged.
 

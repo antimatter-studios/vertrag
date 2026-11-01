@@ -27,6 +27,7 @@ import (
 // file exists to prevent. So the test below fails on an unclassified field
 // rather than trusting anyone to come back and add it.
 var doesNotSelect = map[string]string{
+	"Endpoints":              "names operations, but a name the description lacks stops the run (checkEndpointOperations) rather than being reported as matching nothing",
 	"Spec":                   "names the description document, not transactions in it",
 	"Endpoint":               "where requests go",
 	"Authorization":          "names a principal, which Validate refuses when there is none of that name, and statuses, which are values",

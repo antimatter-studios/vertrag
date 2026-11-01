@@ -67,7 +67,7 @@ func (r *Runner) SendPreparedAs(ctx context.Context, name string, source compile
 	started := time.Now()
 	// The transaction keeps its own name, because that is what a hook
 	// addresses it by; only the result is named for the principal.
-	transaction := newTransaction(source, r.Endpoint, r.headersCarrying(source, Credential{}, false))
+	transaction := newTransaction(source, r.endpointFor(source), r.headersCarrying(source, Credential{}, false))
 	carriers.strip(transaction.Request.Headers)
 	if presented := credentialFor(source, credential); presented != "" {
 		applyHeaderLine(transaction.Request.Headers, presented)

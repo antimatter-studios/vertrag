@@ -157,6 +157,9 @@ type Config struct {
 	// TLS trust and proxy. Zero values are vertrag's defaults.
 	Transport Transport
 
+	// Endpoints sends named operations to servers other than Endpoint.
+	Endpoints []OperationEndpoint
+
 	// MaxFailures stops the run after this many failures or errors; zero
 	// means run everything.
 	MaxFailures int
@@ -661,6 +664,8 @@ type file struct {
 	Ownership *ownershipFile       `yaml:"ownership"`
 	// Transport is vertrag's own: how requests reach the server.
 	Transport *transportFile `yaml:"transport"`
+	// Endpoints sends named operations to servers of their own.
+	Endpoints []endpointFile `yaml:"endpoints"`
 	// Surface is vertrag's own: the share of the description a run must
 	// reach, and what is excluded from it.
 	Surface *surfaceFile `yaml:"surface"`
@@ -790,6 +795,33 @@ type Transport struct {
 	// case ClientCertKey is empty.
 	ClientCert    string
 	ClientCertKey string
+}
+
+// OperationEndpoint is one `endpoints` entry: operations a run sends to a server
+// of their own, such as an internal listener or one whose data they may destroy.
+type OperationEndpoint struct {
+	Endpoint     string
+	OperationIDs []string
+
+	// transport is the entry's own section as written, laid over the run's so
+	// a flag that changes the run's transport reaches this server too.
+	transport *transportFile
+}
+
+// Transport is how requests reach this server: the run's, with whatever the
+// entry's own `transport` names replaced. Load has already rejected a bad one.
+func (e OperationEndpoint) Transport(run Transport) (Transport, error) {
+	if e.transport == nil {
+		return run, nil
+	}
+	return run, applyTransport(&run, *e.transport)
+}
+
+// endpointFile is one `endpoints` entry as written.
+type endpointFile struct {
+	Endpoint    string         `yaml:"endpoint"`
+	OperationID []string       `yaml:"operation-id"`
+	Transport   *transportFile `yaml:"transport"`
 }
 
 // transportFile is the `transport` section as written. Durations are Go
@@ -980,6 +1012,16 @@ func Load(path string) (Config, error) {
 		if err := applyTransport(&config.Transport, *parsed.Transport); err != nil {
 			return config, fmt.Errorf("%s: transport: %w", path, err)
 		}
+	}
+	for i, entry := range parsed.Endpoints {
+		if entry.Transport != nil {
+			if err := applyTransport(&Transport{}, *entry.Transport); err != nil {
+				return config, fmt.Errorf("%s: endpoints entry %d: transport: %w", path, i+1, err)
+			}
+		}
+		config.Endpoints = append(config.Endpoints, OperationEndpoint{
+			Endpoint: entry.Endpoint, OperationIDs: entry.OperationID, transport: entry.Transport,
+		})
 	}
 	config.Skip = append(config.Skip, toSkipRules(parsed.Skip)...)
 	for i, entry := range parsed.WaitFor {
@@ -1740,6 +1782,9 @@ func (c Config) Validate() error {
 	if !strings.Contains(c.Endpoint, "://") {
 		return fmt.Errorf("endpoint %q needs a scheme, such as http://", c.Endpoint)
 	}
+	if err := c.validateEndpoints(); err != nil {
+		return err
+	}
 	if slices.Contains(c.Phases, PhaseAuthorization) && len(c.Principals) == 0 {
 		return fmt.Errorf("the authorization phase needs `principals`: " +
 			"it sends every operation as each of them, and with none it would send nothing")
@@ -1757,6 +1802,27 @@ func (c Config) Validate() error {
 	for _, name := range c.Provides["principal"] {
 		if !slices.ContainsFunc(c.Principals, func(p Principal) bool { return p.Name == name }) {
 			return fmt.Errorf("provides principal %q, which names no principal: define it under `principals`", name)
+		}
+	}
+	return nil
+}
+
+// validateEndpoints refuses an `endpoints` entry that could not do what it says.
+// An operation named twice has no one server it is going to.
+func (c Config) validateEndpoints() error {
+	seen := map[string]bool{}
+	for i, entry := range c.Endpoints {
+		if !strings.Contains(entry.Endpoint, "://") {
+			return fmt.Errorf("endpoints entry %d: endpoint %q needs a scheme, such as https://", i+1, entry.Endpoint)
+		}
+		if len(entry.OperationIDs) == 0 {
+			return fmt.Errorf("endpoints entry %d: names no operation-id, so nothing would go to %s", i+1, entry.Endpoint)
+		}
+		for _, id := range entry.OperationIDs {
+			if seen[id] {
+				return fmt.Errorf("endpoints: operation-id %q is named twice", id)
+			}
+			seen[id] = true
 		}
 	}
 	return nil

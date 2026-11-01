@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/antimatter-studios/vertrag/compile"
 )
 
 // Transport is how requests reach the server: the knobs a CI job turns when
@@ -130,6 +133,41 @@ func (t Transport) client() (*http.Client, error) {
 	}, nil
 }
 
+// route is where a named operation goes instead of the run's endpoint.
+type route struct {
+	endpoint string
+	client   *http.Client
+	retries  int
+}
+
+// AddRoute sends the named operations to another server, through a client built
+// from its own transport. Their transactions are otherwise the run's: same
+// hooks, same judging, same reports, and a hook reads the server they are really
+// going to from the transaction's host and port. A credential is not fetched
+// again: a route to a server with sessions of its own has a hook supply one.
+func (r *Runner) AddRoute(endpoint string, transport Transport, operationIDs []string) error {
+	client, err := transport.client()
+	if err != nil {
+		return err
+	}
+	target := &route{endpoint: strings.TrimRight(endpoint, "/"), client: client, retries: transport.Retries}
+	if r.routes == nil {
+		r.routes = make(map[string]*route, len(operationIDs))
+	}
+	for _, id := range operationIDs {
+		r.routes[id] = target
+	}
+	return nil
+}
+
+// endpointFor is the server a transaction of this operation is aimed at.
+func (r *Runner) endpointFor(source compile.Transaction) string {
+	if target, ok := r.routes[source.OperationID]; ok {
+		return target.endpoint
+	}
+	return r.Endpoint
+}
+
 // do sends one request, retrying network failures the number of times the
 // transport allows, with a short backoff. It never retries a response.
 //
@@ -141,7 +179,19 @@ func (t Transport) client() (*http.Client, error) {
 // vertrag took on its own initiative. How long the whole transaction took,
 // retries and all, is Result.Duration, and every reporter already prints it.
 func (r *Runner) do(request *http.Request) (*http.Response, time.Duration, error) {
-	attempts := r.Transport.Retries + 1
+	return send(r.Client, r.Transport.Retries, request)
+}
+
+// doFor is do through the route the operation takes, when it has one.
+func (r *Runner) doFor(operationID string, request *http.Request) (*http.Response, time.Duration, error) {
+	if target, ok := r.routes[operationID]; ok {
+		return send(target.client, target.retries, request)
+	}
+	return r.do(request)
+}
+
+func send(client *http.Client, retries int, request *http.Request) (*http.Response, time.Duration, error) {
+	attempts := retries + 1
 	backoff := 250 * time.Millisecond
 
 	var lastErr error
@@ -165,7 +215,7 @@ func (r *Runner) do(request *http.Request) (*http.Response, time.Duration, error
 		}
 
 		sent := time.Now()
-		response, err := r.Client.Do(request)
+		response, err := client.Do(request)
 		if err == nil {
 			return response, time.Since(sent), nil
 		}
