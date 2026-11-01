@@ -1,6 +1,8 @@
 package openapi3
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +82,67 @@ func TestNamedParameterExamplesArePaired(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("transaction %d: %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+// Two bodyless responses told apart only by their requests: each says its name
+// with x-example, so each request is sent with its own status and no other.
+func TestABodylessResponseIsNamedByXExample(t *testing.T) {
+	result := compileSource(t, `
+openapi: "3.1.0"
+info: {title: T, version: "1"}
+paths:
+  /things/{id}:
+    get:
+      operationId: getThing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+          examples:
+            found: {value: 1}
+            not_modified: {value: 1}
+            precondition_failed: {value: 1}
+        - name: If-None-Match
+          in: header
+          schema: {type: string}
+          examples:
+            not_modified: {value: "*"}
+        - name: If-Match
+          in: header
+          schema: {type: string}
+          examples:
+            precondition_failed: {value: '"not-this-one"'}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              examples:
+                found: {value: {id: 1}}
+        "304":
+          description: Not modified
+          x-example: not_modified
+        "412":
+          description: Precondition failed
+          x-example: precondition_failed
+`)
+	got := map[string]string{}
+	for _, tx := range result.Transactions {
+		var conditional []string
+		for _, h := range tx.Request.Headers {
+			if h.Name == "If-None-Match" || h.Name == "If-Match" {
+				conditional = append(conditional, h.Name)
+			}
+		}
+		if _, repeated := got[tx.Response.Status]; repeated {
+			t.Fatalf("status %s sent twice: %+v", tx.Response.Status, result.Transactions)
+		}
+		got[tx.Response.Status] = strings.Join(conditional, ",")
+	}
+	want := map[string]string{"200": "", "304": "If-None-Match", "412": "If-Match"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

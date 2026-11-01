@@ -54,7 +54,11 @@ func (d *document) parseResponses(n node) []message {
 
 		messages := d.parseContentFor(response.Get("content"), true, inResponse)
 		if len(messages) == 0 {
-			messages = []message{{}}
+			// A bodyless response has no Example Object to be named by, so it
+			// says its name itself. Without one, two bodyless responses told
+			// apart only by their requests (a 304 and a 412) would each be sent
+			// every named request.
+			messages = []message{{example: response.Get("x-example").Str()}}
 		}
 
 		headers := d.parseResponseHeaders(response.Get("headers"))
