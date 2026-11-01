@@ -31,7 +31,65 @@ type Probe struct {
 // it, or omit what is required, or carry the wrong type. A schema that
 // constrains nothing yields nothing — there is no boundary to probe.
 func Boundaries(schema Schema) []Probe {
-	return boundaries(schema, 0)
+	return boundaries(inlined(schema), 0)
+}
+
+// inlined is the schema with what it refers to in place: each `$ref` into its
+// own `definitions`, and an `allOf` of one schema, which is how a converted
+// document wraps a root that refers to something. The boundaries read a schema's
+// own type and constraints, and would otherwise find none in a body whose schema
+// holds a reference, and send it no probes at all.
+func inlined(schema Schema) Schema {
+	definitions, _ := schema["definitions"].(map[string]any)
+	out, _ := inline(map[string]any(schema), definitions, map[string]bool{}).(map[string]any)
+	return Schema(out)
+}
+
+// inline follows references depth first. A reference already being followed is
+// a recursive schema: it is left as it stands, which constrains nothing, so
+// probing stops there rather than going round.
+func inline(value any, definitions map[string]any, following map[string]bool) any {
+	switch node := value.(type) {
+	case []any:
+		out := make([]any, len(node))
+		for i, member := range node {
+			out[i] = inline(member, definitions, following)
+		}
+		return out
+	case map[string]any:
+		if reference, ok := node["$ref"].(string); ok {
+			name, local := strings.CutPrefix(reference, "#/definitions/")
+			target, found := definitions[name]
+			if !local || !found || following[name] {
+				return node
+			}
+			following[name] = true
+			defer delete(following, name)
+			return inline(target, definitions, following)
+		}
+		if parts, ok := node["allOf"].([]any); ok && len(parts) == 1 {
+			if part, ok := inline(parts[0], definitions, following).(map[string]any); ok {
+				out := map[string]any{}
+				for name, member := range node {
+					if name != "allOf" && name != "definitions" {
+						out[name] = inline(member, definitions, following)
+					}
+				}
+				for name, member := range part {
+					out[name] = member
+				}
+				return out
+			}
+		}
+		out := make(map[string]any, len(node))
+		for name, member := range node {
+			if name != "definitions" {
+				out[name] = inline(member, definitions, following)
+			}
+		}
+		return out
+	}
+	return value
 }
 
 func boundaries(schema Schema, depth int) []Probe {
@@ -311,6 +369,14 @@ func exemplar(schema Schema, depth int) any {
 		return exemplarObject(schema, depth)
 	case "null":
 		return nil
+	}
+	// A required property that may be one of several shapes stands in as the
+	// first it may be.
+	for _, keyword := range []string{"oneOf", "anyOf"} {
+		if alternatives, ok := list(schema[keyword]); ok && len(alternatives) > 0 {
+			first, _ := alternatives[0].(map[string]any)
+			return exemplar(Schema(first), depth+1)
+		}
 	}
 	return "x"
 }
