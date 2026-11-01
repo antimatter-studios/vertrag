@@ -99,3 +99,54 @@ func TestUnconstrainedSchemasYieldNothing(t *testing.T) {
 		t.Errorf("an empty schema yielded %d probes: %v", len(probes), probes)
 	}
 }
+
+// A body whose schema refers to something is probed as the schema it refers to:
+// a converted document wraps such a root in an allOf of one `$ref`.
+func TestBoundariesFollowReferences(t *testing.T) {
+	var schema Schema
+	if err := json.Unmarshal([]byte(`{
+		"allOf": [{"$ref": "#/definitions/Send"}],
+		"definitions": {
+			"Send": {
+				"type": "object",
+				"required": ["to", "event"],
+				"additionalProperties": false,
+				"properties": {
+					"to": {"type": "string", "minLength": 3},
+					"event": {"oneOf": [{"$ref": "#/definitions/Event"}, {"type": "null"}]},
+					"retry": {"$ref": "#/definitions/Retry"}
+				}
+			},
+			"Event": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}},
+			"Retry": {"type": "object", "properties": {"then": {"$ref": "#/definitions/Retry"}, "count": {"type": "integer", "minimum": 1}}}
+		}
+	}`), &schema); err != nil {
+		t.Fatal(err)
+	}
+	probes := Boundaries(schema)
+	why := map[string]Probe{}
+	for _, probe := range probes {
+		why[probe.Why] = probe
+	}
+	base, ok := why["every required property present"]
+	if !ok {
+		t.Fatalf("no exemplar in %v", probes)
+	}
+	body := base.Value.(map[string]any)
+	if body["to"] != "xxx" {
+		t.Errorf("to = %v", body["to"])
+	}
+	if event, ok := body["event"].(map[string]any); !ok || event["id"] == nil {
+		t.Errorf("the required one-of property stands in as its first shape: %v", body["event"])
+	}
+	for _, want := range []string{
+		`required property "to" missing`,
+		`"to" at minLength (3)`,
+		`"retry" at "count" at minimum (1)`,
+		"an undeclared property where additionalProperties is false",
+	} {
+		if _, ok := why[want]; !ok {
+			t.Errorf("no probe %q in %v", want, probes)
+		}
+	}
+}
