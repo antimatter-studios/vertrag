@@ -86,7 +86,7 @@ type Options struct {
 	Language    string
 	Hookfiles   []string
 	Host        string
-	Port        int
+	Port        int // 0 takes a free port
 	Timeout     time.Duration
 	ConnectWait time.Duration
 	// Stderr receives the worker's own output, so a hook's console output and a
@@ -185,21 +185,27 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 	// The worker announces itself once it is listening. Waiting for that beats
 	// retrying a connection, which cannot tell "not yet" from "crashed on a
 	// syntax error in the hook file".
-	ready := make(chan error, 1)
+	//
+	// It names the port it holds, which is how port 0 works: the worker takes
+	// whatever the kernel gives, so runs side by side on one machine never meet.
+	ready := make(chan int, 1)
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			if scanner.Text() == "vertrag-hooks-ready" {
-				ready <- nil
-				return
+			if port, found := strings.CutPrefix(scanner.Text(), "vertrag-hooks-ready "); found {
+				if number, err := strconv.Atoi(port); err == nil {
+					ready <- number
+					return
+				}
 			}
 		}
-		ready <- errWorkerExited
+		ready <- 0
 	}()
 
+	var port int
 	select {
-	case err := <-ready:
-		if err != nil {
+	case port = <-ready:
+		if port == 0 {
 			// Stop before composing the message, because Stop reaps the
 			// command and reaping is what drains the stderr copier.
 			//
@@ -210,7 +216,7 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 			// race is its own small joke, but the effect was the original bug
 			// back again: the worker died and said nothing.
 			client.Stop()
-			return nil, fmt.Errorf("%w%s", err, notes.suffix())
+			return nil, fmt.Errorf("%w%s", errWorkerExited, notes.suffix())
 		}
 	case <-time.After(10 * time.Second):
 		client.Stop()
@@ -221,7 +227,7 @@ func Start(ctx context.Context, options Options) (*Client, error) {
 		time.Sleep(options.ConnectWait)
 	}
 
-	address := net.JoinHostPort(options.Host, strconv.Itoa(options.Port))
+	address := net.JoinHostPort(options.Host, strconv.Itoa(port))
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
 		client.Stop()

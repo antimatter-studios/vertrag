@@ -320,3 +320,28 @@ func TestTheBareHooksNameIsGone(t *testing.T) {
 		t.Error("require('hooks') should no longer resolve")
 	}
 }
+
+// Two runs on one machine used to share a fixed port, and the second died with
+// "address already in use". With no port asked for, each worker takes its own.
+func TestRunsSideBySideEachHoldTheirOwnPort(t *testing.T) {
+	for _, language := range Languages() {
+		t.Run(language, func(t *testing.T) {
+			interpreterFor(t, language)
+			path := filepath.Join(t.TempDir(), hookFilename[language])
+			if err := writeFile(path, hookSource[language]); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				client, err := Start(t.Context(), Options{
+					Language:  language,
+					Hookfiles: []string{path},
+					Host:      "127.0.0.1",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(client.Stop)
+			}
+		})
+	}
+}

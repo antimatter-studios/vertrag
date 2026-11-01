@@ -159,7 +159,7 @@ async function handle(event, data) {
 
 function main() {
   const args = process.argv.slice(2);
-  let port = 61321;
+  let port = 0;
   const hookfiles = [];
 
   for (let i = 0; i < args.length; i += 1) {
@@ -216,7 +216,7 @@ function main() {
 
   server.listen(port, '127.0.0.1', () => {
     // vertrag waits for this line before sending anything.
-    process.stdout.write('vertrag-hooks-ready\n');
+    process.stdout.write(`vertrag-hooks-ready ${server.address().port}\n`);
   });
 
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
