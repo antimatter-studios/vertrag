@@ -349,6 +349,10 @@ func runRun(args []string) error {
 	// away is not a link naming an operation the description lacks.
 	compiled := result.Transactions
 
+	if err := checkEndpointOperations(settings.Endpoints, compiled); err != nil {
+		return err
+	}
+
 	statuses := newStatusLedger(compiled)
 
 	// What this run can prove. An exchange needing something the run does not

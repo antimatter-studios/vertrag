@@ -441,3 +441,16 @@ func TestFailFastIsMaxFailuresOne(t *testing.T) {
 		t.Errorf("--max-failures 5: MaxFailures = %d", settings.MaxFailures)
 	}
 }
+
+func TestAnEndpointNamingAnUnknownOperationIsRefused(t *testing.T) {
+	transactions := []compile.Transaction{{OperationID: "known"}}
+	entries := []config.OperationEndpoint{{Endpoint: "https://own", OperationIDs: []string{"known"}}}
+	if err := checkEndpointOperations(entries, transactions); err != nil {
+		t.Fatal(err)
+	}
+	entries[0].OperationIDs = []string{"misspelt"}
+	err := checkEndpointOperations(entries, transactions)
+	if err == nil || !strings.Contains(err.Error(), `"misspelt"`) {
+		t.Fatalf("got %v", err)
+	}
+}
