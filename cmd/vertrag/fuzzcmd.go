@@ -682,7 +682,7 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 	// documented and every valid-mode finding against it being unattributable.
 	if transaction.GraphQL != nil {
 		working := status == expectedStatus(transaction) && !graphqlErrored(reply.Body)
-		return baseline{ok: working, refused: refused(status, expectedStatus(transaction))}
+		return baseline{ok: working, refused: refused(status, expectedStatus(transaction)), answered: reply.StatusCode}
 	}
 
 	// Judged against what the description promised rather than against 2xx: an
@@ -694,16 +694,17 @@ func baselineWorks(ctx context.Context, engine *runner.Runner, transaction compi
 	// baseline, which is exactly the pretence the guess exists to admit to.
 	if validate.IsStatusRange(transaction.Response.Status) {
 		return baseline{
-			ok:      validate.StatusMatches(transaction.Response.Status, reply.StatusCode),
-			refused: refused(status, validate.StatusBandBase(transaction.Response.Status)),
+			ok:       validate.StatusMatches(transaction.Response.Status, reply.StatusCode),
+			refused:  refused(status, validate.StatusBandBase(transaction.Response.Status)),
+			answered: reply.StatusCode,
 		}
 	}
 	expected, err := strconv.Atoi(strings.TrimSpace(transaction.Response.Status))
 	switch {
 	case err != nil:
-		return baseline{ok: status < 400, refused: refused(status, 0)}
+		return baseline{ok: status < 400, refused: refused(status, 0), answered: reply.StatusCode}
 	default:
-		return baseline{ok: status == expected, refused: refused(status, expected)}
+		return baseline{ok: status == expected, refused: refused(status, expected), answered: reply.StatusCode}
 	}
 }
 
@@ -808,6 +809,9 @@ type baseline struct {
 	// refused means the server turned the request away for want of credentials
 	// rather than disagreeing with it.
 	refused bool
+	// answered is the status the server gave. It is empty when no answer came,
+	// which is one more way for an operation not to work as documented.
+	answered string
 }
 
 // refused reports whether a status means "not allowed in", except where the

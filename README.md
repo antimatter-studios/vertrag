@@ -193,6 +193,15 @@ reflects over the configuration and fails on anything unaccounted for. A
 registry somebody has to remember to update would be the same silent control it
 exists to prevent.
 
+### When valid probes are skipped
+
+The `coverage` phase sends an operation's valid probes only when its example
+request works as documented, because a refusal could not otherwise be blamed on
+the generated value. Each operation this skips is named after the summary, with
+the status its example answered, and appears as a skipped result in the report
+files. `--fail-on-skipped-probes` (or the `fail-on-skipped-probes:` key) fails
+the run when any were skipped. The login operation is exempt and never counts.
+
 ### Probing several operations at once
 
 `--workers` (or the run-wide `workers:` key) sends that many transactions at

@@ -168,6 +168,10 @@ type Config struct {
 	// sequential.
 	Workers int
 
+	// FailOnSkippedProbes fails the coverage phase when valid probes did not run
+	// because an operation's example does not work as documented.
+	FailOnSkippedProbes bool
+
 	// Phases are what a run does: "examples" (the documented transactions,
 	// always first and on by default), then optionally "coverage" (every
 	// boundary each schema implies, deterministic) and "fuzz" (values drawn
@@ -696,6 +700,8 @@ type file struct {
 	MaxFailures *int `yaml:"max-failures"`
 	// Workers sends several transactions at once.
 	Workers *int `yaml:"workers"`
+	// FailOnSkippedProbes fails coverage on skipped valid probes.
+	FailOnSkippedProbes *bool `yaml:"fail-on-skipped-probes"`
 	// Phases selects what a run does; Fuzz pins the fuzz phase.
 	Phases []string  `yaml:"phases"`
 	Fuzz   *fuzzFile `yaml:"fuzz"`
@@ -1085,6 +1091,9 @@ func Load(path string) (Config, error) {
 		if err := applySurface(&config.Surface, *parsed.Surface); err != nil {
 			return config, fmt.Errorf("%s: surface: %w", path, err)
 		}
+	}
+	if parsed.FailOnSkippedProbes != nil {
+		config.FailOnSkippedProbes = *parsed.FailOnSkippedProbes
 	}
 	if parsed.Workers != nil {
 		if *parsed.Workers < 1 {

@@ -25,6 +25,7 @@ func coverAll(
 	color bool,
 	refused *refusals,
 	options fuzz.Options,
+	failOnSkipped bool,
 ) ([]runner.Result, error) {
 	// The same interlock the fuzz phase applies, checked the same way and
 	// before the same first request. See probeAll: a pin that held on one
@@ -65,6 +66,8 @@ func coverAll(
 		engaged                                             map[string]int
 		suppression                                         *fuzz.Suppression
 		err                                                 error
+		// skippedBecause explains unattributable, once its count is known.
+		skippedBecause string
 	}
 
 	workers := options.Workers
@@ -115,6 +118,7 @@ func coverAll(
 				}
 				isLogin := refused.isLogin(transaction)
 				refusedMu.Unlock()
+				got.skippedBecause = skippedProbesReason(transaction, base)
 
 				for _, target := range targets {
 					if ctx.Err() != nil {
@@ -186,6 +190,13 @@ func coverAll(
 		got := &each[index]
 		fmt.Print(got.output.String())
 		results = append(results, got.results...)
+		if got.unattributable > 0 {
+			results = append(results, runner.Result{
+				Name: transactions[index].Name + " · valid probes skipped", Status: runner.StatusSkip,
+				Request: sentAs(engine, transactions[index], transactions[index].Request),
+				Errors:  []string{fmt.Sprintf("%d valid probe(s) skipped: %s", got.unattributable, got.skippedBecause)},
+			})
+		}
 		findings += got.findings
 		sent += got.sent
 		probed += got.probed
@@ -219,11 +230,30 @@ func coverAll(
 	}
 	refused.report()
 	fmt.Println()
+	if unattributable > 0 {
+		// A count alone sends nobody anywhere, and a green run hides it. Each of
+		// these operations has probes that never ran, and the reason is its example.
+		fmt.Println("\nvalid probes skipped:")
+		for index := range each {
+			if got := &each[index]; got.unattributable > 0 {
+				fmt.Printf("  %s: %d probe(s), %s\n", transactions[index].Name, got.unattributable, got.skippedBecause)
+			}
+		}
+	}
 
-	if findings > 0 {
+	if findings > 0 || (failOnSkipped && unattributable > 0) {
 		return results, errFailed
 	}
 	return results, nil
+}
+
+// skippedProbesReason says why an operation's valid probes did not run: its
+// example request did not answer what the description documents.
+func skippedProbesReason(transaction compile.Transaction, base baseline) string {
+	if base.answered == "" {
+		return "its example got no answer"
+	}
+	return fmt.Sprintf("its example answered %s, documented %s", base.answered, transaction.Response.Status)
 }
 
 // printCoverageFinding writes to w rather than stdout so the phase can run
