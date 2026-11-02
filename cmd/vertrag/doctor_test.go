@@ -58,6 +58,7 @@ var doesNotSelect = map[string]string{
 	"Transport":              "how requests are sent, applied to all of them",
 	"MaxFailures":            "a count",
 	"Workers":                "a count",
+	"FailOnSkippedProbes":    "a switch",
 	"Phases":                 "which phases run; an unknown one is refused at startup",
 	"GraphQL":                "endpoint path, depth and the mutation switch",
 	"Source":                 "which file the settings came from",

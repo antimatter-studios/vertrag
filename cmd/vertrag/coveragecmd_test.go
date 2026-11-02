@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -371,5 +372,63 @@ func TestALockedOperationIsNamed(t *testing.T) {
 	}
 	if !strings.Contains(output, "Set `auth` in your vertrag.yml") {
 		t.Errorf("with no auth configured, the advice should be given:\n%s", output)
+	}
+}
+
+// stopsWorkingAfterTheExamples answers the examples phase properly and then 404
+// for everything, so the coverage phase's own check of the example fails where
+// the description promises 200, and no earlier failure explains the result.
+func stopsWorkingAfterTheExamples() http.Handler {
+	working := careful()
+	var requests atomic.Int64
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			working.ServeHTTP(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+}
+
+// TestSkippedValidProbesNameTheirOperation: a count sends nobody anywhere, so
+// the operation and what its example answered are both named, and a run that
+// did not ask to fail on them still passes.
+func TestSkippedValidProbesNameTheirOperation(t *testing.T) {
+	server := httptest.NewServer(stopsWorkingAfterTheExamples())
+	defer server.Close()
+
+	output, err := coverageOutput(t, server.URL)
+	if err != nil {
+		t.Fatalf("err = %v, skipped probes alone must not fail by default; output:\n%s", err, output)
+	}
+	if !strings.Contains(output, "valid probes skipped:") {
+		t.Fatalf("no list of skipped operations:\n%s", output)
+	}
+	if !strings.Contains(output, "its example answered 404, documented 200") {
+		t.Errorf("the skip does not say what the example answered:\n%s", output)
+	}
+}
+
+// TestSkippedValidProbesCanFailTheRun: a project can gate on them.
+func TestSkippedValidProbesCanFailTheRun(t *testing.T) {
+	server := httptest.NewServer(stopsWorkingAfterTheExamples())
+	defer server.Close()
+
+	if output, err := coverageOutput(t, server.URL, "--fail-on-skipped-probes"); err == nil {
+		t.Fatalf("the run passed with valid probes skipped; output:\n%s", output)
+	}
+}
+
+// TestNoSkippedProbesFailsNothing: the switch does not turn a clean run red.
+func TestNoSkippedProbesFailsNothing(t *testing.T) {
+	server := httptest.NewServer(careful())
+	defer server.Close()
+
+	output, err := coverageOutput(t, server.URL, "--fail-on-skipped-probes")
+	if err != nil {
+		t.Fatalf("err = %v; output:\n%s", err, output)
+	}
+	if strings.Contains(output, "valid probes skipped:") {
+		t.Errorf("listed skips on a working API:\n%s", output)
 	}
 }

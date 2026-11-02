@@ -32,19 +32,20 @@ import (
 // them are separate jobs — the merge below has one rule, and it is easier to
 // see that it is applied consistently when the inputs arrive as one value.
 type runFlags struct {
-	configPath        string
-	endpoint          string
-	dryRun            bool
-	details           bool
-	noColor           bool
-	sorted            bool
-	sequence          bool
-	checkHeaderSchema bool
-	checkIgnoredAuth  bool
-	maxResponseTime   time.Duration
-	workers           int
-	reporterName      string
-	output            string
+	configPath          string
+	endpoint            string
+	dryRun              bool
+	details             bool
+	noColor             bool
+	sorted              bool
+	sequence            bool
+	checkHeaderSchema   bool
+	checkIgnoredAuth    bool
+	maxResponseTime     time.Duration
+	workers             int
+	failOnSkippedProbes bool
+	reporterName        string
+	output              string
 
 	headers      stringList
 	only         stringList
@@ -105,6 +106,7 @@ func parseRunFlags(args []string) (runFlags, error) {
 	fs.BoolVar(&f.checkHeaderSchema, "check-header-schema", false, "validate response header values against the schemas the description gives them")
 	fs.BoolVar(&f.checkIgnoredAuth, "check-ignored-auth", false, "re-send each authenticated request without the credential and report any endpoint that answers it anyway")
 	fs.DurationVar(&f.maxResponseTime, "max-response-time", 0, "report any response that took longer than this to arrive, e.g. 750ms; --delay and retry backoff are not counted (0 = do not time them)")
+	fs.BoolVar(&f.failOnSkippedProbes, "fail-on-skipped-probes", false, "fail the coverage phase when an operation's valid probes are skipped because its example does not work as documented")
 	fs.IntVar(&f.workers, "workers", 1, "send this many transactions at once; refused with --sequence or hooks, which are ordering contracts")
 	fs.StringVar(&f.reporterName, "reporter", "", "output format: cli, dot, markdown, html, junit, json, har or vcr (overrides the config)")
 	fs.StringVar(&f.output, "output", "", "write the report to a file instead of stdout")
@@ -211,6 +213,9 @@ func settingsFor(f runFlags) (config.Config, error) {
 	}
 	if f.workers > 1 {
 		settings.Workers = f.workers
+	}
+	if f.failOnSkippedProbes {
+		settings.FailOnSkippedProbes = true
 	}
 	settings.Header = append(settings.Header, f.headers...)
 	settings.Only = append(settings.Only, f.only...)
@@ -727,7 +732,7 @@ func runRun(args []string) error {
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
 				wantedModes(modes), 0, settings.Color, refused,
 				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept,
-					Workers: settings.Workers, Deadline: deadline})
+					Workers: settings.Workers, Deadline: deadline}, settings.FailOnSkippedProbes)
 			results = append(results, prefixed("coverage", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
 				return phaseErr
