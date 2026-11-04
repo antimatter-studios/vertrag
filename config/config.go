@@ -231,6 +231,11 @@ type FuzzSettings struct {
 	// something irreversible — see fuzz.Pins.
 	Pin map[string]any
 
+	// PinValid replaces generated values in valid-mode requests of one
+	// operation, by operationId and field, for a business rule the description
+	// cannot carry. See fuzz.ValidPins.
+	PinValid map[string]map[string]any
+
 	// Accept lists statuses that a generated request may be answered with
 	// without that being a finding, for the business rules a description
 	// cannot carry. Every excused answer is counted and reported — see
@@ -780,11 +785,12 @@ type ownershipFile struct {
 
 // fuzzFile is the `fuzz` section as written.
 type fuzzFile struct {
-	Seed         *uint64        `yaml:"seed"`
-	Cases        *int           `yaml:"cases"`
-	WholeRequest *bool          `yaml:"whole-request"`
-	Pin          map[string]any `yaml:"pin"`
-	Accept       []int          `yaml:"accept"`
+	Seed         *uint64                   `yaml:"seed"`
+	Cases        *int                      `yaml:"cases"`
+	WholeRequest *bool                     `yaml:"whole-request"`
+	Pin          map[string]any            `yaml:"pin"`
+	PinValid     map[string]map[string]any `yaml:"pin-valid"`
+	Accept       []int                     `yaml:"accept"`
 }
 
 // Transport is the `transport` section, resolved.
@@ -1060,6 +1066,7 @@ func Load(path string) (Config, error) {
 			config.Fuzz.WholeRequest = *parsed.Fuzz.WholeRequest
 		}
 		config.Fuzz.Pin = parsed.Fuzz.Pin
+		config.Fuzz.PinValid = parsed.Fuzz.PinValid
 		// Refused here rather than at the point of use, because the point of
 		// use is after the first request has gone out. An acceptance list that
 		// would hide a server failure has to stop the run before it sends

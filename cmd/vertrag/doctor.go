@@ -156,6 +156,19 @@ var selectors = []selector{
 		consequence: "nothing is held and generation will send whatever the schema permits",
 	},
 	{
+		key:    "fuzz.pin-valid",
+		values: func(c config.Config) []string { return validPinsOf(c).Names() },
+		matches: func(c config.Config, value string, transactions []compile.Transaction) int {
+			operation, field, _ := strings.Cut(value, ".")
+			pins := fuzz.ValidPins{operation: {field: c.Fuzz.PinValid[operation][field]}}
+			if err := fuzz.CheckValidPins(pins, validPinTargets(transactions)); err != nil {
+				return 0
+			}
+			return 1
+		},
+		consequence: "nothing is replaced, so the rule the setting was written for will refuse the generated value",
+	},
+	{
 		key: "principals.auth.except",
 		values: func(c config.Config) []string {
 			var values []string

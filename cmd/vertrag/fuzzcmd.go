@@ -153,6 +153,56 @@ func pinnable(transactions []compile.Transaction) ([]generate.Schema, []string) 
 	return bodies, arguments
 }
 
+// reportHeld adds how many bodies each pin held to a phase's summary line.
+func reportHeld(options fuzz.Options) {
+	for _, name := range options.Pin.Names() {
+		fmt.Printf(", `%s` held on %d generated body(s)", name, options.Engaged[name])
+	}
+	for _, name := range options.ValidPins.Names() {
+		fmt.Printf(", `%s` held on %d valid generated body(s)", name, options.Engaged[name])
+	}
+}
+
+// validPinsOf reads fuzz.pin-valid from the settings.
+func validPinsOf(settings config.Config) fuzz.ValidPins {
+	pins := fuzz.ValidPins{}
+	for operation, fields := range settings.Fuzz.PinValid {
+		pins[operation] = fields
+	}
+	return pins
+}
+
+// validPinTargets is what each transaction lets fuzz.pin-valid hold.
+func validPinTargets(transactions []compile.Transaction) []fuzz.PinTarget {
+	var pinTargets []fuzz.PinTarget
+	for _, transaction := range transactions {
+		pinTarget := fuzz.PinTarget{Operation: transaction.OperationID, Arguments: map[string]generate.Schema{}}
+		targets, _ := probeTargets(transaction.Request)
+		for _, t := range targets {
+			switch t.subject.In {
+			case fuzz.InBody:
+				pinTarget.Bodies = append(pinTarget.Bodies, t.schema)
+			case fuzz.InArgument:
+				pinTarget.Arguments[t.subject.Name] = t.schema
+			}
+		}
+		pinTargets = append(pinTargets, pinTarget)
+	}
+	return pinTargets
+}
+
+// prepareValidPins readies the count of what fuzz.pin-valid held, and says what
+// it will replace. The run has already checked it, against the whole description.
+func prepareValidPins(options *fuzz.Options) {
+	if len(options.ValidPins) == 0 {
+		return
+	}
+	if options.Engaged == nil {
+		options.Engaged = map[string]int{}
+	}
+	fmt.Printf("replaced in valid generated requests: %s\n", strings.Join(options.ValidPins.Names(), ", "))
+}
+
 // pinScope names what a run is holding the pin in, so the line it prints
 // describes the run in front of it rather than the common case.
 func pinScope(bodies []generate.Schema, arguments []string) string {
@@ -192,6 +242,7 @@ func probeAll(
 		options.Engaged = map[string]int{}
 		fmt.Printf("pinned in every generated %s: %s\n", pinScope(bodies, arguments), options.Pin.Describe())
 	}
+	prepareValidPins(&options)
 	if len(options.Accept) > 0 {
 		options.Suppression = &fuzz.Suppression{}
 	}
@@ -206,6 +257,7 @@ func probeAll(
 	var results []runner.Result
 
 	for _, transaction := range transactions {
+		options.Operation = transaction.OperationID
 		targets, unreadable := probeTargets(transaction.Request)
 		for _, subject := range unreadable {
 			fmt.Printf("%s: the %s schema could not be read, so it was not probed\n",
@@ -414,11 +466,7 @@ func probeAll(
 	// engaging nowhere and an acceptance list excusing nothing both look
 	// exactly like a clean run from the outside, and only one of those is what
 	// the caller thinks they configured.
-	if len(options.Pin) > 0 {
-		for _, name := range options.Pin.Names() {
-			fmt.Printf(", `%s` held on %d generated body(s)", name, options.Engaged[name])
-		}
-	}
+	reportHeld(options)
 	if options.Suppression != nil {
 		fmt.Printf(", %d answer(s) excused by fuzz.accept", options.Suppression.Total)
 		if detail := options.Suppression.Describe(); detail != "" {

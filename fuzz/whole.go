@@ -120,12 +120,7 @@ func ProbeWhole(ctx context.Context, parts []Part, mode generate.Mode, send Whol
 			// interlock is on and it is off. Pins' own documentation claims no
 			// path exists from a draw to the wire that skips it, and this is
 			// what makes that true.
-			value, engaged := opts.Pin.ApplyTo(part.Subject, part.Schema, value)
-			for _, name := range engaged {
-				if opts.Engaged != nil {
-					opts.Engaged[name]++
-				}
-			}
+			value = opts.hold(part.Subject, part.Schema, partMode, value)
 
 			// Each part must have the wire form its location allows and the
 			// validity it was drawn for — the same discipline per-part

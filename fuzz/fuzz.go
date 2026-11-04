@@ -116,6 +116,12 @@ type Options struct {
 	// a generation hint.
 	Pin Pins
 
+	// ValidPins replace a generated value in valid-mode requests of one
+	// operation, and Operation is the operationId being probed now, which
+	// chooses among them. See ValidPins.
+	ValidPins ValidPins
+	Operation string
+
 	// Accept lists statuses that are not findings. See Accept for why this is
 	// counted rather than silent.
 	Accept Accept
@@ -350,12 +356,7 @@ func probe(
 		// and applying them after rendering would mean parsing the wire form
 		// back to reach a field. A safety interlock with a path around it is
 		// not one — see Pins.
-		value, engaged := opts.Pin.ApplyTo(subject, schema, value)
-		for _, name := range engaged {
-			if opts.Engaged != nil {
-				opts.Engaged[name]++
-			}
-		}
+		value = opts.hold(subject, schema, mode, value)
 
 		rendered, ok := form.render(value)
 		if !ok {
