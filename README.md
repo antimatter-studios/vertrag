@@ -250,6 +250,29 @@ that quietly stopped testing anything then shows up as a number somebody can
 read. A 5xx can never be accepted: that is the server breaking rather than
 refusing, and it is the finding these phases exist to produce.
 
+**One operation has a rule the schema can't describe.** A password rule might
+refuse the generator's `xxxxxxxxxxxx` on `createAccount`, where the schema
+promises success. `pin-valid` gives that operation's valid requests a value it
+accepts, so those probes are still sent, judged and reported:
+
+```yaml
+fuzz:
+  pin-valid:
+    createAccount:              # the operationId
+      password: Tr0ub4dor-long  # replaced in this operation's valid requests only
+```
+
+Other operations with a `password` field are untouched, and so are this
+operation's invalid requests, so a too-short password is still sent and must
+still be refused. That is the difference from `pin`, which holds a field in every
+request and wins if both name it. The cost is that the replaced field's own valid
+values no longer vary, so its valid boundaries need proving somewhere else, such
+as in an example.
+
+An unknown operation, a field the operation doesn't declare, or a value the
+field's schema forbids stops the run before anything is sent. The run reports how
+many bodies each one held, by name and without the value.
+
 **Isolate the state, not only the side effects.** A pin stops a generated value
 turning a probe into a real order. It does nothing about what the run *records*:
 a probing phase writes as many entries as it sends, and if the system under test

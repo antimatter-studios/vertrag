@@ -248,3 +248,56 @@ func TestTheFuzzCommandHonoursTheConfigsSeedAndCases(t *testing.T) {
 		t.Errorf("the flag did not win over the file:\n%s", output)
 	}
 }
+
+// TestAValidPinReachesTheServerOnItsOperationOnly drives the setting from a
+// vertrag.yml through a real run: the replaced value goes out on valid probes,
+// the run reports the count without repeating the value, and a typo stops the
+// run before anything is sent.
+func TestAValidPinReachesTheServerOnItsOperationOnly(t *testing.T) {
+	binary := build(t)
+	symbols := map[string]int{}
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if symbol, ok := body["symbol"].(string); ok {
+			mu.Lock()
+			symbols[symbol]++
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+
+	dir := project(t, server.URL, "fuzz:\n  pin-valid:\n    placeOrder:\n      symbol: VALIDSYM\n")
+	output, code := runIn(t, dir, binary, "run", "--phases", "coverage")
+	if code > 2 {
+		t.Fatalf("the run did not complete, exit %d:\n%s", code, output)
+	}
+	mu.Lock()
+	reached := symbols["VALIDSYM"]
+	before := len(symbols)
+	mu.Unlock()
+	if reached == 0 {
+		t.Errorf("the replaced value never reached the server\n%s", output)
+	}
+	if !strings.Contains(output, "`placeOrder.symbol` held on") {
+		t.Errorf("the run did not report what it held:\n%s", output)
+	}
+	if strings.Contains(output, "replaced in valid generated requests: placeOrder.symbol=") {
+		t.Errorf("the run repeated the value:\n%s", output)
+	}
+
+	typo := project(t, server.URL, "fuzz:\n  pin-valid:\n    placeOrdr:\n      symbol: VALIDSYM\n")
+	output, code = runIn(t, typo, binary, "run", "--phases", "coverage")
+	if code == 0 || !strings.Contains(output, "placeOrdr") {
+		t.Errorf("a typo did not stop the run, exit %d:\n%s", code, output)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(symbols) != before {
+		t.Error("the typo was caught after requests went out")
+	}
+}

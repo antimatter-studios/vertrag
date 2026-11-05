@@ -74,12 +74,7 @@ func Cover(ctx context.Context, subject Subject, mediaType string, schema genera
 
 		// Pinned between the boundary value and the wire, exactly as in the
 		// fuzz loop, so the two phases cannot disagree about what is held.
-		value, engaged := opts.Pin.ApplyTo(subject, schema, probe.Value)
-		for _, name := range engaged {
-			if opts.Engaged != nil {
-				opts.Engaged[name]++
-			}
-		}
+		value := opts.hold(subject, schema, probe.Mode, probe.Value)
 
 		rendered, ok := form.render(value)
 		if !ok {

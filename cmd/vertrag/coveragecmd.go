@@ -38,6 +38,7 @@ func coverAll(
 		options.Engaged = map[string]int{}
 		fmt.Printf("pinned in every generated %s: %s\n", pinScope(bodies, arguments), options.Pin.Describe())
 	}
+	prepareValidPins(&options)
 	if len(options.Accept) > 0 {
 		options.Suppression = &fuzz.Suppression{}
 	}
@@ -102,6 +103,7 @@ func coverAll(
 				local := options
 				local.Engaged = got.engaged
 				local.Suppression = got.suppression
+				local.Operation = transaction.OperationID
 
 				targets, unreadable := probeTargets(transaction.Request)
 				for _, subject := range unreadable {
@@ -228,6 +230,7 @@ func coverAll(
 	if skipped > 0 {
 		fmt.Printf(", %d transaction(s) skipped for having no schema to probe", skipped)
 	}
+	reportHeld(options)
 	refused.report()
 	fmt.Println()
 	if unattributable > 0 {

@@ -379,6 +379,11 @@ func runRun(args []string) error {
 		fmt.Fprintf(os.Stderr, "vertrag: %s\n", note)
 	}
 
+	// Checked against everything the description offers, because narrowing a run
+	// to other operations does not make a setting for this one wrong.
+	if err := fuzz.CheckValidPins(validPinsOf(settings), validPinTargets(provable)); err != nil {
+		return err
+	}
 	selected, dropped, unmatched, err := narrowTransactions(provable, settings)
 	if err != nil {
 		return err
@@ -731,7 +736,7 @@ func runRun(args []string) error {
 			probeable, _ := partitionBySchema(probeableTransactions)
 			phaseResults, phaseErr := coverAll(ctx, engine, probeable,
 				wantedModes(modes), 0, settings.Color, refused,
-				fuzz.Options{Pin: settings.Fuzz.Pin, Accept: settings.Fuzz.Accept,
+				fuzz.Options{Pin: settings.Fuzz.Pin, ValidPins: validPinsOf(settings), Accept: settings.Fuzz.Accept,
 					Workers: settings.Workers, Deadline: deadline}, settings.FailOnSkippedProbes)
 			results = append(results, prefixed("coverage", phaseResults)...)
 			if phaseErr != nil && phaseErr != errFailed {
@@ -774,7 +779,7 @@ func runRun(args []string) error {
 			fmt.Printf("seed: %d (replay with --seed %d)\n", seed, seed)
 			phaseResults, phaseErr := probeAll(ctx, engine, probeable,
 				modes, 0,
-				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed, Pin: settings.Fuzz.Pin,
+				fuzz.Options{Cases: settings.Fuzz.Cases, Seed: seed, Pin: settings.Fuzz.Pin, ValidPins: validPinsOf(settings),
 					Accept: settings.Fuzz.Accept, Deadline: deadline},
 				settings.Color, settings.Fuzz.WholeRequest, refused)
 			results = append(results, prefixed("fuzz", phaseResults)...)
