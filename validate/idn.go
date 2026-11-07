@@ -97,13 +97,21 @@ func validateIDNLabel(label string) error {
 		case '\u30fb':
 			valid = hasJapanese
 		default:
-			valid = unicode.In(character, unicode.Ll, unicode.Lu, unicode.Lo, unicode.Lm, unicode.Mn, unicode.Mc, unicode.Nd)
+			valid = unicode.In(character, unicode.Ll, unicode.Lu, unicode.Lo, unicode.Lm, unicode.Mn, unicode.Mc, unicode.Nd) && !idnExcludedCharacter(character)
 		}
 		if !valid {
 			return fmt.Errorf("invalid IDNA2008 character %U in label", character)
 		}
 	}
 	return nil
+}
+
+func idnExcludedCharacter(character rune) bool {
+	return (character >= 0x1100 && character <= 0x11ff) ||
+		(character >= 0xa960 && character <= 0xa97f) ||
+		(character >= 0xd7b0 && character <= 0xd7ff) ||
+		(character >= 0x20d0 && character <= 0x20ff) ||
+		(character >= 0x1d100 && character <= 0x1d24f)
 }
 
 func validateIDNEmail(value any) error {
