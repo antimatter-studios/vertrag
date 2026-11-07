@@ -162,6 +162,7 @@ func compileSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(draftFor(schema))
+	registerIDNFormats(compiler)
 
 	// The name is arbitrary but has to be stable: `definitions` entries are
 	// referenced as "#/definitions/X" relative to it, which is how both

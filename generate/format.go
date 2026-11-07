@@ -1,5 +1,7 @@
 package generate
 
+import "strings"
+
 // FromFormat produces a specimen for a JSON Schema `format`.
 //
 // `format` is assertive in the validator vertrag uses, so a schema declaring
@@ -28,10 +30,12 @@ func FromFormat(format string) (string, bool) {
 	case "duration":
 		return "P1D", true
 
-	case "email", "idn-email":
+	case "email":
 		return "someone@example.com", true
-	case "hostname", "idn-hostname":
+	case "hostname":
 		return "example.com", true
+	case "idn-email", "idn-hostname":
+		return idnExamples(format, Valid)[0], true
 
 	case "ipv4":
 		return "192.0.2.1", true
@@ -65,6 +69,23 @@ func FromFormat(format string) (string, bool) {
 
 	default:
 		return "", false
+	}
+}
+
+func idnExamples(format string, mode Mode) []string {
+	switch format {
+	case "idn-email":
+		if mode == Valid {
+			return []string{"someone@example.com", "用户@例子.广告", "ascii@xn--fsqu00a.xn--3lr804guic"}
+		}
+		return []string{"a", "ascii@", "@example.com", "ascii@xn--a.example", "ascii@" + strings.Repeat("a", 64) + ".example"}
+	case "idn-hostname":
+		if mode == Valid {
+			return []string{"example.com", "例子.广告", "xn--fsqu00a.xn--3lr804guic"}
+		}
+		return []string{"bad..example", "bad_name.example", "xn--a.example", strings.Repeat("a", 64) + ".example"}
+	default:
+		return nil
 	}
 }
 

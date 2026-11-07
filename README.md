@@ -485,6 +485,32 @@ every run. Choose the phases with `--phases` or the `phases:` key.
 Findings from a probing phase exit 2 rather than 1, so a pipeline can gate on
 the documented contract and still read what probing found.
 
+### Internationalized addresses and hostnames
+
+`idn-email` and `idn-hostname` are asserted wherever vertrag checks a schema:
+request classification, responses, headers, and generated boundary and fuzz
+probes. This includes every supported JSON Schema draft, including 2019-09 and
+2020-12, where other formats retain their existing annotation semantics unless
+the schema enables format assertions.
+
+`idn-email` checks an RFC 6531 mailbox, not a display-name or address list. The
+local part may contain UTF-8, with the SMTP 64-octet local-part and 254-octet
+mailbox limits. Domains use the same IDNA validation as `idn-hostname`; SMTP
+IPv4 and IPv6 address literals are also supported. A missing `@`, empty domain,
+or malformed local part is invalid, so `source_address: "a"` cannot be mistaken
+for a valid request a server wrongly refused.
+
+`idn-hostname` uses `golang.org/x/net/idna` non-transitional lookup mapping,
+including label, punycode, normalization, joiner, and bidirectional checks.
+Decoded labels also check IDNA2008 character and contextual restrictions, which
+the lookup profile alone does not fully enforce. DNS limits are checked after
+conversion to ASCII: 63 octets per label and 253 for the hostname. Empty labels,
+including a final root dot, are invalid. Mapping preserves IDNA2008 distinctions
+such as `ß` versus `ss` while accepting normalized internationalized names.
+Generation includes ASCII, internationalized, and punycode examples; negative
+probes contain genuinely malformed labels or mailboxes rather than a string
+such as `not-a-idn-hostname`, which is itself a legal hostname.
+
 ### How much of the description a run reached
 
 A report lists what ran. It cannot list what did not, and what did not run is
