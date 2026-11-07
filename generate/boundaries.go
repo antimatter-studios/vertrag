@@ -173,7 +173,17 @@ func stringBoundaries(schema Schema) []Probe {
 		out = append(out, Probe{"vertrag does not match", Invalid, "a string that does not match the pattern"})
 	}
 	if hasFormat {
-		out = append(out, Probe{"not-a-" + fmt.Sprint(schema["format"]), Invalid, fmt.Sprintf("a string that is not a %v", schema["format"])})
+		format, _ := schema["format"].(string)
+		if examples := idnExamples(format, Valid); len(examples) > 0 {
+			for _, value := range examples[1:] {
+				out = append(out, Probe{value, Valid, fmt.Sprintf("a string of the declared %s shape: %s", format, value)})
+			}
+			for _, value := range idnExamples(format, Invalid) {
+				out = append(out, Probe{value, Invalid, fmt.Sprintf("a string that is not a %s: %s", format, value)})
+			}
+		} else {
+			out = append(out, Probe{"not-a-" + fmt.Sprint(schema["format"]), Invalid, fmt.Sprintf("a string that is not a %v", schema["format"])})
+		}
 	}
 	out = append(out, Probe{12345, Invalid, "a number where a string belongs"})
 	return out

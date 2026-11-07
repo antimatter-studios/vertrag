@@ -137,6 +137,11 @@ func declaredType(schema Schema, t *rapid.T) string {
 }
 
 func drawString(t *rapid.T, schema Schema, mode Mode) any {
+	if format, ok := schema["format"].(string); ok {
+		if examples := idnExamples(format, mode); len(examples) > 0 {
+			return rapid.SampledFrom(examples).Draw(t, format)
+		}
+	}
 	min, hasMin := integerAt(schema, "minLength")
 	max, hasMax := integerAt(schema, "maxLength")
 
