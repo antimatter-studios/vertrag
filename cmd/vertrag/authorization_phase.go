@@ -38,6 +38,9 @@ func planAuthorizationPhase(settings config.Config, transactions []compile.Trans
 		return authorizationPlan{}, nil, err
 	}
 	plan := planAuthorization(transactions, principals, authorizationSkip(skips))
+	if err := applyScopedRefusals(&plan, settings.Authorization.Refusals); err != nil {
+		return authorizationPlan{}, nil, err
+	}
 	planSetups(&plan, transactions, settings.Authorization.Owner)
 	plan.Refuse = slices.Clone(settings.Authorization.Refuse)
 	return plan, principals, nil

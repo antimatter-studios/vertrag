@@ -773,6 +773,31 @@ authorization:
 status listed is accepted wherever a refusal is required. Only 4xx statuses
 may be listed.
 
+An assurance or application policy not expressible by flat roles can declare
+an exact refusal for one operation ID and one principal, without changing that
+principal's credential:
+
+```yaml
+authorization:
+  refusals:
+    - operation: deleteAccount
+      principal: password-only
+      status: 403
+      body:
+        error:
+          code: two_factor_required
+```
+
+Each entry must match a selected authorization cell. Unknown operations or
+principals, duplicate entries, non-4xx statuses, and empty body expectations
+are errors. The response must have exactly the declared status and contain
+every declared JSON property with its exact value; additional object properties
+are allowed, arrays are compared exactly. The global `refuse` list does not
+widen these expectations. Successes are bypass failures, and a scoped cell
+that cannot be sent fails rather than silently leaving acceptance untested.
+Other operations and principals retain their original expectations. Dry runs
+still send nothing and provide no acceptance evidence.
+
 ### Whose resource is it: the ownership phase
 
 Roles say which operations a caller may use, not on whose objects. Most real

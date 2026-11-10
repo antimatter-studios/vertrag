@@ -162,6 +162,7 @@ const (
 
 // authorizationCell is one operation sent as one principal.
 type authorizationCell struct {
+	Refusal *config.AuthorizationRefusal
 	// Operation is the operation's label, and Principal the principal's name:
 	// the row and column of the report's matrix.
 	Operation string

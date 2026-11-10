@@ -221,10 +221,14 @@ func executeCell(ctx context.Context, engine *runner.Runner, plan authorizationP
 	carriers, credential := plan.Carriers, credentials[cell.Principal]
 	name := cell.Operation + " as " + cell.Principal
 	unsent := func(reason string) authorizationOutcome {
+		status := runner.StatusSkip
+		if cell.Refusal != nil {
+			status = runner.StatusFail
+		}
 		return authorizationOutcome{
 			Cell:   cell,
 			Unsent: reason,
-			Result: runner.Result{Name: name, Status: runner.StatusSkip, Errors: []string{"not sent: " + reason}},
+			Result: runner.Result{Name: name, Status: status, Errors: []string{"not sent: " + reason}},
 		}
 	}
 	switch {
@@ -287,6 +291,9 @@ func executeCell(ctx context.Context, engine *runner.Runner, plan authorizationP
 // so it is unsent, as fixture noise, rather than a verdict on who may call.
 func judgeAuthorization(engine *runner.Runner, cell authorizationCell, sent runner.Result,
 	refuse []string) authorizationOutcome {
+	if cell.Refusal != nil {
+		return judgeScopedRefusal(cell, sent)
+	}
 	status := sent.Actual.StatusCode
 	if cell.Expect == expectAllowed && status == "409" && !validate.StatusMatches(cell.Status, status) {
 		reason := "its example collides with a resource that already exists (409), which says nothing about who may call it"
