@@ -245,6 +245,7 @@ type FuzzSettings struct {
 
 // AuthorizationSettings are the `authorization` section, resolved.
 type AuthorizationSettings struct {
+	Refusals []AuthorizationRefusal
 	// Owner names the principal that creates, by following the description's
 	// links, the resource an id-taking cell addresses. Empty means the first
 	// configured principal the description lets call every operation the
@@ -256,6 +257,13 @@ type AuthorizationSettings struct {
 	// credential it accepts, 403 for one without the roles. An API that hides
 	// what a caller may not see answers 404 instead, and lists it here.
 	Refuse []string
+}
+
+type AuthorizationRefusal struct {
+	Operation string         `yaml:"operation"`
+	Principal string         `yaml:"principal"`
+	Status    int            `yaml:"status"`
+	Body      map[string]any `yaml:"body"`
 }
 
 // OwnershipSettings are the `ownership` section, resolved.
@@ -747,8 +755,9 @@ type surfaceExcludeFile struct {
 
 // authorizationFile is the `authorization` section as written.
 type authorizationFile struct {
-	Owner  *string `yaml:"owner"`
-	Refuse []int   `yaml:"refuse"`
+	Owner    *string                `yaml:"owner"`
+	Refuse   []int                  `yaml:"refuse"`
+	Refusals []AuthorizationRefusal `yaml:"refusals"`
 }
 
 // WaitFor is one `wait-for` entry, resolved: the transaction whose stream is
@@ -1430,6 +1439,18 @@ func applyPrincipals(principals *[]Principal, parsed []principalFile) error {
 // outside 4xx is refused: a 2xx accepted as a refusal would pass the bypass
 // the phase exists to find, and a 5xx is a server failing, never a decision.
 func applyAuthorization(settings *AuthorizationSettings, parsed authorizationFile) error {
+	for _, refusal := range parsed.Refusals {
+		if strings.TrimSpace(refusal.Operation) == "" || strings.TrimSpace(refusal.Principal) == "" {
+			return fmt.Errorf("refusals: operation and principal are required")
+		}
+		if refusal.Status < 400 || refusal.Status > 499 {
+			return fmt.Errorf("refusals: %d is not a 4xx status", refusal.Status)
+		}
+		if len(refusal.Body) == 0 {
+			return fmt.Errorf("refusals: a nonempty JSON body expectation is required")
+		}
+	}
+	settings.Refusals = parsed.Refusals
 	if parsed.Owner != nil {
 		settings.Owner = strings.TrimSpace(*parsed.Owner)
 	}

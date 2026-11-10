@@ -4,13 +4,14 @@ import (
 	"strings"
 
 	"github.com/antimatter-studios/vertrag/reporter"
+	"github.com/antimatter-studios/vertrag/runner"
 )
 
 // authorizationMatrix is the plan and its outcomes as the reporters show
 // them. It is the one place the executor's outcome becomes the report's
 // cell, so the rule that nothing unsent passes is applied once: an outcome
-// with an Unsent reason is unsent whatever its Result says, and has no status
-// that came back.
+// with an Unsent reason has no status that came back. A required scoped
+// refusal that was not sent remains a failure; ordinary unsent cells skip.
 func authorizationMatrix(plan authorizationPlan, outcomes []authorizationOutcome) *reporter.Authorization {
 	matrix := &reporter.Authorization{
 		Operations: append([]string{}, plan.Operations...),
@@ -18,7 +19,7 @@ func authorizationMatrix(plan authorizationPlan, outcomes []authorizationOutcome
 		Cells:      make([]reporter.AuthorizationCell, 0, len(outcomes)),
 	}
 	for _, outcome := range outcomes {
-		unsent := outcome.Unsent != ""
+		unsent := outcome.Unsent != "" && !(outcome.Cell.Refusal != nil && outcome.Result.Status == runner.StatusFail)
 		cell := reporter.AuthorizationCell{
 			Operation: outcome.Cell.Operation,
 			Principal: outcome.Cell.Principal,
@@ -28,7 +29,7 @@ func authorizationMatrix(plan authorizationPlan, outcomes []authorizationOutcome
 			Replay:    outcome.Replay,
 		}
 		switch {
-		case unsent:
+		case outcome.Unsent != "":
 			cell.Reason = "not sent: " + outcome.Unsent
 		case cell.Verdict != reporter.AuthorizationPass:
 			cell.Actual = outcome.Result.Actual.StatusCode
