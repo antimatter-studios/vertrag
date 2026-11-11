@@ -73,17 +73,19 @@ func authorizationCredentials(ctx context.Context, client *http.Client, endpoint
 			return nil, nil, fmt.Errorf("principal %q is planned but not configured", principal.Name)
 		}
 		line := ""
+		var renew func(context.Context) (string, error)
 		if configuredAuth.Configured() {
 			// Registered as the run's own auth is: its secrets before the
 			// exchange that uses them, and what came back as soon as it does,
 			// so no report of any principal's request can carry either.
 			registerAuthSecrets(configuredAuth)
-			obtained, err := auth.Obtain(ctx, client, endpoint, configuredAuth)
+			obtained, renewal, err := auth.ObtainRenewable(ctx, client, endpoint, configuredAuth)
 			if err != nil {
 				return nil, nil, fmt.Errorf("principal %q: obtaining its credential: %w", principal.Name, err)
 			}
 			reporter.RegisterCredential(obtained)
 			line = obtained
+			renew = registeredRenewal(renewal)
 		}
 		observed, err := observedCarrier(line)
 		if err != nil {
@@ -95,6 +97,7 @@ func authorizationCredentials(ctx context.Context, client *http.Client, endpoint
 		}
 		credentials[principal.Name] = runner.Credential{
 			Header:      line,
+			Renew:       renew,
 			Except:      maps.Clone(principal.Except),
 			LoginMethod: principal.LoginMethod,
 			LoginPath:   principal.LoginPath,
