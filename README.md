@@ -1352,6 +1352,22 @@ A credential can equally come from the response body — `header: 'Authorization
 Bearer {$response.body#/token}'` — because the value is a **runtime expression**,
 the same language OpenAPI links use. A static API key needs no `login` at all.
 
+For runs that may outlive a login session, opt in with
+`auth.expires-in: '$response.body#/data/expires_in'` (or the response field your
+login uses). That field must contain a positive integer number of seconds.
+Vertrag repeats the same configured login before its safe lifetime ends, checking
+both before hooks and after hooks or transport pacing have waited. The safety
+margin is sixty seconds, or half the lifetime for shorter sessions, and includes
+the time spent logging in. A failed renewal stops that request unsent; responses
+are never retried to conceal an expired session.
+
+The same option works in a principal's `auth`. Renewal keeps that principal's
+login and credential carrier; it does not authenticate anonymous or excluded
+requests, replace deliberately invalid/static credentials, repair a hook's
+credential mutation, or change generated request bodies. Non-credential cookies
+are retained. Without `expires-in`, authentication remains a single login as
+before. Static credentials and OAuth2 grants cannot use this login-only option.
+
 A credential that must not be written into the config comes from the environment:
 `${NAME}` in `auth.header`, or in a principal's, is replaced with that variable when the
 config loads, and one that is not set stops the run before anything is sent. Only the

@@ -249,6 +249,7 @@ func (c ConditionalHeader) matches(transaction compile.Transaction) bool {
 type Credential struct {
 	// Header is a `Name: value` line, empty when the run is unauthenticated.
 	Header string
+	Renew  func(context.Context) (string, error)
 
 	// Except names transactions to send without the credential. A login
 	// endpoint's own 401 case is untestable while holding a valid one.
@@ -422,7 +423,10 @@ func NewWithTransport(endpoint string, transport Transport) (*Runner, error) {
 // keeps the URL resolution, extra headers and redirect policy identical to a
 // normal run, so a finding is reproducible by `vertrag run`.
 func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate.Message, error) {
-	transaction := newTransaction(source, r.endpointFor(source), r.headersFor(source))
+	transaction := trackCredential(newTransaction(source, r.endpointFor(source), r.headersFor(source)), r.Auth)
+	if err := transaction.renewCredential(ctx); err != nil {
+		return validate.Message{}, err
+	}
 
 	// Hooks run here too, and it took a safety review to notice they did not.
 	//
@@ -461,6 +465,9 @@ func (r *Runner) Send(ctx context.Context, source compile.Transaction) (validate
 // anything else — hooks, skip handling and the send itself are shared.
 func (r *Runner) sendPrepared(ctx context.Context, transaction *Transaction) (validate.Message, error) {
 	drawn := transaction.Request.Body
+	if err := transaction.renewCredential(ctx); err != nil {
+		return validate.Message{}, err
+	}
 
 	if r.Hooks != nil {
 		if err := r.Hooks.BeforeEach(transaction); err != nil {
@@ -525,7 +532,7 @@ var ErrSkippedByHook = errors.New("skipped by a hook")
 // stage a documented answer that a generated request is not asking for. See
 // headers.
 func (r *Runner) PrepareGenerated(source compile.Transaction) *Transaction {
-	transaction := newTransaction(source, r.endpointFor(source), r.headers(source, true, false))
+	transaction := trackCredential(newTransaction(source, r.endpointFor(source), r.headers(source, true, false)), r.Auth)
 	transaction.generated = true
 	return transaction
 }
@@ -549,14 +556,14 @@ func (r *Runner) SendGenerated(ctx context.Context, source compile.Transaction) 
 func (r *Runner) Prepare(source compile.Transaction) *Transaction {
 	credential, as := r.Principals[source.Requires["principal"]]
 	if !as {
-		return newTransaction(source, r.endpointFor(source), r.headersFor(source))
+		return trackCredential(newTransaction(source, r.endpointFor(source), r.headersFor(source)), r.Auth)
 	}
 	transaction := newTransaction(source, r.endpointFor(source), r.headersCarrying(source, Credential{}, true))
 	r.Carriers.strip(transaction.Request.Headers)
 	if presented := credentialFor(source, credential); presented != "" {
 		applyHeaderLine(transaction.Request.Headers, presented)
 	}
-	return transaction
+	return trackCredential(transaction, credential)
 }
 
 // Deliver sends a prepared transaction and returns what came back, without
@@ -790,6 +797,9 @@ func (r *Runner) runOne(ctx context.Context, transaction *Transaction) Result {
 // that every duration it reports and the timestamp runOne stamps are measured
 // from the same instant.
 func (r *Runner) attempt(ctx context.Context, transaction *Transaction, started time.Time) Result {
+	if err := transaction.renewCredential(ctx); err != nil {
+		return transaction.errorResult(err.Error(), time.Since(started))
+	}
 	if r.Hooks != nil {
 		if err := r.Hooks.BeforeEach(transaction); err != nil {
 			return transaction.errorResult(fmt.Sprintf("before hook: %v", err), time.Since(started))
@@ -878,6 +888,12 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 	if reason, skipped := r.Skip[transaction.source.Name]; skipped {
 		return validate.Message{}, 0, fmt.Errorf("%w: %s", ErrSkippedByConfig, configuredSkipReason(reason))
 	}
+	if err := r.pace(ctx); err != nil {
+		return validate.Message{}, 0, err
+	}
+	if err := transaction.renewCredential(ctx); err != nil {
+		return validate.Message{}, 0, err
+	}
 
 	var body io.Reader
 	if transaction.Request.Body != "" {
@@ -901,9 +917,6 @@ func (r *Runner) send(ctx context.Context, transaction *Transaction) (validate.M
 
 	// Pacing happens before the clock starts. The pause is the run's, not the
 	// server's, and timing it would be timing a decision the operator made.
-	if err := r.pace(ctx); err != nil {
-		return validate.Message{}, 0, err
-	}
 	response, exchange, err := r.doFor(transaction.source.OperationID, request)
 	if err != nil {
 		return validate.Message{}, 0, fmt.Errorf("%s %s: %w",
@@ -1129,8 +1142,9 @@ func (w *eventWatcher) String() string {
 // Transaction is a compiled transaction as it moves through a run: hooks may
 // rewrite the request, the expectation, or remove it altogether.
 type Transaction struct {
-	Name    string
-	Request Request
+	Name       string
+	Request    Request
+	credential *credentialUse
 
 	// source is the compiled transaction this was prepared from, kept so a
 	// check that must send the SAME request again — ignored-auth re-sends it

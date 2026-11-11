@@ -72,12 +72,16 @@ func (r *Runner) SendPreparedAs(ctx context.Context, name string, source compile
 	if presented := credentialFor(source, credential); presented != "" {
 		applyHeaderLine(transaction.Request.Headers, presented)
 	}
+	trackCredential(transaction, credential)
 	if prepare != nil {
 		if err := prepare(transaction); err != nil {
 			return Result{}, err
 		}
 	}
 
+	if err := transaction.renewCredential(ctx); err != nil {
+		return Result{}, err
+	}
 	before := carriers.collect(transaction.Request.Headers)
 	if r.Hooks != nil {
 		if err := r.Hooks.BeforeEach(transaction); err != nil {

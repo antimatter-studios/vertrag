@@ -120,8 +120,8 @@ func TestTheCredentialIsRegisteredBeforeTheLoginRequestIsMade(t *testing.T) {
 	// The run's own auth and every authorization principal's: the secrets
 	// before the exchange, and what came back after it.
 	for file, calls := range map[string][3]string{
-		"rules.go":             {"registerAuthSecrets(settings.Auth)", "auth.Obtain(", "(credential)"},
-		"authorization_run.go": {"registerAuthSecrets(configuredAuth)", "auth.Obtain(", "RegisterCredential(obtained)"},
+		"rules.go":             {"registerAuthSecrets(settings.Auth)", "auth.ObtainRenewable(", "(credential)"},
+		"authorization_run.go": {"registerAuthSecrets(configuredAuth)", "auth.ObtainRenewable(", "RegisterCredential(obtained)"},
 	} {
 		text := read(file)
 		register := strings.Index(text, calls[0])

@@ -446,7 +446,8 @@ type Auth struct {
 
 	// Header sets a fixed header on every request, for an API key or a token
 	// that does not need logging in for. Written as "Name: value".
-	Header string
+	Header    string
+	ExpiresIn string
 
 	// Except names transactions that must go out unauthenticated. A login
 	// endpoint's own 401 case cannot be tested while holding a valid
@@ -865,12 +866,13 @@ type transportFile struct {
 // it in, to do what is nearly always the same three steps — log in once, keep
 // what came back, send it on everything after.
 type authFile struct {
-	Login  *loginFile  `yaml:"login"`
-	OAuth2 *oauth2File `yaml:"oauth2"`
-	Carry  *string     `yaml:"carry"`
-	Cookie *string     `yaml:"cookie"`
-	Header *string     `yaml:"header"`
-	Except []string    `yaml:"except"`
+	Login     *loginFile  `yaml:"login"`
+	OAuth2    *oauth2File `yaml:"oauth2"`
+	Carry     *string     `yaml:"carry"`
+	Cookie    *string     `yaml:"cookie"`
+	Header    *string     `yaml:"header"`
+	ExpiresIn *string     `yaml:"expires-in"`
+	Except    []string    `yaml:"except"`
 }
 
 // principalFile is one entry of `principals` as written.
@@ -1563,6 +1565,7 @@ func applyAuth(auth *Auth, parsed authFile) {
 	setString(&auth.Carry, parsed.Carry)
 	setString(&auth.Cookie, parsed.Cookie)
 	setString(&auth.Header, parsed.Header)
+	setString(&auth.ExpiresIn, parsed.ExpiresIn)
 	auth.Except = append(auth.Except, parsed.Except...)
 
 	if parsed.Login != nil {

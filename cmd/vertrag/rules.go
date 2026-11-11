@@ -81,7 +81,7 @@ func applyConfiguredRules(
 		// do.
 		registerAuthSecrets(settings.Auth)
 
-		credential, err := auth.Obtain(ctx, engine.Client, settings.Endpoint, settings.Auth)
+		credential, renew, err := auth.ObtainRenewable(ctx, engine.Client, settings.Endpoint, settings.Auth)
 		if err != nil {
 			return err
 		}
@@ -100,6 +100,7 @@ func applyConfiguredRules(
 		}
 		engine.Auth = runner.Credential{
 			Header: credential, Except: except,
+			Renew:       registeredRenewal(renew),
 			LoginMethod: settings.Auth.Login.Method,
 			LoginPath:   settings.Auth.Login.Path,
 		}
