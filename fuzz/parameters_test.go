@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antimatter-studios/vertrag/generate"
 	"github.com/antimatter-studios/vertrag/validate"
@@ -307,5 +308,52 @@ func TestATransportFailureNamesTheValueThatCausedIt(t *testing.T) {
 	}
 	if finding.Subject.Name != "id" {
 		t.Errorf("subject = %+v, want the parameter that was being varied", finding.Subject)
+	}
+}
+
+// TestADateTimeParameterIsProbedOnlyWithDateTimes is #131: a schema stating
+// `format: date-time` was probed with random printable strings, so a server
+// that refused one was reported as disagreeing with its own description. Every
+// value sent as valid here must parse as RFC 3339.
+func TestADateTimeParameterIsProbedOnlyWithDateTimes(t *testing.T) {
+	schema := generate.Schema{"type": "string", "format": "date-time"}
+	server := &recorder{reply: func(value string) string {
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			return "422"
+		}
+		return "200"
+	}}
+
+	if finding, found := probeParameter(t, InQuery, "since", schema, generate.Valid, server); found {
+		t.Fatalf("a valid date-time was reported as a finding: %+v", finding)
+	}
+	if len(server.sent) == 0 {
+		t.Fatal("no value was sent at all")
+	}
+	for _, sent := range server.sent {
+		if _, err := time.Parse(time.RFC3339, sent); err != nil {
+			t.Fatalf("%q was sent as a valid date-time", sent)
+		}
+	}
+}
+
+// The control: the probe still reports a server that refuses a valid
+// date-time, so the test above cannot pass by sending nothing.
+func TestADateTimeParameterStillFindsARealRefusal(t *testing.T) {
+	schema := generate.Schema{"type": "string", "format": "date-time"}
+	server := &recorder{reply: func(string) string { return "422" }}
+
+	finding, found := probeParameter(t, InQuery, "since", schema, generate.Valid, server)
+	if !found {
+		t.Fatal("a server refusing every valid date-time was not reported")
+	}
+	if finding.Unprobeable {
+		t.Fatalf("nothing could be drawn, so the server was never tested")
+	}
+	if finding.Subject != (Subject{In: InQuery, Name: "since"}) {
+		t.Fatalf("subject = %+v, want the query parameter: %+v", finding.Subject, finding)
+	}
+	if !strings.Contains(finding.Message, "disagrees with its description") {
+		t.Fatalf("message = %q, want the disagreement wording", finding.Message)
 	}
 }
