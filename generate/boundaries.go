@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -200,9 +201,20 @@ func integerBoundaries(schema Schema) []Probe {
 		out = append(out, Probe{lo - 1, Invalid, fmt.Sprintf("one below minimum (%d)", lo-1)})
 	}
 	if hasMax {
-		hi := int64(math.Floor(max))
-		out = append(out, Probe{hi, Valid, fmt.Sprintf("maximum (%d)", hi)})
-		out = append(out, Probe{hi + 1, Invalid, fmt.Sprintf("one past maximum (%d)", hi+1)})
+		// A float64 cannot hold 2^63-1 exactly, so the largest int64 arrives
+		// here as 2^63 itself. Converting that to int64 wraps to -2^63, which
+		// made both the maximum probe and its one-past probe test a value the
+		// schema forbids and never reach the boundary at all.
+		if max >= float64(math.MaxInt64) {
+			out = append(out, Probe{int64(math.MaxInt64), Valid,
+				fmt.Sprintf("maximum (%d)", int64(math.MaxInt64))})
+			out = append(out, Probe{json.Number("9223372036854775808"), Invalid,
+				"one past maximum (9223372036854775808)"})
+		} else {
+			hi := int64(math.Floor(max))
+			out = append(out, Probe{hi, Valid, fmt.Sprintf("maximum (%d)", hi)})
+			out = append(out, Probe{hi + 1, Invalid, fmt.Sprintf("one past maximum (%d)", hi+1)})
+		}
 	}
 	if !hasMin && !hasMax {
 		out = append(out, Probe{int64(0), Valid, "zero"})
