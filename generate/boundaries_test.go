@@ -2,6 +2,7 @@ package generate
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/antimatter-studios/vertrag/validate"
@@ -149,4 +150,53 @@ func TestBoundariesFollowReferences(t *testing.T) {
 			t.Errorf("no probe %q in %v", want, probes)
 		}
 	}
+}
+
+// TestTheLargestIntegerMaximumIsNotWrapped pins the float64 trap: 2^63-1 is not
+// representable as a float64, so it arrives as 2^63 and converting that to int64
+// wraps to -2^63. Both probes then test a value the schema forbids, and the
+// boundary is never reached at all - which is how a server answering 500 for
+// 2^63 went unnoticed by its own max-boundary probe.
+func TestTheLargestIntegerMaximumIsNotWrapped(t *testing.T) {
+	var schema Schema
+	if err := json.Unmarshal([]byte(`{"type":"integer","minimum":1,"maximum":9223372036854775807}`), &schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+
+	var valid, invalid []string
+	for _, probe := range Boundaries(schema) {
+		encoded, err := json.Marshal(probe.Value)
+		if err != nil {
+			t.Fatalf("%s does not encode: %v", probe.Why, err)
+		}
+		switch probe.Mode {
+		case Valid:
+			valid = append(valid, string(encoded))
+		case Invalid:
+			invalid = append(invalid, string(encoded))
+		}
+	}
+
+	for _, want := range []string{"9223372036854775807"} {
+		if !contains(valid, want) {
+			t.Fatalf("no valid probe holds %s: %v", want, valid)
+		}
+	}
+	if !contains(invalid, "9223372036854775808") {
+		t.Fatalf("no invalid probe is one past the maximum: %v", invalid)
+	}
+	for _, encoded := range valid {
+		if strings.HasPrefix(encoded, "-") {
+			t.Fatalf("a valid probe went negative: %v", valid)
+		}
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

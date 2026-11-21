@@ -141,6 +141,21 @@ func drawString(t *rapid.T, schema Schema, mode Mode) any {
 		if examples := idnExamples(format, mode); len(examples) > 0 {
 			return rapid.SampledFrom(examples).Draw(t, format)
 		}
+		// A stated format is assertive, so the validator parses it and a random
+		// printable string is not a valid instance of it. Sending one as a valid
+		// probe made the server's correct refusal look like the server
+		// disagreeing with its own description (#131, a date-time query
+		// parameter). Draw the format's own specimen instead; a format nobody
+		// validates yields nothing and falls through to a plain string.
+		if mode == Valid {
+			if specimen, ok := FromFormat(format); ok {
+				// Drawn through rapid even though there is one value: a
+				// generator that records nothing from the bitstream makes
+				// rapid panic, and the run would report a tool failure rather
+				// than probe anything.
+				return rapid.SampledFrom([]string{specimen}).Draw(t, format)
+			}
+		}
 	}
 	min, hasMin := integerAt(schema, "minLength")
 	max, hasMax := integerAt(schema, "maxLength")

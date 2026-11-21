@@ -230,6 +230,21 @@ func TestValidValuesAreAcceptedByTheValidator(t *testing.T) {
 		`{"enum":["a","b","c"]}`,
 		`{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":3}`,
 		`{"type":"object","required":["a","b"],"properties":{"a":{"type":"string","minLength":3},"b":{"type":"integer","minimum":18,"maximum":120}}}`,
+		// A stated format is assertive, so a printed ASCII string is not a
+		// valid instance of one. #131 was a date-time query parameter probed
+		// with random text, and every format goes through the same path.
+		`{"type":"string","format":"date-time"}`,
+		`{"type":"string","format":"date"}`,
+		`{"type":"string","format":"time"}`,
+		`{"type":"string","format":"duration"}`,
+		`{"type":"string","format":"email"}`,
+		`{"type":"string","format":"hostname"}`,
+		`{"type":"string","format":"ipv4"}`,
+		`{"type":"string","format":"ipv6"}`,
+		`{"type":"string","format":"uri"}`,
+		`{"type":"string","format":"uuid"}`,
+		`{"type":"string","format":"json-pointer"}`,
+		`{"type":"string","format":"regex"}`,
 	} {
 		t.Run(schema, func(t *testing.T) {
 			var decoded Schema
